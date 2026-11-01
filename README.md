@@ -104,6 +104,25 @@ npm run dev
   - **Not checked:** NEAR AI's gateway attestation and TLS binding, which its docs mark optional.
   - **Not checked locally:** the NRAS JWT signature.
 
+### Layer 1 (policy set by humans) without our own contract
+
+Each requirement is met by something that already exists, or by this app's gate. Nothing here is a contract we wrote.
+
+| Requirement | What enforces it | Where it is enforced |
+|---|---|---|
+| The agent cannot spend | Sputnik: a function-call key limited to `add_proposal`, checked from the chain before every payout, **and** the agent holds only a Requestor-style role: the check fails if any DAO role gives it voting rights, so it can propose but never approve. OutLayer: an API key, with keys held in a TEE | **Onchain / TEE** |
+| Council approval and the approval threshold | Sputnik's vote threshold (or OutLayer's approvers) executes the payout. The app reads the threshold the DAO actually applies to payouts (from `get_policy`, the role's own vote policy first) and shows it on the Overview, warning if one council member can approve alone | **Onchain / TEE** |
+| Per-payment and daily limits, permitted chains and assets | OutLayer's stored policy where used; always the app's policy gate, re-checked at the moment of release (`lib/policy.ts`, `release()`) | OutLayer: TEE, and the custody check compares OutLayer's per-payment limit with the app's and says whether it backs it. Sputnik: **this app only**, because a DAO has no spending limits; the council still sees every proposal |
+| Vendor allowlist | The app's policy gate (a non-listed vendor is held for a human); OutLayer address rules where used | App, plus OutLayer where used |
+| Hold window | Held payments cannot be approved until `holdUntil`; cancelling is always possible. Because the agent can only act by submitting a payout to the custodian, and that happens after the window and a signer's approval, the hold sits in front of the only onchain action. Neither a DAO nor OutLayer offers a timelock of its own | App, in front of the onchain step |
+| Kill switch any signer can flip | App flag (who and when is recorded) stops all payments and API spend at once. **Onchain hard stops, both generated for you on the Overview:** (1) the council removes the agent from its DAO role (a `ChangePolicyRemoveRole` / `ChangePolicyAddOrUpdateRole` proposal built from the live policy, the same as Members in Trezu), which needs no key held by the agent's owner, and the app then stops submitting on its own at its next custody check (checks are cached for up to five minutes); (2) the agent key's owner deletes the key (`near account delete-keys …`) | App flag, plus council or key-owner action onchain |
+| Policy changes only through a multisig, every version hashed | **Sputnik custody: the DAO council approves each change onchain.** A signer drafts it; the agent files, with its scoped key, a proposal that does nothing but carry the change's tag (version plus a hash of the exact rules) as a `FunctionCall` to the DAO's own view method `get_last_proposal_id` (Trezu-style roles have no `Vote` kind; a plain `Vote` proposal is accepted too); the council votes; the app applies the change only once it reads that proposal as `Approved` from the chain (`lib/governance.ts`). Other custody: `APPROVAL_THRESHOLD_SIGNERS` distinct named signers. Always: proposals are validated, each version's hash is re-verified on the Policy page, a Sputnik payout proposal states the policy version and hash it was approved under, and an OutLayer memo carries the record's evidence hash, which covers it | **Onchain (DAO) with Sputnik**, app-level otherwise |
+| Function-call key lock-out | A function-call key whose gas allowance runs out stops working until the owner adds a new one. The custody check warns when the allowance is nearly used | Checked from the chain |
+
+**Trezu note:** a Trezu treasury has the roles Requestor (creates payment requests, cannot vote), Finance (votes on payments) and Governance (members, voting rules, policy). Put the agent in **Requestor only**. Trezu creates DAOs with a 0.1 NEAR proposal bond, which a function-call key cannot attach, so a Governance proposal must set the bond to 0 first; the custody check says so until it is done.
+
+What this does **not** give you, and cannot without writing a contract: with Sputnik custody, a compromised app server could ignore its own limits, allowlist and hold window, because a DAO enforces votes, not amounts or delays. The council reviewing each proposal is the backstop, and revoking the agent key is the hard stop. OutLayer's policy is the option that enforces limits outside this app. While the kill switch is on, the Overview lists payouts still waiting onchain, with links to reject them; the agent cannot withdraw them itself.
+
 ### No contract, so no contract audit
 
 This build deploys **no smart contract**, so there are no contract audit findings to report. Custody uses audited, widely deployed code instead: Sputnik DAO v2 (what Trezu runs) or OutLayer. What we check about that setup at runtime is listed under *Security model*.

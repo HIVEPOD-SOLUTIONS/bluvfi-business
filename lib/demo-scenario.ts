@@ -88,6 +88,7 @@ export async function runDemo(opts: { vendorReplies: boolean; log?: (line: strin
 
   log("Last month: Northwind's first invoice is held (never paid before), a signer approves, the DAO council votes, it settles.");
   const history = await processInvoice(HISTORY, "basic");
+  history.holdUntil = "2026-10-01T00:30:00.000Z"; // last month's hold window has long since ended
   await approve(history.id, "maya");
   await demoTreasuryVote(history.id, "maya", true);
   await demoTreasuryVote(history.id, "devon", true);

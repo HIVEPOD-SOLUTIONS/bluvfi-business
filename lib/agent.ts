@@ -233,6 +233,10 @@ export async function approve(id: string, signer: string): Promise<Payment> {
   requireSigner(signer);
   const p = mustFind(id);
   if (p.status !== "awaiting_approval" && p.status !== "held") throw new Error(`A ${p.status} payment cannot be approved`);
+  // The hold window is policy: a held payment waits it out, cancellable, before any signer can release it.
+  if (p.status === "held" && p.holdUntil && new Date(p.holdUntil) > new Date()) {
+    throw new Error(`This payment is in its hold window until ${new Date(p.holdUntil).toLocaleString()}. It can be cancelled now, and approved after that.`);
+  }
   p.approvedBy = signer;
   await release(p);
   seal(p);
@@ -354,7 +358,8 @@ export function mustFind(id: string): Payment {
   return p;
 }
 
-export function setKillSwitch(on: boolean) {
+export function setKillSwitch(on: boolean, by = "unknown") {
+  state().killLog.unshift({ at: new Date().toISOString(), by, on });
   state().killSwitch = on;
 }
 

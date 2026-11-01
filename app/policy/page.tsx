@@ -1,8 +1,9 @@
 import { Badge, PageHead, short, when } from "@/components/ui";
-import { APPROVAL_THRESHOLD_SIGNERS, SIGNER_NAMES } from "@/lib/config";
+import { verifyPolicyHistory } from "@/lib/policy";
+import { APPROVAL_THRESHOLD_SIGNERS, POLICY_VIA_DAO, SIGNER_NAMES } from "@/lib/config";
 import { currentSigner } from "@/lib/who";
 import { currentPolicy, state } from "@/lib/store";
-import { PolicyEditor, ProposalActions } from "./Editor";
+import { DaoProposalBox, PolicyEditor, ProposalActions } from "./Editor";
 
 export const dynamic = "force-dynamic";
 
@@ -10,11 +11,12 @@ export default async function PolicyPage() {
   const signer = (await currentSigner()) ?? "";
   const s = state();
   const p = currentPolicy();
+  const history = verifyPolicyHistory(s.policies);
   return (
     <>
       <PageHead
         title="Policy"
-        sub={`The rules the agent cannot break. Changes become a proposal that ${APPROVAL_THRESHOLD_SIGNERS} of ${SIGNER_NAMES.length} signers must approve. Every version is hashed.`}
+        sub={`The rules the agent cannot break. ${POLICY_VIA_DAO ? "Changes become a Vote proposal that the treasury DAO's council approves onchain." : `Changes become a proposal that ${APPROVAL_THRESHOLD_SIGNERS} of ${SIGNER_NAMES.length} signers must approve.`} Every version is hashed.`}
         right={<Badge tone="blue">v{p.version} · <span className="mono">{short(p.hash, 6)}</span></Badge>}
       />
       <PolicyEditor policy={p} signer={signer} />
@@ -28,19 +30,21 @@ export default async function PolicyPage() {
             <div key={pr.id} className="card">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div><span className="mono text-sm">{pr.id}</span> <span className="text-sm" style={{ color: "var(--tx-2)" }}>· {when(pr.createdAt)}</span></div>
-                <Badge tone={pr.status === "applied" ? "ok" : "warn"}>{pr.status === "applied" ? "Applied" : `${pr.approvals.length}/${pr.threshold} approvals`}</Badge>
+                <Badge tone={pr.status === "applied" ? "ok" : pr.status === "rejected" ? "bad" : "warn"}>{pr.status === "applied" ? "Applied" : pr.status === "rejected" ? "Rejected by the DAO" : pr.dao ? "Waiting for the DAO" : `${pr.approvals.length}/${pr.threshold} approvals`}</Badge>
               </div>
               <p className="mt-1 text-sm" style={{ color: "var(--tx-1)" }}>
                 Per payment ${pr.changes.perPaymentLimitUsd.toLocaleString()} · daily ${pr.changes.dailyLimitUsd.toLocaleString()} · approval at ${pr.changes.approvalThresholdUsd.toLocaleString()} · hold {pr.changes.holdWindowMinutes} min · chains {pr.changes.allowedChains.join(", ")}
               </p>
-              <p className="mt-1 text-sm" style={{ color: "var(--tx-2)" }}>Approved by: {pr.approvals.join(", ")}</p>
-              {pr.status === "open" && <ProposalActions id={pr.id} signer={signer} approved={pr.approvals.includes(signer)} />}
+              {pr.dao ? <p className="mt-1 text-sm" style={{ color: "var(--tx-2)" }}>Drafted by {pr.approvals[0]}.</p> : <p className="mt-1 text-sm" style={{ color: "var(--tx-2)" }}>Approved by: {pr.approvals.join(", ")}</p>}
+              {pr.dao && pr.status === "open" && <DaoProposalBox id={pr.id} dao={pr.dao} />}
+              {pr.status === "open" && <ProposalActions id={pr.id} signer={signer} approved={pr.approvals.includes(signer)} dao={!!pr.dao} />}
             </div>
           ))}
         </div>
       )}
 
       <h2 className="mt-8 mb-3">Version history</h2>
+      <p className="mb-3 text-sm" style={{ color: history.ok ? "var(--sage)" : "var(--red-alert)" }}>{history.ok ? `All ${s.policies.length} version hash(es) recompute from their contents.` : `History does not verify: ${history.problems.join(" ")}`}</p>
       <div className="card overflow-x-auto">
         <table className="t">
           <thead><tr className="label"><th>Version</th><th>Created</th><th>Hash</th></tr></thead>

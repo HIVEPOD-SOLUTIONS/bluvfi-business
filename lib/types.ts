@@ -55,7 +55,9 @@ export interface PolicyProposal {
   changes: Omit<Policy, "version" | "hash" | "createdAt">;
   approvals: string[];
   threshold: number;
-  status: "open" | "applied";
+  status: "open" | "applied" | "rejected";
+  /** Sputnik custody: the treasury DAO's council approves this change with a Vote proposal carrying `tag`. */
+  dao?: { version: number; tag: string; description: string; kind: unknown; command: string; url: string; proposalId?: number; daoStatus?: string };
 }
 
 export interface CheckResult {

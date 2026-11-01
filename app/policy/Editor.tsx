@@ -58,7 +58,25 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
   );
 }
 
-export function ProposalActions({ id, signer, approved }: { id: string; signer: string; approved: boolean }) {
+/** A change waiting on the treasury DAO: what to put to the council, and a button that reads the DAO from the chain. */
+export function DaoProposalBox({ id, dao }: { id: string; dao: { description: string; command: string; url: string; proposalId?: number; daoStatus?: string } }) {
+  return (
+    <div className="mt-3 rounded-xl p-3 text-sm" style={{ background: "var(--bg-2)" }}>
+      <p style={{ color: "var(--tx-1)" }}>
+        The treasury DAO&apos;s council approves this, onchain. The agent files it as a proposal that does nothing but carry this text (it can only propose), or a council member adds the same proposal from a terminal. The council votes in <a href={dao.url} style={{ color: "#8c8cff" }}>Trezu</a>, then check the DAO. The change applies only once the chain says Approved.
+        {dao.proposalId !== undefined && <> DAO proposal #{dao.proposalId}: <strong>{dao.daoStatus}</strong>.</>}
+      </p>
+      <div className="label mt-2">Proposal text</div>
+      <pre className="mono mt-1 overflow-auto whitespace-pre-wrap text-xs">{dao.description}</pre>
+      {dao.proposalId === undefined && <div className="mt-3"><ActionButton url="/api/policy" payload={{ sendId: id }} variant="primary" small>Send to the DAO from the agent</ActionButton></div>}
+      <div className="label mt-2">Or from a terminal</div>
+      <pre className="mono mt-1 overflow-auto whitespace-pre-wrap break-all text-xs">{dao.command}</pre>
+    </div>
+  );
+}
+
+export function ProposalActions({ id, signer, approved, dao }: { id: string; signer: string; approved: boolean; dao?: boolean }) {
+  if (dao) return <div className="mt-3"><ActionButton url="/api/policy" payload={{ syncId: id }} variant="secondary" small>Check the DAO</ActionButton></div>;
   if (approved) return <p className="mt-3 text-sm" style={{ color: "var(--tx-2)" }}>You approved this. It needs other signers.</p>;
   return (
     <div className="mt-3 flex flex-wrap gap-2">

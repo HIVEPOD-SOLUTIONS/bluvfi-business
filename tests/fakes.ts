@@ -86,7 +86,8 @@ export function seed() {
     paidInvoiceNumbers: [],
   });
   s.purchaseOrders.push({ po: "PO-1", vendorName: "Northwind Cloud Ltd", amountUsd: 1240 }, { po: "PO-2", vendorName: "Northwind Cloud Ltd", amountUsd: 900 }, { po: "PO-BIG", vendorName: "Northwind Cloud Ltd", amountUsd: 7000 });
-  s.policies = [makePolicy(1, { ...DEFAULT_POLICY_BODY, vendorAllowlist: ["Northwind Cloud Ltd"] })];
+  // No hold window by default so tests can approve a held payment straight away; tests/layer1.test.ts sets one.
+  s.policies = [makePolicy(1, { ...DEFAULT_POLICY_BODY, vendorAllowlist: ["Northwind Cloud Ltd"], holdWindowMinutes: 0 })];
   return s;
 }
 

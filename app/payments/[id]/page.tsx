@@ -32,7 +32,8 @@ export default async function PaymentDetail({ params }: { params: Promise<{ id: 
   const p = await refreshZk(found);
   const v = p.verified;
   const st = STATUS[p.status];
-  const canApprove = !!signer && (p.status === "awaiting_approval" || p.status === "held");
+  const inHold = p.status === "held" && !!p.holdUntil && new Date(p.holdUntil) > new Date();
+  const canApprove = !!signer && !inHold && (p.status === "awaiting_approval" || p.status === "held");
   const canCancel = !!signer && p.status !== "paid" && p.status !== "cancelled" && !(p.status === "ready_to_send" && p.txRef);
   const c = p.custody;
   // act_proposal must repeat the proposal kind exactly as the DAO stored it, so read it from the chain when we can.
@@ -58,7 +59,7 @@ export default async function PaymentDetail({ params }: { params: Promise<{ id: 
             {canCancel && <ActionButton url={`/api/payments/${p.id}/cancel`} variant="danger" confirm="Cancel this payment?">Cancel payment</ActionButton>}
           </div>
         )}
-        {p.holdUntil && p.status === "held" && <p className="mt-3 text-sm" style={{ color: "var(--tx-2)" }}>Hold window ends {when(p.holdUntil)}. Nothing leaves until a signer approves.</p>}
+        {p.holdUntil && p.status === "held" && <p className="mt-3 text-sm" style={{ color: "var(--tx-2)" }}>{inHold ? `In its hold window until ${when(p.holdUntil)}: it can be cancelled now and approved after that.` : `Hold window ended ${when(p.holdUntil)}. Nothing leaves until a signer approves.`}</p>}
         {p.approvedBy && <p className="mt-3 text-sm" style={{ color: "var(--tx-1)" }}>Approved by <span className="mono">{p.approvedBy}</span>.</p>}
       </section>
 

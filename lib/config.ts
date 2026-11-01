@@ -78,6 +78,10 @@ export const CUSTODY: CustodyMode =
   : DAO_ACCOUNT && AGENT_ACCOUNT && AGENT_PRIVATE_KEY ? "sputnik"
   : OUTLAYER_API_KEY ? "outlayer"
   : "manual";
+/** With Sputnik custody, policy changes are approved by the DAO council (a Vote proposal), not by app signers. POLICY_VIA_DAO=0 opts out. */
+/** REQUIRE_CUSTODIAN_LIMITS=1: with OutLayer custody, refuse payouts while the custodian lacks a limit, or has a looser one, than this app's policy. */
+export const REQUIRE_CUSTODIAN_LIMITS = process.env.REQUIRE_CUSTODIAN_LIMITS === "1";
+export const POLICY_VIA_DAO = CUSTODY === "sputnik" && !DEMO && process.env.POLICY_VIA_DAO !== "0";
 
 /** NEAR mainnet account that receives money and is the 1Click refund address. With a DAO, the DAO itself. */
 export const TREASURY_ACCOUNT = env("TREASURY_ACCOUNT") || (CUSTODY === "sputnik" ? DAO_ACCOUNT : "");

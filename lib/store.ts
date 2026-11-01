@@ -18,6 +18,8 @@ export interface State {
   grants: ViewGrant[];
   sealed: Record<string, string>;
   killSwitch: boolean;
+  /** Who flipped the kill switch, and when. Any signer may. */
+  killLog: { at: string; by: string; on: boolean }[];
   ledgerPublic: boolean;
   x402Spend: { at: string; url: string; priceUsd: number }[];
   checkLog: { at: string; verdict: string }[];
@@ -44,6 +46,7 @@ const fresh = (): State => ({
   grants: [],
   sealed: {},
   killSwitch: false,
+  killLog: [],
   ledgerPublic: false,
   x402Spend: [],
   checkLog: [],

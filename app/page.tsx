@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { KillSwitch } from "@/components/Actions";
-import { Badge, Empty, PageHead, PaymentCard, Stat, usd } from "@/components/ui";
+import { Badge, Empty, PageHead, PaymentCard, Stat, usd, when } from "@/components/ui";
 import { CHAIN_LABEL } from "@/lib/chains";
 import type { Balance } from "@/lib/chain";
 import { CUSTODY, DEMO, missingConfig } from "@/lib/config";
@@ -21,7 +21,7 @@ export default async function Overview() {
   } catch (e) {
     balanceError = (e as Error).message;
   }
-  const custody = await checkCustody().catch((e) => ({ mode: CUSTODY, ok: false, facts: [] as string[], problems: [(e as Error).message], killCommand: undefined as string | undefined }));
+  const custody = await checkCustody().catch((e) => ({ mode: CUSTODY, ok: false, facts: [] as string[], problems: [(e as Error).message], killCommand: undefined as string | undefined, councilKill: undefined as string | undefined }));
   const total = balances.filter((b) => b.usd).reduce((a, b) => a + b.amount, 0);
   const attention = s.payments.filter(
     (p) => p.status === "held" || p.status === "awaiting_approval" || p.status === "ready_to_send" || p.status === "proposed" || (p.status === "blocked" && p.callback?.status === "pending")
@@ -55,7 +55,12 @@ export default async function Overview() {
 
       {s.killSwitch && (
         <div role="status" className="card mb-4" style={{ borderColor: "rgba(224,82,82,.4)" }}>
-          <strong className="neg">Kill switch is on.</strong> Every payment and API spend is stopped until a signer resumes.
+          <strong className="neg">Kill switch is on.</strong> Every payment and API spend is stopped until a signer resumes.{s.killLog[0]?.on && <span style={{ color: "var(--tx-1)" }}> Turned on by {s.killLog[0].by}, {when(s.killLog[0].at)}.</span>}
+          {s.payments.filter((p) => p.status === "proposed" && p.custody?.url).map((p) => (
+            <div key={p.id} className="mt-1 text-sm" style={{ color: "var(--tx-1)" }}>
+              Still waiting onchain: {p.invoice.vendorName} (<a href={p.custody!.url} style={{ color: "#8c8cff" }}>open to reject</a>). The agent cannot withdraw it; a council member or the wallet owner must.
+            </div>
+          ))}
         </div>
       )}
 
@@ -111,6 +116,13 @@ export default async function Overview() {
           {custody.facts.map((f) => <li key={f}><span className="pos mono">✓</span> {f}</li>)}
           {custody.problems.map((f) => <li key={f}><span className="neg mono">✕</span> {f}</li>)}
         </ul>
+        {custody.councilKill && (
+          <details className="mt-3 text-sm">
+            <summary style={{ color: "var(--tx-1)" }}>Hard stop by the council: remove the agent from its DAO role</summary>
+            <p className="mt-2" style={{ color: "var(--tx-2)" }}>No key held by the agent&apos;s owner is needed. A council member files this proposal (Members in Trezu does the same), the council approves it, and the agent can no longer propose. This app notices within minutes and stops submitting.</p>
+            <pre className="mono mt-2 overflow-auto whitespace-pre-wrap break-all rounded-lg p-3 text-xs" style={{ background: "var(--bg-2)" }}>{custody.councilKill}</pre>
+          </details>
+        )}
         {custody.killCommand && (
           <details className="mt-3 text-sm">
             <summary style={{ color: "var(--tx-1)" }}>Hard stop: revoke the agent&apos;s key onchain</summary>

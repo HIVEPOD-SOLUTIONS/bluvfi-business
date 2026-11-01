@@ -19,6 +19,20 @@ export function makePolicy(
   return { ...partial, hash: hashPolicy(partial) };
 }
 
+/**
+ * Re-checks the whole policy history: versions run 1..n with no gaps, and every stored hash is the hash of
+ * that version's own contents. A version edited after the fact no longer matches its hash.
+ */
+export function verifyPolicyHistory(policies: Policy[]): { ok: boolean; problems: string[] } {
+  const problems: string[] = [];
+  policies.forEach((p, i) => {
+    if (p.version !== i + 1) problems.push(`Version ${p.version} is at position ${i + 1}.`);
+    const { hash, ...rest } = p;
+    if (hashPolicy(rest) !== hash) problems.push(`Version ${p.version} does not match its hash.`);
+  });
+  return { ok: problems.length === 0, problems };
+}
+
 export const DEFAULT_POLICY_BODY: PolicyProposal["changes"] = {
   perPaymentLimitUsd: 10_000,
   dailyLimitUsd: 15_000,

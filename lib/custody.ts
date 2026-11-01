@@ -6,7 +6,8 @@ import {
   PUBLIC_BASE_URL, RELAYER_ACCOUNT, RELAYER_PRIVATE_KEY, TREZU_APP_URL,
 } from "./config";
 import { canonical, sha256 } from "./crypto";
-import { state } from "./store";
+import { currentPolicy, state } from "./store";
+import { REQUIRE_CUSTODIAN_LIMITS } from "./config";
 import type { CustodyRecord, Payment, Quote } from "./types";
 
 /**
@@ -64,18 +65,39 @@ export async function viewDao<T>(method: string, args: object = {}): Promise<T> 
   return JSON.parse(Buffer.from(res.result).toString()) as T;
 }
 
+interface VotePolicy { weight_kind?: string; quorum?: string; threshold: [number, number] | string }
 interface DaoPolicy {
   proposal_bond: string;
   proposal_period: string;
-  roles: { name: string; kind: "Everyone" | { Group: string[] } | { Member: string }; permissions: string[] }[];
+  roles: { name: string; kind: "Everyone" | { Group: string[] } | { Member: string }; permissions: string[]; vote_policy?: Record<string, VotePolicy> }[];
+  default_vote_policy?: VotePolicy;
 }
+
+/** Votes a Sputnik proposal needs, given a vote policy and the number of role members (ratio: floor(n*num/den)+1). */
+export function approvalsNeeded(vp: VotePolicy | undefined, members: number): number | undefined {
+  if (!vp || members < 1) return undefined;
+  const t = vp.threshold;
+  return Math.max(Array.isArray(t) ? Math.floor((members * t[0]) / t[1]) + 1 : Number(t), Number(vp.quorum ?? 0)) || undefined;
+}
+
+/** Permissions that let an account vote on proposals. The agent must hold none of them. */
+const VOTING = /:(\*|VoteApprove|VoteReject|VoteRemove)$/;
 interface DaoProposal { id: number; status: string; kind: unknown; votes: Record<string, string>; description: string }
 
 // ---------- Is the agent's credential really scoped? ----------
 
-export interface CustodyCheck { mode: string; ok: boolean; facts: string[]; problems: string[]; killCommand?: string }
+export interface CustodyCheck {
+  mode: string; ok: boolean; facts: string[]; problems: string[];
+  /** The agent key's owner deletes it. */
+  killCommand?: string;
+  /** The council removes the agent from its DAO role: an onchain hard stop that needs no key held by the agent's owner. */
+  councilKill?: string;
+}
 
 let checkCache: { at: number; c: CustodyCheck } | undefined;
+
+/** Test hook: forget the cached custody check. */
+export const resetCustodyCache = () => { checkCache = undefined; };
 
 /**
  * Proves, from the chain or the custodian, that the agent cannot move funds on its own. The app refuses to
@@ -109,6 +131,7 @@ const demoCheck = (): CustodyCheck => ({
 async function checkSputnik(): Promise<CustodyCheck> {
   const facts: string[] = [];
   const problems: string[] = [];
+  let councilKill: string | undefined;
   let publicKey = "";
   try {
     publicKey = KeyPair.fromString(AGENT_PRIVATE_KEY as KeyPairString).getPublicKey().toString();
@@ -134,7 +157,38 @@ async function checkSputnik(): Promise<CustodyCheck> {
     const canPropose = agentRoles.some((r) => r.permissions.some((p) => /^(\*|call|transfer):(\*|AddProposal)$/.test(p)));
     if (!canPropose) problems.push(`${AGENT_ACCOUNT} has no DAO role allowed to add call proposals.`);
     const council = policy.roles.filter((r) => r.permissions.some((p) => /:(\*|VoteApprove)$/.test(p)) && typeof r.kind === "object" && "Group" in r.kind);
-    facts.push(`Council (can approve): ${council.flatMap((r) => (r.kind as { Group: string[] }).Group).join(", ") || "none found"}.`);
+    const members = [...new Set(council.flatMap((r) => (r.kind as { Group: string[] }).Group))];
+    facts.push(`Council (can approve): ${members.join(", ") || "none found"}.`);
+
+    // Separation of duties, read from the DAO: the agent may propose and nothing else. Voting rights through a role
+    // would let it approve its own proposals the day its key is replaced.
+    for (const r of agentRoles) {
+      const vote = r.permissions.find((p) => VOTING.test(p));
+      if (vote) problems.push(`${AGENT_ACCOUNT} holds voting rights through the DAO role "${r.name}" (${vote}). The agent should only be able to add proposals.`);
+    }
+    if (!problems.some((x) => x.includes("voting rights"))) facts.push("The agent holds no voting rights in the DAO: it can propose a payout but never approve one.");
+
+    // The approval threshold the chain applies to a payout (a FunctionCall proposal).
+    const first = council[0];
+    const need = approvalsNeeded(first?.vote_policy?.call ?? policy.default_vote_policy, members.length);
+    if (need !== undefined && members.length) {
+      facts.push(need === 1 && members.length > 1
+        ? `Note: the DAO executes a payout on ${need} of ${members.length} council approvals, so any single council member can approve one. Raise the threshold in Trezu for a real multisig.`
+        : `The DAO executes a payout on ${need} of ${members.length} council approvals, enforced onchain.`);
+    }
+
+    // Onchain hard stop: the council removes the agent from the role that lets it propose.
+    const held = policy.roles.filter((r) => typeof r.kind === "object" && "Group" in r.kind && r.kind.Group.includes(AGENT_ACCOUNT));
+    if (held.length) {
+      councilKill = held.map((r) => {
+        const rest = (r.kind as { Group: string[] }).Group.filter((a) => a !== AGENT_ACCOUNT);
+        const kind = rest.length
+          ? { ChangePolicyAddOrUpdateRole: { role: { name: r.name, kind: { Group: rest }, permissions: r.permissions, vote_policy: r.vote_policy ?? {} } } }
+          : { ChangePolicyRemoveRole: { role: r.name } };
+        const description = `Bluvfi Business kill switch: remove ${AGENT_ACCOUNT} from the "${r.name}" role`;
+        return `near contract call-function as-transaction ${DAO_ACCOUNT} add_proposal json-args '${JSON.stringify({ proposal: { description, kind } })}' prepaid-gas '100 Tgas' attached-deposit '${policy.proposal_bond} yoctoNEAR' network-config mainnet sign-with-keychain send`;
+      }).join(String.fromCharCode(10));
+    }
   } catch (e) {
     problems.push(`Could not read the DAO policy of ${DAO_ACCOUNT} (${(e as Error).message}).`);
   }
@@ -143,6 +197,7 @@ async function checkSputnik(): Promise<CustodyCheck> {
     ok: problems.length === 0,
     facts,
     problems,
+    councilKill,
     killCommand: publicKey ? `near account delete-keys ${AGENT_ACCOUNT} public-keys ${publicKey} network-config mainnet sign-with-keychain send` : undefined,
   };
 }
@@ -161,6 +216,8 @@ async function outlayer<T>(path: string, init: RequestInit & { idempotencyKey?: 
   return { status: r.status, body: (await r.json().catch(() => ({}))) as T };
 }
 
+const usdText = (n: number) => `$${n.toLocaleString("en-US")}`;
+
 async function checkOutlayer(): Promise<CustodyCheck> {
   const facts: string[] = [];
   const problems: string[] = [];
@@ -176,6 +233,26 @@ async function checkOutlayer(): Promise<CustodyCheck> {
     facts.push(`OutLayer wallet controlled by ${p.controller ?? "unknown"}; the agent holds only an API key, keys stay in Intel TDX.`);
     const lim = p.rules?.limits;
     if (lim?.per_transaction || lim?.daily) facts.push(`Limits enforced by OutLayer: per transaction ${JSON.stringify(lim.per_transaction ?? {})}, daily ${JSON.stringify(lim.daily ?? {})}.`);
+    // Is the app's own limit backed by the custodian? OutLayer reads limits per token ("*", "native" or a token contract).
+    // The docs do not state units for token amounts, so USDC is read as base units (6 decimals).
+    const pol = currentPolicy();
+    const sync = (label: string, theirs: string | undefined, ours: number) => {
+      if (theirs === undefined) {
+        const msg = `OutLayer sets no ${label} limit for USDC, so the app's ${usdText(ours)} ${label} limit is enforced by this app only.`;
+        if (REQUIRE_CUSTODIAN_LIMITS) problems.push(`${msg} REQUIRE_CUSTODIAN_LIMITS is on: set a ${label} limit in the OutLayer dashboard.`);
+        else facts.push(msg);
+      } else if (/^\d+$/.test(theirs)) {
+        const n = Number(BigInt(theirs)) / 1e6;
+        if (n <= ours) facts.push(`Limit sync: OutLayer allows ${usdText(n)} per ${label === "daily" ? "day" : "payment"}, within the app's ${usdText(ours)}. The custodian enforces it too.`);
+        else {
+          const msg = `Limit sync: OutLayer allows ${usdText(n)} per ${label === "daily" ? "day" : "payment"}, above the app's ${usdText(ours)}. Lower it in the OutLayer dashboard so the custodian backs the app's limit.`;
+          if (REQUIRE_CUSTODIAN_LIMITS) problems.push(`${msg} REQUIRE_CUSTODIAN_LIMITS is on, so payouts are refused until it is lowered.`);
+          else facts.push(msg);
+        }
+      }
+    };
+    sync("per-payment", lim?.per_transaction?.[NEAR_USDC_CONTRACT] ?? lim?.per_transaction?.["*"], pol.perPaymentLimitUsd);
+    sync("daily", lim?.daily?.[NEAR_USDC_CONTRACT] ?? lim?.daily?.["*"], pol.dailyLimitUsd);
     const t = p.approval?.threshold;
     if (t) facts.push(`Multisig: ${typeof t === "number" ? t : t.required} approver(s) above the threshold.`);
   } catch (e) {
@@ -239,14 +316,16 @@ export function trezuDescription(data: Record<string, string>): string {
     .join(" <br>");
 }
 
+/** The agent files a proposal with its scoped key (add_proposal on the DAO, no deposit). Returns the DAO's proposal id. */
+export async function addDaoProposal(kind: unknown, description: string): Promise<number> {
+  if (DEMO) return demoDao().propose(kind as never, description);
+  const agent = new Account(AGENT_ACCOUNT, new JsonRpcProvider({ url: NEAR_RPC_URL }), AGENT_PRIVATE_KEY as KeyPairString);
+  return Number(await agent.callFunction({ contractId: DAO_ACCOUNT, methodName: "add_proposal", args: { proposal: { description, kind } }, gas: teraToGas(50), deposit: BigInt(0) }));
+}
+
 async function submitSputnik(p: Payment, amount: string, memo: string, evidence: string): Promise<CustodyRecord> {
   const { kind, description } = proposalFor(p, amount, memo, evidence);
-  let id: number;
-  if (DEMO) id = demoDao().propose(kind, description);
-  else {
-    const agent = new Account(AGENT_ACCOUNT, new JsonRpcProvider({ url: NEAR_RPC_URL }), AGENT_PRIVATE_KEY as KeyPairString);
-    id = Number(await agent.callFunction({ contractId: DAO_ACCOUNT, methodName: "add_proposal", args: { proposal: { description, kind } }, gas: teraToGas(50), deposit: BigInt(0) }));
-  }
+  const id = await addDaoProposal(kind, description);
   return {
     backend: "sputnik",
     ref: String(id),
