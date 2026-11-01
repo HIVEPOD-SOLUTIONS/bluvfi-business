@@ -26,7 +26,7 @@ export function Logo() {
   );
 }
 
-export function Nav({ signer }: { signer: string }) {
+export function Nav({ signer, demo }: { signer: string; demo?: boolean }) {
   const path = usePathname();
   const router = useRouter();
   const active = (h: string) => (h === "/" ? path === "/" : path.startsWith(h));
@@ -35,8 +35,8 @@ export function Nav({ signer }: { signer: string }) {
       <aside className="hidden md:flex fixed inset-y-0 left-0 w-60 flex-col gap-1 p-5 border-r" style={{ background: "var(--bg-1)", borderColor: "var(--bd)" }}>
         <Link href="/" className="mb-1"><Logo /></Link>
         <div className="mb-5 flex items-center gap-2">
-          <span className="label">Proofpay</span>
-          <span className="badge badge-gold">Mainnet</span>
+          <span className="label">Business</span>
+          <span className="badge badge-gold">{demo ? "Demo" : "Mainnet"}</span>
         </div>
         {ITEMS.map((i) => (
           <Link

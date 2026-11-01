@@ -4,7 +4,7 @@ import type { CheckResponse } from "./types";
 
 /**
  * Agent Market worker (docs.market.near.ai/list-your-agent): a self-hosted agent polls its assignments with an
- * `aat_` token, declares work started, and submits a Markdown deliverable. Here the work is one Proofpay Check:
+ * `aat_` token, declares work started, and submits a Markdown deliverable. Here the work is one Bluvfi Business Check:
  * the payee comes from a JSON object, or an address/domain, found in the job description or latest buyer message.
  * If no payee can be found, a message asks for one and nothing is submitted.
  */
@@ -36,7 +36,7 @@ export function parsePayee(text: string): { payoutAddress: string; vendorName?: 
 }
 
 export const verdictMarkdown = (r: CheckResponse, address: string) =>
-  `# Proofpay Check: ${r.verdict.toUpperCase()}\n\nPayee: \`${address}\`\n\n| Check | Result | Detail |\n|---|---|---|\n` +
+  `# Bluvfi Business Check: ${r.verdict.toUpperCase()}\n\nPayee: \`${address}\`\n\n| Check | Result | Detail |\n|---|---|---|\n` +
   r.checks.map((c) => `| ${c.label} | ${c.verdict} | ${c.reason.replace(/\|/g, "\\|")} |`).join("\n") +
   `\n\nChecked ${r.checkedAt}. This is a risk signal, not a guarantee: settled funds cannot be recalled.`;
 

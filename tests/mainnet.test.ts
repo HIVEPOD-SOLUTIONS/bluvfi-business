@@ -185,7 +185,7 @@ test("sessions: right token logs in, wrong token and tampered cookies do not", a
 });
 
 test("proxy: anonymous users reach only the public routes", async () => {
-  const get = (path: string, cookie?: string) => proxy(new NextRequest(`https://proofpay.example${path}`, { headers: cookie ? { cookie: `pp_session=${cookie}` } : {} }));
+  const get = (path: string, cookie?: string) => proxy(new NextRequest(`https://bluvfi-business.example${path}`, { headers: cookie ? { cookie: `bluvfi_session=${cookie}` } : {} }));
   assert.equal((await get("/api/payments/x/approve")).status, 401);
   assert.equal((await get("/payments")).status, 307);
   for (const open of ["/pay/rcv-1", "/api/pay/rcv-1", "/api/check", "/login", "/view", "/api/telegram/webhook"]) {
@@ -217,7 +217,7 @@ test("1Click quotes are real (not dry), and public payments send no confidential
 });
 
 test("Twilio signature check accepts only our token's signature", () => {
-  const url = "https://proofpay.example/api/twilio/voice?pid=p1";
+  const url = "https://bluvfi-business.example/api/twilio/voice?pid=p1";
   const params = { Digits: "1", CallSid: "CA1" };
   const sig = createHmac("sha1", "twilio-test-token").update(url + "CallSid" + "CA1" + "Digits" + "1").digest("base64");
   assert.equal(twilioSignatureValid(url, params, sig), true);

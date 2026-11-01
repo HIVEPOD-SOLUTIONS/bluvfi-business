@@ -40,3 +40,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .data/
+
+# the example env file is committed on purpose
+!.env.example

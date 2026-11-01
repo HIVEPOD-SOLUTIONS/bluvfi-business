@@ -154,7 +154,7 @@ export function runFraudChecks(inv: Invoice, ctx: FraudContext): CheckResult[] {
   return out;
 }
 
-/** Proofpay Check: the same engine for any agent asking about a payee. */
+/** Bluvfi Business Check: the same engine for any agent asking about a payee. */
 export function runPublicCheck(req: CheckRequest, ctx: FraudContext): CheckResult[] {
   const inv: Invoice = {
     id: "check",

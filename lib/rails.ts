@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { ASSET_ID } from "./chains";
 import {
-  COMPANY_NAME, ONECLICK_BASE, ONECLICK_JWT, PUBLIC_BASE_URL, TELEGRAM_BOT_TOKEN, TREASURY_ACCOUNT,
+  COMPANY_NAME, ONECLICK_BASE, ONECLICK_DRY, ONECLICK_JWT, PUBLIC_BASE_URL, TELEGRAM_BOT_TOKEN, TREASURY_ACCOUNT,
   TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM, X402_PAYER_URL,
 } from "./config";
 import type { CallbackRecord, Channel, Confidentiality, Invoice, Quote } from "./types";
@@ -25,7 +25,7 @@ async function oneClickQuote(q: QuoteInput): Promise<Quote> {
     headers: oneClickHeaders(),
     signal: AbortSignal.timeout(20_000),
     body: JSON.stringify({
-      dry: false,
+      dry: ONECLICK_DRY,
       swapType: "EXACT_OUTPUT",
       slippageTolerance: 100,
       originAsset: q.originAsset,
@@ -42,14 +42,17 @@ async function oneClickQuote(q: QuoteInput): Promise<Quote> {
     }),
   });
   if (!res.ok) throw new Error(`1Click quote failed (${res.status}): ${(await res.text().catch(() => "")).slice(0, 200)}`);
-  const j = (await res.json()) as { quote?: { amountInFormatted?: string; amountOutFormatted?: string; depositAddress?: string; depositMemo?: string; deadline?: string } };
+  const j = (await res.json()) as { signature?: string; quote?: { amountIn?: string; amountInFormatted?: string; amountOutFormatted?: string; depositAddress?: string; depositMemo?: string; deadline?: string } };
+  if (ONECLICK_DRY && j.quote) return { depositAddress: "(dry run: no deposit address)", amountIn: j.quote.amountInFormatted ?? "", amountInRaw: j.quote.amountIn, amountOut: j.quote.amountOutFormatted ?? "", source: "1click-dry" };
   if (!j.quote?.depositAddress) throw new Error("1Click returned no deposit address");
   return {
     depositAddress: j.quote.depositAddress,
     depositMemo: j.quote.depositMemo,
     amountIn: j.quote.amountInFormatted ?? "",
+    amountInRaw: j.quote.amountIn,
     amountOut: j.quote.amountOutFormatted ?? "",
     deadline: j.quote.deadline,
+    signature: j.signature,
     source: "1click",
   };
 }
@@ -122,7 +125,8 @@ export async function sendCallback(inv: Invoice, target: CallbackTarget | undefi
     if (target.channel === "voice" && TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_FROM && PUBLIC_BASE_URL) {
       const action = `${PUBLIC_BASE_URL}/api/twilio/voice?pid=${encodeURIComponent(paymentId)}`;
       const say = `Hello, this is the finance agent at ${esc(COMPANY_NAME)}. Invoice ${esc(inv.invoiceNumber)} for ${Math.round(inv.amountUsd)} dollars has new payment details. Press 1 if you sent it and the details are correct. Press 2 if you did not.`;
-      const twiml = `<Response><Gather numDigits="1" action="${esc(action)}" method="POST"><Say>${say}</Say></Gather><Say>No answer received. Goodbye.</Say></Response>`;
+      // No key pressed: record a short spoken answer, transcribed by Whisper on NEAR AI (lib/transcribe.ts).
+      const twiml = `<Response><Gather numDigits="1" action="${esc(action)}" method="POST"><Say>${say}</Say></Gather><Say>Or say yes or no after the beep.</Say><Record maxLength="6" playBeep="true" action="${esc(action)}" method="POST"/></Response>`;
       const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Calls.json`, {
         method: "POST",
         headers: {
@@ -175,4 +179,40 @@ export async function payX402(url: string, maxPriceUsd: number): Promise<X402Res
   if (!paymentHeader) throw new Error("x402 payer returned no payment header");
   const paid = await fetch(url, { headers: { "X-PAYMENT": paymentHeader }, signal: AbortSignal.timeout(30_000) });
   return { ok: paid.ok, status: paid.status, priceUsd, body: await paid.json().catch(() => null), paymentHeader, note: paid.ok ? "Paid and delivered." : "Paid but the API did not deliver." };
+}
+
+/**
+ * Quote for Aurora's Intents swap widget on a pay link (its `fetchQuote` hook). The widget proposes a 1Click
+ * QuoteRequest from the payer's wallet and token; we keep only what is the payer's to choose (origin asset,
+ * deposit type, refund address) and force the rest: EXACT_OUTPUT of the invoice amount, USDC on NEAR, to our
+ * treasury. The widget then pays the returned deposit address, so the usual 1Click status check settles it.
+ * Returns 1Click's raw `quote` object, which is what the widget expects.
+ */
+export async function quoteForWidget(request: Record<string, unknown>, amountUsd: number, payTo: string): Promise<Record<string, unknown> & { depositAddress?: string; depositMemo?: string; amountInFormatted?: string; deadline?: string }> {
+  const originAsset = String(request.originAsset ?? "");
+  if (!/^nep(141|245):/.test(originAsset)) throw new Error("The widget sent no origin asset");
+  const dry = request.dry !== false;
+  const body = {
+    dry,
+    swapType: "EXACT_OUTPUT",
+    slippageTolerance: Math.min(Number(request.slippageTolerance ?? 100) || 100, 300),
+    originAsset,
+    depositType: request.depositType === "INTENTS" ? "INTENTS" : "ORIGIN_CHAIN",
+    destinationAsset: ASSET_ID["near:USDC"],
+    amount: toRaw(amountUsd),
+    refundTo: String(request.refundTo ?? ""),
+    refundType: request.refundType === "INTENTS" ? "INTENTS" : "ORIGIN_CHAIN",
+    recipient: payTo,
+    recipientType: "DESTINATION_CHAIN",
+    deadline: new Date(Date.now() + 30 * 60_000).toISOString(),
+    ...(request.depositMode === "MEMO" ? { depositMode: "MEMO" } : {}),
+    ...(request.confidentiality === "basic" || request.confidentiality === "advanced" ? { confidentiality: request.confidentiality } : {}),
+  };
+  // A preview (dry) quote may carry the widget's placeholder refund target; a real one must name the payer's.
+  if (!dry && !body.refundTo) throw new Error("Connect a wallet so a refund can go back to it if anything fails");
+  const res = await fetch(`${ONECLICK_BASE}/v0/quote`, { method: "POST", headers: oneClickHeaders(), body: JSON.stringify(body), signal: AbortSignal.timeout(20_000) });
+  if (!res.ok) throw new Error(`1Click quote failed (${res.status}): ${(await res.text().catch(() => "")).slice(0, 200)}`);
+  const j = (await res.json()) as { quote?: Record<string, unknown> };
+  if (!j.quote) throw new Error("1Click returned no quote");
+  return j.quote as Awaited<ReturnType<typeof quoteForWidget>>;
 }

@@ -12,6 +12,7 @@ export const STATUS: Record<PaymentStatus, { label: string; tone: "ok" | "warn" 
   paid: { label: "Paid", tone: "ok" },
   approved: { label: "Approved", tone: "ok" },
   ready_to_send: { label: "Send funds", tone: "blue" },
+  proposed: { label: "Waiting for treasury", tone: "blue" },
   awaiting_approval: { label: "Needs approval", tone: "blue" },
   held: { label: "On hold", tone: "warn" },
   blocked: { label: "Blocked", tone: "bad" },

@@ -1,17 +1,17 @@
 import { MASTER_KEY, SIGNERS } from "./config";
 
 /**
- * Signer sessions: a cookie `name.expiry.hmac`, HMAC-SHA256 under a key derived from PROOFPAY_MASTER_KEY.
+ * Signer sessions: a cookie `name.expiry.hmac`, HMAC-SHA256 under a key derived from BLUVFI_MASTER_KEY.
  * Web Crypto only, so the same code runs in proxy.ts and in route handlers.
  */
-export const COOKIE = "pp_session";
+export const COOKIE = "bluvfi_session";
 const TTL_MS = 12 * 3600_000;
 
 const enc = new TextEncoder();
 const hex = (b: ArrayBuffer) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("");
 
 async function mac(msg: string): Promise<string> {
-  const key = await crypto.subtle.importKey("raw", enc.encode(`proofpay-session:${MASTER_KEY}`), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const key = await crypto.subtle.importKey("raw", enc.encode(`bluvfi-business-session:${MASTER_KEY}`), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return hex(await crypto.subtle.sign("HMAC", key, enc.encode(msg)));
 }
 

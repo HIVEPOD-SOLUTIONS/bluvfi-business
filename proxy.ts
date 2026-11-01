@@ -3,9 +3,9 @@ import { COOKIE, verifySession } from "@/lib/session";
 
 /**
  * Everything is behind a signer session except what must be public: the sign-in page, the pay-link
- * pages and APIs (clients paying an invoice), Proofpay Check (paid per call over x402, plus a rate-limited
+ * pages and APIs (clients paying an invoice), Bluvfi Business Check (paid per call over x402, plus a rate-limited
  * free tier for the website), the chat-channel webhooks (which verify their own secrets), the public
- * ledger page, and the API description.
+ * ledger page, the API description, and the app icon and manifest.
  */
 const PUBLIC = [
   /^\/login$/, /^\/api\/login$/, /^\/api\/logout$/,
@@ -14,6 +14,7 @@ const PUBLIC = [
   /^\/ledger$/,
   /^\/view$/, /^\/api\/audit\/open$/,
   /^\/api\/telegram\/webhook$/, /^\/api\/twilio\/voice$/,
+  /^\/apple-icon$/, /^\/manifest\.webmanifest$/,
 ];
 
 export async function proxy(req: NextRequest) {

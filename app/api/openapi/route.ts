@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import { NEAR_USDC_CONTRACT } from "@/lib/chains";
 import { TREASURY_ACCOUNT } from "@/lib/config";
 
-/** Machine-readable description of Proofpay Check, for agent marketplaces and other agents' tool discovery. */
+/** Machine-readable description of Bluvfi Business Check, for agent marketplaces and other agents' tool discovery. */
 export async function GET(req: Request) {
   const origin = new URL(req.url).origin;
   return NextResponse.json({
     openapi: "3.1.0",
-    info: { title: "Proofpay Check", version: "1.0.0", description: "Is this payee safe to pay? Pay-per-call over x402 on NEAR." },
+    info: { title: "Bluvfi Business Check", version: "1.0.0", description: "Is this payee safe to pay? Pay-per-call over x402 on NEAR." },
     servers: [{ url: origin }],
     paths: {
       "/api/check": {

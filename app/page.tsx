@@ -3,7 +3,8 @@ import { KillSwitch } from "@/components/Actions";
 import { Badge, Empty, PageHead, PaymentCard, Stat, usd } from "@/components/ui";
 import { CHAIN_LABEL } from "@/lib/chains";
 import type { Balance } from "@/lib/chain";
-import { missingConfig } from "@/lib/config";
+import { CUSTODY, DEMO, missingConfig } from "@/lib/config";
+import { checkCustody } from "@/lib/custody";
 import { services } from "@/lib/services";
 import { currentPolicy, spentTodayUsd, state } from "@/lib/store";
 
@@ -20,9 +21,10 @@ export default async function Overview() {
   } catch (e) {
     balanceError = (e as Error).message;
   }
+  const custody = await checkCustody().catch((e) => ({ mode: CUSTODY, ok: false, facts: [] as string[], problems: [(e as Error).message], killCommand: undefined as string | undefined }));
   const total = balances.filter((b) => b.usd).reduce((a, b) => a + b.amount, 0);
   const attention = s.payments.filter(
-    (p) => p.status === "held" || p.status === "awaiting_approval" || p.status === "ready_to_send" || (p.status === "blocked" && p.callback?.status === "pending")
+    (p) => p.status === "held" || p.status === "awaiting_approval" || p.status === "ready_to_send" || p.status === "proposed" || (p.status === "blocked" && p.callback?.status === "pending")
   );
   const blocked = s.payments.filter((p) => p.status === "blocked" || p.status === "cancelled").length;
   const allVerified = s.payments.length > 0 && s.payments.every((p) => p.verified.signature.valid);
@@ -58,7 +60,7 @@ export default async function Overview() {
       )}
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Treasury (USDC)" value={balanceError ? "—" : usd(total)} sub={balanceError ? "balance unavailable" : "NEAR mainnet"} />
+        <Stat label="Treasury (USDC)" value={balanceError ? "—" : usd(total)} sub={balanceError ? "balance unavailable" : DEMO ? "demo balance" : "NEAR mainnet"} />
         <Stat label="Paid or reserved today" value={usd(spentTodayUsd())} sub={`of ${usd(policy.dailyLimitUsd)} daily limit`} />
         <Stat label="Stopped before paying" value={usd(saved)} sub={`${blocked} payment${blocked === 1 ? "" : "s"} blocked or cancelled`} tone={saved > 0 ? "pos" : undefined} />
         <Stat label="Policy" value={`v${policy.version}`} sub={<span className="mono">{policy.hash.slice(0, 12)}…</span>} />
@@ -79,7 +81,7 @@ export default async function Overview() {
               ))}
             </ul>
           )}
-          <p className="mt-3 text-sm" style={{ color: "var(--tx-2)" }}>Read live from NEAR mainnet. NEAR is shown in units, not converted.</p>
+          <p className="mt-3 text-sm" style={{ color: "var(--tx-2)" }}>{DEMO ? "Demo balances, not read from the chain." : "Read live from NEAR mainnet. NEAR is shown in units, not converted."}</p>
         </div>
 
         <div className="lg:col-span-2">
@@ -97,6 +99,25 @@ export default async function Overview() {
             <div className="grid gap-3">{attention.map((p) => <PaymentCard key={p.id} p={p} />)}</div>
           )}
         </div>
+      </section>
+
+      <section className="card mt-6" style={{ borderColor: custody.ok ? "var(--bd-sage)" : "rgba(224,82,82,.4)" }}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2>Who can move the money</h2>
+          <Badge tone={custody.ok ? "ok" : "bad"}>{custody.ok ? `Custody: ${custody.mode} ✓` : `Custody: ${custody.mode}, check failed`}</Badge>
+        </div>
+        <p className="mt-1 text-sm" style={{ color: "var(--tx-1)" }}>The AI has judgment, never authority. These facts are read from the chain or the custodian, not from this app&apos;s settings.</p>
+        <ul className="mt-3 grid gap-1 text-sm">
+          {custody.facts.map((f) => <li key={f}><span className="pos mono">✓</span> {f}</li>)}
+          {custody.problems.map((f) => <li key={f}><span className="neg mono">✕</span> {f}</li>)}
+        </ul>
+        {custody.killCommand && (
+          <details className="mt-3 text-sm">
+            <summary style={{ color: "var(--tx-1)" }}>Hard stop: revoke the agent&apos;s key onchain</summary>
+            <p className="mt-2" style={{ color: "var(--tx-2)" }}>The kill switch above stops this app. To also make the agent&apos;s key useless, its owner deletes it:</p>
+            <pre className="mono mt-2 overflow-auto whitespace-pre-wrap rounded-lg p-3 text-xs" style={{ background: "var(--bg-2)" }}>{custody.killCommand}</pre>
+          </details>
+        )}
       </section>
 
       {s.payments.length > 0 && (

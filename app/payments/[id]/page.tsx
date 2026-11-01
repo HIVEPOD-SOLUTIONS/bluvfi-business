@@ -2,8 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionButton } from "@/components/Actions";
 import { Badge, PageHead, STATUS, short, usd, when } from "@/components/ui";
+import { refreshZk } from "@/lib/agent";
 import { state } from "@/lib/store";
 import { currentSigner } from "@/lib/who";
+import { GaslessVote } from "@/components/GaslessVote";
+import { CUSTODY, DAO_ACCOUNT, DEMO, NEAR_RPC_URL } from "@/lib/config";
+import { relayerEnabled, viewDao } from "@/lib/custody";
 import { SendPanel } from "./SendPanel";
 
 export const dynamic = "force-dynamic";
@@ -23,12 +27,18 @@ function Row({ ok, label, children }: { ok: boolean | null; label: string; child
 export default async function PaymentDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const signer = await currentSigner();
-  const p = state().payments.find((x) => x.id === id);
-  if (!p) notFound();
+  const found = state().payments.find((x) => x.id === id);
+  if (!found) notFound();
+  const p = await refreshZk(found);
   const v = p.verified;
   const st = STATUS[p.status];
   const canApprove = !!signer && (p.status === "awaiting_approval" || p.status === "held");
   const canCancel = !!signer && p.status !== "paid" && p.status !== "cancelled" && !(p.status === "ready_to_send" && p.txRef);
+  const c = p.custody;
+  // act_proposal must repeat the proposal kind exactly as the DAO stored it, so read it from the chain when we can.
+  let kind = c?.kind;
+  if (c?.backend === "sputnik" && c.state === "pending" && !DEMO) kind = (await viewDao<{ kind: unknown }>("get_proposal", { id: Number(c.ref) }).catch(() => null))?.kind ?? kind;
+  const aiSource = v.attestation.source === "demo-fixture" ? "demo fixture, signed with the public demo key" : v.attestation.source === "recorded" ? "a recorded NEAR AI Cloud response, re-verified now" : "live from NEAR AI Cloud";
 
   return (
     <>
@@ -52,7 +62,40 @@ export default async function PaymentDetail({ params }: { params: Promise<{ id: 
         {p.approvedBy && <p className="mt-3 text-sm" style={{ color: "var(--tx-1)" }}>Approved by <span className="mono">{p.approvedBy}</span>.</p>}
       </section>
 
-      {p.status === "ready_to_send" && p.quote && <SendPanel id={p.id} quote={p.quote} txRef={p.txRef} settlement={p.settlement} signedIn={!!signer} asset={p.invoice.asset} chain={p.invoice.chain} />}
+      {p.status === "ready_to_send" && p.quote && !c && <SendPanel id={p.id} quote={p.quote} txRef={p.txRef} settlement={p.settlement} signedIn={!!signer} asset={p.invoice.asset} chain={p.invoice.chain} />}
+
+      {c && (
+        <section className="card mb-4" style={{ borderColor: "rgba(10,10,232,.5)" }}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2>Treasury</h2>
+            <Badge tone={c.state === "executed" ? "ok" : c.state === "pending" ? "blue" : "bad"}>{c.backend === "sputnik" ? `DAO proposal #${c.ref}` : "OutLayer wallet"} · {c.state}</Badge>
+          </div>
+          <p className="mt-1" style={{ color: "var(--tx-1)" }}>{c.detail}</p>
+          <p className="mt-2 text-sm" style={{ color: "var(--tx-2)" }}>
+            {c.backend === "sputnik"
+              ? `The agent's NEAR key can only call add_proposal on ${DAO_ACCOUNT}. Money moves when the council approves, and the approving vote executes the transfer.`
+              : "The agent holds only an OutLayer API key. OutLayer enforces the owner's limits and approvals inside Intel TDX."}
+          </p>
+          <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+            <dt style={{ color: "var(--tx-2)" }}>Evidence onchain</dt><dd className="mono break-all">{c.evidenceHash}</dd>
+            {p.quote && (<><dt style={{ color: "var(--tx-2)" }}>Pays</dt><dd className="mono break-all">{p.quote.amountIn} USDC → {p.quote.depositAddress}</dd></>)}
+            {c.votes && Object.keys(c.votes).length > 0 && (<><dt style={{ color: "var(--tx-2)" }}>Votes</dt><dd>{Object.entries(c.votes).map(([who, how]) => `${who}: ${how}`).join(", ")}</dd></>)}
+            {c.txHash && (<><dt style={{ color: "var(--tx-2)" }}>Transaction</dt><dd className="mono break-all">{c.txHash}</dd></>)}
+          </dl>
+          {c.state === "pending" && (
+            <div className="mt-4 grid gap-3">
+              <div className="flex flex-wrap gap-2">
+                {c.url && !DEMO && <a className="btn btn-secondary btn-sm" href={c.url} target="_blank" rel="noreferrer">{c.backend === "sputnik" ? "Vote in Trezu" : "Open OutLayer approvals"}</a>}
+                {!!signer && <ActionButton url={`/api/payments/${p.id}/settlement`} variant="secondary" small>Check status</ActionButton>}
+                {DEMO && !!signer && <ActionButton url={`/api/payments/${p.id}/vote`} payload={{ approve: true }} variant="primary" small>Vote approve as {signer} (demo DAO)</ActionButton>}
+                {DEMO && !!signer && <ActionButton url={`/api/payments/${p.id}/vote`} payload={{ approve: false }} variant="danger" small>Vote reject</ActionButton>}
+              </div>
+              {c.backend === "sputnik" && relayerEnabled() && !!signer && <GaslessVote dao={DAO_ACCOUNT} proposalId={Number(c.ref)} kind={kind} rpcUrl={NEAR_RPC_URL} paymentId={p.id} />}
+            </div>
+          )}
+          {p.status === "ready_to_send" && !!signer && <div className="mt-4"><ActionButton url={`/api/payments/${p.id}/settlement`} variant="secondary">Check delivery (1Click)</ActionButton></div>}
+        </section>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="card" style={{ borderColor: "var(--bd-sage)" }}>
@@ -63,7 +106,7 @@ export default async function PaymentDetail({ params }: { params: Promise<{ id: 
           <p className="mt-1 text-sm" style={{ color: "var(--tx-2)" }}>Exactly what was checked on this payment.</p>
           <ul className="mt-2">
             <Row ok={v.attestation.nonceBound} label="Fresh attestation (nonce)">
-              <span className="mono">{short(v.attestation.nonce, 12)}</span> · {v.attestation.nonce ? "live from NEAR AI Cloud" : "AI review did not run"}
+              <span className="mono">{short(v.attestation.nonce, 12)}</span> · {v.attestation.nonce ? aiSource : "AI review did not run"}
             </Row>
             <Row ok={v.attestation.gpu} label="GPU attestation (NVIDIA)">{v.attestation.gpu ? "Confidential-computing GPU evidence accepted." : "Not verified."}</Row>
             <Row ok={v.attestation.cpu} label="CPU attestation (Intel TDX)">{v.attestation.cpu ? "CPU quote accepted." : "Not verified in this run."}</Row>
@@ -81,7 +124,12 @@ export default async function PaymentDetail({ params }: { params: Promise<{ id: 
             <Row ok={v.pqSignature.valid} label="Post-quantum signature (ML-DSA-65)">
               Record signed with a quantum-resistant key, so the evidence stays trustworthy later.
             </Row>
-            <Row ok={null} label="Zero-knowledge proof of the policy check">Not available. The policy check is deterministic code you can re-run against the recorded policy hash.</Row>
+            <Row ok={c ? true : null} label="Evidence anchored onchain">
+              {c ? `Evidence hash ${c.evidenceHash.slice(0, 16)}… is in the ${c.backend === "sputnik" ? "DAO proposal description" : "ft_transfer memo"}, so the payout and this record point at each other.` : CUSTODY === "manual" ? "Manual custody: no onchain anchor." : "Anchored when the payout is handed to the treasury."}
+            </Row>
+            <Row ok={!v.zkProof || v.zkProof.status === "pending" ? null : v.zkProof.status === "verified"} label="Zero-knowledge proof of the policy check (o1js)">
+              {v.zkProof ? v.zkProof.note : "Not recorded for this payment."}{v.zkProof?.proverSeconds ? ` Proved in ${v.zkProof.proverSeconds}s.` : ""}
+            </Row>
           </ul>
           {v.attestation.notes.map((n) => <p key={n} className="mt-2 text-sm" style={{ color: "var(--amber)" }}>{n}</p>)}
         </section>
@@ -102,7 +150,7 @@ export default async function PaymentDetail({ params }: { params: Promise<{ id: 
             <section className="card">
               <h2>Vendor callback</h2>
               <p className="mt-1 text-sm" style={{ color: "var(--tx-1)" }}>
-                Sent to <span className="mono">{p.callback.handle}</span> on {p.callback.channel} ({p.callback.delivered === "telegram" ? "delivered on Telegram" : p.callback.delivered === "voice" ? "voice call placed" : "not automated: contact the vendor yourself and record the answer below"}), a channel we already had on file, not the one in the invoice.
+                Sent to <span className="mono">{p.callback.handle}</span> on {p.callback.channel} ({p.callback.delivered === "telegram" ? "delivered on Telegram" : p.callback.delivered === "voice" ? "voice call placed" : p.callback.delivered === "demo" ? "demo mode: nothing was sent; record the answer below" : "not automated: contact the vendor yourself and record the answer below"}), a channel we already had on file, not the one in the invoice.
               </p>
               <blockquote className="mt-2 rounded-lg p-3 text-sm" style={{ background: "var(--bg-2)" }}>{p.callback.message}</blockquote>
               {p.callback.answer && <p className="mt-2 text-sm"><strong>Reply:</strong> {p.callback.answer}</p>}
@@ -121,17 +169,17 @@ export default async function PaymentDetail({ params }: { params: Promise<{ id: 
               <dt style={{ color: "var(--tx-2)" }}>Rail</dt><dd>NEAR Intents (1Click)</dd>
               <dt style={{ color: "var(--tx-2)" }}>Pay to</dt><dd className="mono break-all">{p.invoice.payoutAddress} ({p.invoice.chain})</dd>
               <dt style={{ color: "var(--tx-2)" }}>Privacy</dt><dd>{p.confidentiality}</dd>
-              {p.quote && (<><dt style={{ color: "var(--tx-2)" }}>Quote</dt><dd className="mono">{p.quote.amountIn} → {p.quote.amountOut} (1Click, mainnet)</dd></>)}
+              {p.quote && (<><dt style={{ color: "var(--tx-2)" }}>Quote</dt><dd className="mono">{p.quote.amountIn} → {p.quote.amountOut} ({p.quote.source === "demo-fixture" ? "demo quote" : p.quote.source === "1click-dry" ? "1Click dry-run" : "1Click, mainnet"})</dd></>)}
               {p.txRef && (<><dt style={{ color: "var(--tx-2)" }}>Reference</dt><dd className="mono">{p.txRef}</dd></>)}
             </dl>
-            <p className="mt-3 text-sm" style={{ color: "var(--tx-2)" }}>Proofpay stops money before it leaves. Funds already settled on another chain cannot be frozen.</p>
+            <p className="mt-3 text-sm" style={{ color: "var(--tx-2)" }}>Bluvfi Business stops money before it leaves. Funds already settled on another chain cannot be frozen.</p>
           </section>
         </div>
       </div>
 
       <section className="card mt-4">
         <h2>What the model saw</h2>
-        <p className="mt-1 text-sm" style={{ color: "var(--tx-1)" }}>Contact details, bank details and wallets are stripped before any reasoning call. The original invoice text:</p>
+        <p className="mt-1 text-sm" style={{ color: "var(--tx-1)" }}>{p.redactedBy === "near-ai+local-regex" ? "Names, contact and bank details were stripped by NEAR AI Cloud’s privacy filter (inside its TEE), then wallets and handles by local patterns, before any reasoning call." : "Contact details, bank details and wallets were stripped by local patterns before any reasoning call (patterns can miss names)."} The original invoice text:</p>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           <div><div className="label mb-1">Original (stays on this server)</div><pre className="mono overflow-auto whitespace-pre-wrap rounded-lg p-3 text-xs" style={{ background: "var(--bg-2)" }}>{p.invoice.text.replace(/​/g, "␣")}</pre></div>
           <div><div className="label mb-1">Sent to the private model</div><pre className="mono overflow-auto whitespace-pre-wrap rounded-lg p-3 text-xs" style={{ background: "var(--bg-2)" }}>{p.redactedInput.replace(/​/g, "␣")}</pre></div>

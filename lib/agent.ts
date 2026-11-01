@@ -1,11 +1,13 @@
 import { canonical, mlDsaSign, mlDsaVerify, sha256, encrypt } from "./crypto";
-import { NEAR_AI_MODEL, SIGNER_NAMES } from "./config";
+import { CUSTODY, DEMO, NEAR_AI_MODEL, SIGNER_NAMES } from "./config";
+import { demoDao } from "./custody";
+import { makeJob, proveInBackground, SYSTEM as ZK_SYSTEM, verifyZk, writeJob } from "./zk";
 import { runFraudChecks, runPublicCheck, worst } from "./fraud";
 import type { Judged } from "./nearai";
 import { attestationTrusted, computeFacts, unavailablePanel, verifyDecision } from "./nearai-core";
 import { evaluatePolicy, needsApproval } from "./policy";
 import { services } from "./services";
-import { currentPolicy, dataKey, fraudContext, pqSeed, prefetchCounterparty, spentTodayUsd, state } from "./store";
+import { currentPolicy, dataKey, fraudContext, persist, persistenceOn, pqSeed, prefetchCounterparty, spentTodayUsd, state } from "./store";
 import type { CheckRequest, CheckResponse, CheckResult, Confidentiality, Invoice, Payment, PaymentStatus } from "./types";
 
 const uid = (p: string) => `${p}-${sha256(`${p}${Date.now()}${Math.random()}`).slice(0, 8)}`;
@@ -39,7 +41,8 @@ export async function processInvoice(inv: Invoice, confidentiality: Confidential
     ? verifyDecision({ decision: judged.decision, requestBody: judged.requestBody, expectedNonce: judged.expectedNonce }, policy)
     : unavailablePanel(policy, NEAR_AI_MODEL, `AI review unavailable: ${aiError}`);
 
-  const policyChecks = evaluatePolicy(inv, policy, { killSwitch: s.killSwitch, spentTodayUsd: spentTodayUsd() });
+  const policyCtx = { killSwitch: s.killSwitch, spentTodayUsd: spentTodayUsd() };
+  const policyChecks = evaluatePolicy(inv, policy, policyCtx);
   await prefetchCounterparty(inv.payoutAddress, inv.chain);
   const fraudChecks = runFraudChecks(inv, fraudContext());
   const trusted = attestationTrusted(panel);
@@ -99,9 +102,18 @@ export async function processInvoice(inv: Invoice, confidentiality: Confidential
     createdAt: now.toISOString(),
     holdUntil: status === "held" ? new Date(now.getTime() + policy.holdWindowMinutes * 60_000).toISOString() : undefined,
     redactedInput: red.text,
+    redactedBy: red.source,
     recordHash: "",
     prevHash: "",
   };
+  if (red.note) payment.verified.attestation.notes.push(red.note);
+  // The same policy check as a zero-knowledge statement (lib/zk.ts), proved by o1js in a background process.
+  payment.zkJob = makeJob(payment.id, inv, policy, policyCtx);
+  payment.verified.zkProof = { system: ZK_SYSTEM, status: "pending", note: "Statement written; the proof is being made in the background." };
+  if (persistenceOn()) {
+    writeJob(payment.id, payment.zkJob);
+    proveInBackground();
+  }
   if (!trusted) payment.verified.attestation.notes.push("Attestation is not fully verified; the AI result was treated as advisory only.");
 
   // Payout changed -> contact the vendor on a previously verified channel.
@@ -134,7 +146,7 @@ const shortReason = (c: CheckResult) =>
 
 /**
  * The only place a payment is released. Re-checks the hard rules at the moment of release, then asks NEAR
- * Intents for a real mainnet quote. Proofpay holds no treasury key: a signer sends the funds from their own
+ * Intents for a real mainnet quote. Bluvfi Business holds no treasury key: a signer sends the funds from their own
  * wallet to the deposit address, and settlement is confirmed from 1Click.
  */
 export async function release(p: Payment): Promise<void> {
@@ -158,14 +170,59 @@ export async function release(p: Payment): Promise<void> {
     p.reason = (e as Error).message;
     return;
   }
+  if (p.quote.source === "1click-dry") {
+    // Dry-run mode: a real 1Click price, but no deposit address, so nothing can be sent.
+    p.status = "approved";
+    p.headline = "Approved (dry run): nothing is sent";
+    p.reason = `1Click quoted ${p.quote.amountIn} USDC on NEAR for ${p.quote.amountOut} ${p.invoice.asset} on ${p.invoice.chain}. ONECLICK_DRY is on, so there is no deposit address and no payout.`;
+    return;
+  }
+  const v = s.vendors.find((x) => x.name === p.invoice.vendorName);
+  if (CUSTODY !== "manual") {
+    // The custodian holds the funds. The agent can only hand it this payout; the DAO council or OutLayer's policy decides.
+    try {
+      p.custody = await services.submitPayout(p);
+    } catch (e) {
+      const msg = (e as Error).message;
+      const refused = /policy refused|custody check failed/i.test(msg);
+      p.status = refused ? "blocked" : "held";
+      p.headline = refused ? "Blocked by the custodian" : "Held: the custodian could not take the payout";
+      p.reason = msg;
+      return;
+    }
+    if (v && !v.paidInvoiceNumbers.includes(p.invoice.invoiceNumber)) v.paidInvoiceNumbers.push(p.invoice.invoiceNumber); // reserved against duplicates
+    applyCustody(p);
+    return;
+  }
   p.status = "ready_to_send";
   p.headline = "Approved: send the funds";
   p.reason =
     `Send ${p.quote.amountIn} USDC on NEAR from the treasury to ${p.quote.depositAddress}${p.quote.deadline ? ` before ${p.quote.deadline}` : ""}. ` +
     `NEAR Intents then delivers ${p.quote.amountOut} ${p.invoice.asset} to the payee on ${p.invoice.chain}, confidentiality: ${p.confidentiality}. ` +
-    "Proofpay does not hold a treasury key, so a signer sends this from their own wallet and then records the transaction.";
-  const v = s.vendors.find((x) => x.name === p.invoice.vendorName);
+    "Bluvfi Business does not hold a treasury key, so a signer sends this from their own wallet and then records the transaction.";
   if (v && !v.paidInvoiceNumbers.includes(p.invoice.invoiceNumber)) v.paidInvoiceNumbers.push(p.invoice.invoiceNumber); // reserved against duplicates
+}
+
+/** Move a payment along with what the custodian reports. Executed means the USDC left for the 1Click deposit address. */
+function applyCustody(p: Payment) {
+  const c = p.custody!;
+  const where = c.backend === "sputnik" ? `DAO proposal #${c.ref}` : `OutLayer request ${c.ref}`;
+  if (c.state === "executed") {
+    p.status = "ready_to_send";
+    p.txRef = c.txHash ?? `${c.backend}:${c.ref}`;
+    p.headline = "Sent by the treasury: waiting for NEAR Intents to deliver";
+    p.reason = `${c.detail} NEAR Intents then delivers ${p.quote?.amountOut} ${p.invoice.asset} to the payee on ${p.invoice.chain}.`;
+  } else if (c.state === "pending") {
+    p.status = "proposed";
+    p.headline = c.backend === "sputnik" ? `Proposed to the treasury DAO (#${c.ref}): needs council votes` : "Submitted to the OutLayer wallet: waiting for its approvers";
+    p.reason = `${c.detail} The agent cannot move funds itself; ${where} only executes once the people who control the treasury approve it.`;
+  } else {
+    const v = state().vendors.find((x) => x.name === p.invoice.vendorName);
+    if (v) v.paidInvoiceNumbers = v.paidInvoiceNumbers.filter((n) => n !== p.invoice.invoiceNumber);
+    p.status = c.state === "rejected" ? "cancelled" : "held";
+    p.headline = c.state === "rejected" ? "Rejected by the treasury" : "Held: the treasury could not execute the payout";
+    p.reason = c.detail;
+  }
 }
 
 const requireSigner = (signer: string) => {
@@ -198,6 +255,14 @@ const FINAL_FAIL = new Set(["REFUNDED", "FAILED"]);
 /** Ask 1Click where the swap is. SUCCESS marks the payment paid; REFUNDED, FAILED or an expired quote releases the reservation. */
 export async function checkSettlement(id: string): Promise<Payment> {
   const p = mustFind(id);
+  if (p.status === "proposed" && p.custody) {
+    p.custody = await services.refreshPayout(p.custody);
+    applyCustody(p);
+    if ((p.status as PaymentStatus) !== "ready_to_send") {
+      seal(p);
+      return p;
+    }
+  }
   if (p.status !== "ready_to_send" || !p.quote) throw new Error("This payment is not waiting for funds");
   const status = await services.swapStatus(p.quote.depositAddress, p.quote.depositMemo);
   p.settlement = { status, checkedAt: new Date().toISOString() };
@@ -224,19 +289,23 @@ export function cancel(id: string): Payment {
   const p = mustFind(id);
   if (p.status === "paid") throw new Error("Already paid. Settled funds cannot be recalled.");
   if (p.status === "ready_to_send" && p.txRef) throw new Error("A transaction was already reported. Check settlement instead; sent funds cannot be recalled here.");
+  if (p.status === "ready_to_send" && p.custody) throw new Error("The treasury already sent this. Check settlement instead; sent funds cannot be recalled here.");
   const v = state().vendors.find((x) => x.name === p.invoice.vendorName);
-  if (p.status === "ready_to_send" && v) v.paidInvoiceNumbers = v.paidInvoiceNumbers.filter((n) => n !== p.invoice.invoiceNumber);
+  if ((p.status === "ready_to_send" || p.status === "proposed") && v) v.paidInvoiceNumbers = v.paidInvoiceNumbers.filter((n) => n !== p.invoice.invoiceNumber);
+  const open = p.status === "proposed" && p.custody;
   p.status = "cancelled";
   p.headline = "Cancelled";
-  p.reason = "A signer cancelled this payment before any funds left.";
+  p.reason = open
+    ? `A signer cancelled this payment here. ${p.custody!.backend === "sputnik" ? `Proposal #${p.custody!.ref} is still open on the DAO: vote Reject or Remove on it so it can never execute.` : "Reject the pending request in OutLayer so it can never execute."}`
+    : "A signer cancelled this payment before any funds left.";
   seal(p);
   return p;
 }
 
-export function resolveCallback(id: string, answer: "yes" | "no"): Payment {
+export function resolveCallback(id: string, answer: "yes" | "no", how?: string): Payment {
   const p = mustFind(id);
   if (!p.callback || p.callback.status !== "pending") throw new Error("No pending callback");
-  p.callback.answer = answer === "yes" ? "YES, that was us." : "NO, that was not us.";
+  p.callback.answer = (answer === "yes" ? "YES, that was us." : "NO, that was not us.") + (how ? ` (${how})` : "");
   p.callback.answeredAt = new Date().toISOString();
   if (answer === "no") {
     p.callback.status = "denied";
@@ -289,7 +358,7 @@ export function setKillSwitch(on: boolean) {
   state().killSwitch = on;
 }
 
-/** Proofpay Check: fraud engine as a service for any agent. */
+/** Bluvfi Business Check: fraud engine as a service for any agent. */
 export async function publicCheck(req: CheckRequest): Promise<CheckResponse> {
   await prefetchCounterparty(req.payoutAddress, req.chain);
   const checks = runPublicCheck(req, fraudContext());
@@ -331,4 +400,33 @@ export async function spendX402(url: string) {
   const r = await services.payX402(url, room);
   if (r.ok && r.priceUsd > 0) s.x402Spend.unshift({ at: new Date().toISOString(), url, priceUsd: r.priceUsd });
   return r;
+}
+
+/**
+ * Demo mode only: a council member votes on the simulated DAO. On mainnet votes are real transactions,
+ * cast in Trezu or sent gasless from the payment page through the relayer (lib/custody.ts relayVote).
+ */
+export async function demoTreasuryVote(id: string, member: string, approve: boolean): Promise<Payment> {
+  if (!DEMO) throw new Error("Votes go to the DAO itself on mainnet");
+  requireSigner(member);
+  const p = mustFind(id);
+  if (p.status !== "proposed" || p.custody?.backend !== "sputnik") throw new Error("This payment is not waiting for a DAO vote");
+  demoDao().vote(Number(p.custody.ref), member, approve ? "VoteApprove" : "VoteReject");
+  return checkSettlement(id);
+}
+
+/**
+ * Pick up the zero-knowledge proof of a payment's policy check once the background prover has made it, and verify
+ * it here (o1js, plus statement and output checked against the payment). Called when a payment is viewed and by
+ * `npm run zk:verify`.
+ */
+export async function refreshZk(p: Payment): Promise<Payment> {
+  if (!p.zkJob || p.verified.zkProof?.status === "verified") return p;
+  const before = JSON.stringify(p.verified.zkProof);
+  p.verified.zkProof = await verifyZk(p.id, p.zkJob);
+  if (JSON.stringify(p.verified.zkProof) !== before) {
+    seal(p);
+    persist();
+  }
+  return p;
 }

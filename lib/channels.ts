@@ -1,5 +1,6 @@
 import { resolveCallback } from "./agent";
 import { state } from "./store";
+import { spokenAnswer } from "./transcribe";
 import type { Payment } from "./types";
 
 const pendingFor = (match: (p: Payment) => boolean) =>
@@ -29,4 +30,17 @@ export function handleVoiceDigit(paymentId: string, digit: string): string {
   if (digit !== "1" && digit !== "2") return "Sorry, that was not a valid choice. Goodbye.";
   resolveCallback(p.id, digit === "1" ? "yes" : "no");
   return digit === "1" ? "Thank you. The details are confirmed. Goodbye." : "Thank you. We have cancelled the payment. Goodbye.";
+}
+
+/** Spoken answer on a voice callback, already transcribed. An unclear answer leaves the callback for a human. */
+export function handleVoiceSpeech(paymentId: string, transcript: string): string {
+  const p = state().payments.find((x) => x.id === paymentId);
+  if (!p?.callback || p.callback.status !== "pending" || p.callback.channel !== "voice") return "There is nothing waiting for your answer. Goodbye.";
+  const answer = spokenAnswer(transcript);
+  if (!answer) {
+    p.callback.answer = `Unclear spoken answer: "${transcript}" (transcribed by Whisper on NEAR AI). A person must confirm with the vendor.`;
+    return "Sorry, we could not understand that. Someone from our team will contact you. Goodbye.";
+  }
+  resolveCallback(p.id, answer, `spoken "${transcript}", transcribed by Whisper on NEAR AI`);
+  return answer === "yes" ? "Thank you. The details are confirmed. Goodbye." : "Thank you. We have cancelled the payment. Goodbye.";
 }

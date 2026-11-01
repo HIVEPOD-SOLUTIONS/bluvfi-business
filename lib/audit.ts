@@ -102,7 +102,7 @@ export async function toPdf(payments: Payment[]): Promise<Uint8Array> {
     y -= size + 6;
   };
   const policy = currentPolicy();
-  line("Proofpay evidence report", 20, bold);
+  line("Bluvfi Business evidence report", 20, bold);
   line(`Generated ${new Date().toISOString()}  |  Policy v${policy.version}  |  ${policy.hash.slice(0, 16)}...`, 9);
   y -= 8;
   line("Controls", 14, bold);

@@ -22,7 +22,7 @@ export default async function Check() {
   return (
     <>
       <PageHead
-        title="Proofpay Check"
+        title="Bluvfi Business Check"
         sub="Any agent can ask, before it pays: is this payee safe? You get allow, warn or block with reasons. Every treasury that reports fraud makes the answer better for everyone."
         right={<Badge tone="gold">0.01 USDC per check · x402</Badge>}
       />

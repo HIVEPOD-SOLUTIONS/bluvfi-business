@@ -11,11 +11,11 @@ export const GET = route<Ctx<"kind">>(async (req, { params }) => {
   const payments = state().payments;
   if (kind === "csv")
     return new NextResponse(toCsv(payments), {
-      headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="proofpay-audit.csv"' },
+      headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="bluvfi-business-audit.csv"' },
     });
   if (kind === "pdf")
     return new NextResponse(Buffer.from(await toPdf(payments)), {
-      headers: { "content-type": "application/pdf", "content-disposition": 'attachment; filename="proofpay-evidence.pdf"' },
+      headers: { "content-type": "application/pdf", "content-disposition": 'attachment; filename="bluvfi-business-evidence.pdf"' },
     });
   throw new Error("Unknown export");
 });

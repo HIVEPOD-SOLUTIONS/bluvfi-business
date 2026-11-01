@@ -72,7 +72,7 @@ test("MRCONFIGID binds the raw app_compose: 0x01, sha256, 15 zero bytes", () => 
 
 test("x402: no header gives a spec-shaped 402; verify then settle with the spec body; unsettled payment is refused", async () => {
   const call = (headers: Record<string, string> = {}) =>
-    checkRoute(new Request("https://proofpay.example/api/check", { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify({ payoutAddress: "0x9f3b2c1d7e0a45b6c8d9e1f2a3b4c5d6e7f80912" }) }), undefined);
+    checkRoute(new Request("https://bluvfi-business.example/api/check", { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify({ payoutAddress: "0x9f3b2c1d7e0a45b6c8d9e1f2a3b4c5d6e7f80912" }) }), undefined);
   const r402 = await call();
   assert.equal(r402.status, 402);
   const j = await r402.json();
@@ -123,7 +123,7 @@ test("Agent Market: finds the payee, starts, submits a verdict; asks when there 
       const out = await pollAgentMarket();
       assert.deepEqual(out.map((o) => [o.assignmentId, o.action]), [["a1", "submitted"], ["a2", "asked"]]);
       const submit = calls.find((c) => c.url.endsWith("/a1/submit"))!;
-      assert.match(JSON.parse(String(submit.init?.body)).deliverableMarkdown, /Proofpay Check:/);
+      assert.match(JSON.parse(String(submit.init?.body)).deliverableMarkdown, /Bluvfi Business Check:/);
       assert.equal((submit.init?.headers as Record<string, string>).authorization, "Bearer aat_test");
       assert.ok(calls.some((c) => c.url.endsWith("/a1/start")) && calls.some((c) => c.url.endsWith("/a2/messages")));
       assert.ok(!calls.some((c) => c.url.endsWith("/a2/submit")));
@@ -133,7 +133,7 @@ test("Agent Market: finds the payee, starts, submits a verdict; asks when there 
 });
 
 test("Agent Market poll route needs a signer or the cron secret", async () => {
-  const post = (headers: Record<string, string> = {}) => pollRoute(new Request("https://proofpay.example/api/agentmarket/poll", { method: "POST", headers }), undefined);
+  const post = (headers: Record<string, string> = {}) => pollRoute(new Request("https://bluvfi-business.example/api/agentmarket/poll", { method: "POST", headers }), undefined);
   assert.equal((await post()).status, 400);
   assert.equal((await post({ authorization: "Bearer wrong" })).status, 400);
   await withFetch(() => json({ assignments: [] }), async () => assert.equal((await post({ authorization: "Bearer cron-secret-test" })).status, 200));

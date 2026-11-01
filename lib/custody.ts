@@ -1,0 +1,375 @@
+import { deserialize } from "borsh";
+import { Account, JsonRpcProvider, KeyPair, SCHEMA, teraToGas, type KeyPairString } from "near-api-js";
+import { ASSET_ID, NEAR_USDC_CONTRACT } from "./chains";
+import {
+  AGENT_ACCOUNT, AGENT_PRIVATE_KEY, APPROVAL_THRESHOLD_SIGNERS, CUSTODY, DAO_ACCOUNT, DEMO, NEAR_RPC_URL, OUTLAYER_API_KEY, OUTLAYER_BASE,
+  PUBLIC_BASE_URL, RELAYER_ACCOUNT, RELAYER_PRIVATE_KEY, TREZU_APP_URL,
+} from "./config";
+import { canonical, sha256 } from "./crypto";
+import { state } from "./store";
+import type { CustodyRecord, Payment, Quote } from "./types";
+
+/**
+ * Custody without a contract of our own. The agent never holds a key that can move funds:
+ *
+ *  - sputnik: the treasury is a Sputnik DAO v2 (what Trezu runs). The agent's NEAR key is a function-call key
+ *    allowed to call only `add_proposal` on the DAO, with the DAO's proposal bond at 0 (a function-call key can
+ *    attach no deposit). It proposes `storage_deposit` + `ft_transfer` of USDC to the 1Click deposit address; the
+ *    council's approving vote executes it. Votes can be sent gasless through the relayer below.
+ *  - outlayer: an OutLayer agent wallet. The owner's policy (per-transaction and daily caps, allowlist, multisig
+ *    above a threshold, freeze) is enforced inside Intel TDX; the agent holds only an API key.
+ *
+ * Either way the evidence hash of the payment record goes onchain with the payout, in the proposal description
+ * or the ft_transfer memo.
+ */
+
+const STORAGE_DEPOSIT_YOCTO = "1250000000000000000000"; // 0.00125 NEAR, USDC's storage_balance_bounds.min
+const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64");
+
+/** Binds a payout to its record: what was paid, to whom, and the signed AI review and policy it passed. */
+export function evidenceHash(p: Payment): string {
+  return sha256(canonical({
+    payment: p.id,
+    invoice: p.invoice.invoiceNumber,
+    vendor: p.invoice.vendorName,
+    amountUsd: p.invoice.amountUsd,
+    payTo: `${p.invoice.chain}:${p.invoice.payoutAddress}`,
+    deposit: p.quote?.depositAddress ?? "",
+    checks: p.checks.map((c) => `${c.id}:${c.verdict}`),
+    aiSignature: p.verified.signature.signature,
+    aiSigner: p.verified.signature.signingAddress,
+    policy: p.verified.policyHash,
+  }));
+}
+
+const rawUsdc = (q: Quote, amountUsd: number) => q.amountInRaw ?? BigInt(Math.ceil(Number(q.amountIn || amountUsd) * 1e6)).toString();
+
+// ---------- NEAR RPC views ----------
+
+async function rpc<T>(params: Record<string, unknown>): Promise<T> {
+  const r = await fetch(NEAR_RPC_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: "bvb", method: "query", params: { finality: "final", ...params } }),
+    signal: AbortSignal.timeout(10_000),
+    cache: "no-store",
+  });
+  const j = (await r.json()) as { result?: T & { result?: number[] }; error?: { cause?: { name?: string }; message?: string } };
+  if (j.error || !j.result) throw new Error(j.error?.cause?.name ?? j.error?.message ?? `rpc ${r.status}`);
+  return j.result;
+}
+
+export async function viewDao<T>(method: string, args: object = {}): Promise<T> {
+  const res = await rpc<{ result: number[] }>({ request_type: "call_function", account_id: DAO_ACCOUNT, method_name: method, args_base64: b64(args) });
+  return JSON.parse(Buffer.from(res.result).toString()) as T;
+}
+
+interface DaoPolicy {
+  proposal_bond: string;
+  proposal_period: string;
+  roles: { name: string; kind: "Everyone" | { Group: string[] } | { Member: string }; permissions: string[] }[];
+}
+interface DaoProposal { id: number; status: string; kind: unknown; votes: Record<string, string>; description: string }
+
+// ---------- Is the agent's credential really scoped? ----------
+
+export interface CustodyCheck { mode: string; ok: boolean; facts: string[]; problems: string[]; killCommand?: string }
+
+let checkCache: { at: number; c: CustodyCheck } | undefined;
+
+/**
+ * Proves, from the chain or the custodian, that the agent cannot move funds on its own. The app refuses to
+ * submit payouts while this fails (for example with a full-access agent key or a DAO bond the key cannot pay).
+ */
+export async function checkCustody(): Promise<CustodyCheck> {
+  if (checkCache && Date.now() - checkCache.at < 5 * 60_000) return checkCache.c;
+  const c = DEMO ? demoCheck() : CUSTODY === "sputnik" ? await checkSputnik() : CUSTODY === "outlayer" ? await checkOutlayer() : manualCheck();
+  if (c.ok) checkCache = { at: Date.now(), c };
+  return c;
+}
+
+const manualCheck = (): CustodyCheck => ({
+  mode: "manual",
+  ok: true,
+  facts: ["No custody integration: the agent holds no key at all. A signer sends each payout from their own wallet."],
+  problems: [],
+});
+
+const demoCheck = (): CustodyCheck => ({
+  mode: "sputnik (demo)",
+  ok: true,
+  facts: [
+    `Treasury: ${DAO_ACCOUNT} (simulated in demo mode).`,
+    "Agent key: function-call only, receiver the DAO, method add_proposal (simulated).",
+    "Proposal bond 0, so the scoped key can propose; council votes execute.",
+  ],
+  problems: [],
+});
+
+async function checkSputnik(): Promise<CustodyCheck> {
+  const facts: string[] = [];
+  const problems: string[] = [];
+  let publicKey = "";
+  try {
+    publicKey = KeyPair.fromString(AGENT_PRIVATE_KEY as KeyPairString).getPublicKey().toString();
+    const key = await rpc<{ permission: "FullAccess" | { FunctionCall: { receiver_id: string; method_names: string[]; allowance: string | null } } }>({
+      request_type: "view_access_key", account_id: AGENT_ACCOUNT, public_key: publicKey,
+    });
+    if (key.permission === "FullAccess") problems.push(`The agent key on ${AGENT_ACCOUNT} is a FULL-ACCESS key. Replace it with a function-call key for add_proposal on ${DAO_ACCOUNT}.`);
+    else {
+      const fc = key.permission.FunctionCall;
+      if (fc.receiver_id !== DAO_ACCOUNT) problems.push(`The agent key may call ${fc.receiver_id}, not the DAO ${DAO_ACCOUNT}.`);
+      if (fc.method_names.length !== 1 || fc.method_names[0] !== "add_proposal") problems.push(`The agent key may call [${fc.method_names.join(", ") || "any method"}]; it must be limited to add_proposal.`);
+      if (!problems.length) facts.push(`Agent key ${publicKey.slice(0, 18)}… on ${AGENT_ACCOUNT}: function-call only, receiver ${DAO_ACCOUNT}, method add_proposal${fc.allowance ? `, gas allowance ${(Number(BigInt(fc.allowance) / BigInt(1e18)) / 1e6).toFixed(3)} NEAR` : ""}. It cannot transfer, add keys or vote.`);
+      if (fc.allowance && BigInt(fc.allowance) < BigInt(1e22)) problems.push("The agent key's gas allowance is almost used up; when it runs out the agent is locked out until the owner adds a new key.");
+    }
+  } catch (e) {
+    problems.push(`Could not read the agent key (${(e as Error).message}).`);
+  }
+  try {
+    const policy = await viewDao<DaoPolicy>("get_policy");
+    if (policy.proposal_bond !== "0") problems.push(`The DAO's proposal bond is ${policy.proposal_bond} yocto. A function-call key cannot attach a deposit, so set the bond to 0 (a ChangePolicyUpdateParameters proposal).`);
+    else facts.push("DAO proposal bond is 0, so the scoped key can propose.");
+    const agentRoles = policy.roles.filter((r) => r.kind === "Everyone" || ("Group" in r.kind && r.kind.Group.includes(AGENT_ACCOUNT)));
+    const canPropose = agentRoles.some((r) => r.permissions.some((p) => /^(\*|call|transfer):(\*|AddProposal)$/.test(p)));
+    if (!canPropose) problems.push(`${AGENT_ACCOUNT} has no DAO role allowed to add call proposals.`);
+    const council = policy.roles.filter((r) => r.permissions.some((p) => /:(\*|VoteApprove)$/.test(p)) && typeof r.kind === "object" && "Group" in r.kind);
+    facts.push(`Council (can approve): ${council.flatMap((r) => (r.kind as { Group: string[] }).Group).join(", ") || "none found"}.`);
+  } catch (e) {
+    problems.push(`Could not read the DAO policy of ${DAO_ACCOUNT} (${(e as Error).message}).`);
+  }
+  return {
+    mode: "sputnik",
+    ok: problems.length === 0,
+    facts,
+    problems,
+    killCommand: publicKey ? `near account delete-keys ${AGENT_ACCOUNT} public-keys ${publicKey} network-config mainnet sign-with-keychain send` : undefined,
+  };
+}
+
+async function outlayer<T>(path: string, init: RequestInit & { idempotencyKey?: string } = {}): Promise<{ status: number; body: T }> {
+  const r = await fetch(`${OUTLAYER_BASE}${path}`, {
+    ...init,
+    headers: {
+      authorization: `Bearer ${OUTLAYER_API_KEY}`,
+      "content-type": "application/json",
+      ...(init.idempotencyKey ? { "X-Idempotency-Key": init.idempotencyKey } : {}),
+    },
+    signal: AbortSignal.timeout(90_000),
+    cache: "no-store",
+  });
+  return { status: r.status, body: (await r.json().catch(() => ({}))) as T };
+}
+
+async function checkOutlayer(): Promise<CustodyCheck> {
+  const facts: string[] = [];
+  const problems: string[] = [];
+  try {
+    const { status, body: p } = await outlayer<{
+      controller?: string; frozen?: boolean; policy?: string;
+      rules?: { limits?: { per_transaction?: Record<string, string>; daily?: Record<string, string> }; addresses?: { mode: string; list: string[] } };
+      approval?: { threshold?: number | { required: number }; approvers?: unknown[] };
+    }>("/wallet/v1/policy");
+    if (status !== 200) throw new Error(`status ${status}`);
+    if (p.policy !== "stored") problems.push("This OutLayer wallet has no policy, so it is unrestricted. Set limits and approvers in the OutLayer dashboard first.");
+    if (p.frozen) facts.push("The wallet is FROZEN by its owner: nothing can be sent.");
+    facts.push(`OutLayer wallet controlled by ${p.controller ?? "unknown"}; the agent holds only an API key, keys stay in Intel TDX.`);
+    const lim = p.rules?.limits;
+    if (lim?.per_transaction || lim?.daily) facts.push(`Limits enforced by OutLayer: per transaction ${JSON.stringify(lim.per_transaction ?? {})}, daily ${JSON.stringify(lim.daily ?? {})}.`);
+    const t = p.approval?.threshold;
+    if (t) facts.push(`Multisig: ${typeof t === "number" ? t : t.required} approver(s) above the threshold.`);
+  } catch (e) {
+    problems.push(`Could not read the OutLayer policy (${(e as Error).message}).`);
+  }
+  return { mode: "outlayer", ok: problems.length === 0, facts, problems };
+}
+
+// ---------- Submit a payout ----------
+
+/** Hand an approved payment to the custodian. Throws if the custodian refuses (e.g. an OutLayer policy limit). */
+export async function submitPayout(p: Payment): Promise<CustodyRecord> {
+  if (!p.quote) throw new Error("No quote to pay");
+  const check = await checkCustody();
+  if (!check.ok) throw new Error(`Custody check failed: ${check.problems.join(" ")}`);
+  const evidence = evidenceHash(p);
+  const amount = rawUsdc(p.quote, p.invoice.amountUsd);
+  const memo = `bluvfi:${evidence.slice(0, 32)}`;
+  return CUSTODY === "outlayer" ? submitOutlayer(p, amount, memo, evidence) : submitSputnik(p, amount, memo, evidence);
+}
+
+function proposalFor(p: Payment, amount: string, memo: string, evidence: string) {
+  const dep = p.quote!.depositAddress;
+  const kind = {
+    FunctionCall: {
+      receiver_id: NEAR_USDC_CONTRACT,
+      actions: [
+        { method_name: "storage_deposit", args: b64({ account_id: dep, registration_only: true }), deposit: STORAGE_DEPOSIT_YOCTO, gas: "10000000000000" },
+        { method_name: "ft_transfer", args: b64({ receiver_id: dep, amount, memo }), deposit: "1", gas: "20000000000000" },
+      ],
+    },
+  };
+  const description = trezuDescription({
+    proposal_action: "payment-transfer",
+    title: `Invoice ${p.invoice.invoiceNumber}: ${p.invoice.vendorName}`,
+    notes: `Proposed by the Bluvfi Business agent. ${p.invoice.amountUsd} USD in ${p.invoice.asset} on ${p.invoice.chain}. AI recommends ${p.ai.decision} (risk ${p.ai.riskScore}/100); every policy and fraud check passed.`,
+    url: PUBLIC_BASE_URL ? `${PUBLIC_BASE_URL}/payments/${p.id}` : "",
+    recipient: p.invoice.payoutAddress,
+    destinationNetwork: ASSET_ID[`${p.invoice.chain}:${p.invoice.asset}`] ?? "",
+    depositAddress: dep,
+    signature: p.quote!.signature ?? "",
+    // Ours, beyond what Trezu displays: the record this payout is bound to, and the signed AI review behind it.
+    evidence,
+    ai_signer: p.verified.signature.signingAddress,
+    ai_signature: p.verified.signature.signature,
+    policy: `v${p.verified.policyVersion}:${p.verified.policyHash}`,
+  });
+  return { kind, description };
+}
+
+/**
+ * Trezu's proposal description format (nt-fe/lib/utils.ts encodeToMarkdown): `* Readable Key: value` lines joined
+ * by " <br>". With `proposal_action: payment-transfer` Trezu (and NEAR Business, built the same way) shows the
+ * proposal as a Payment Request to `recipient` on `destinationNetwork`, routed through the 1Click `depositAddress`.
+ */
+export function trezuDescription(data: Record<string, string>): string {
+  const readable = (k: string) => k.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/\b\w/g, (c) => c.toUpperCase());
+  return Object.entries(data)
+    .filter(([, v]) => v !== "")
+    .map(([k, v]) => `* ${readable(k)}: ${v.replace(/<br>/gi, " ")}`)
+    .join(" <br>");
+}
+
+async function submitSputnik(p: Payment, amount: string, memo: string, evidence: string): Promise<CustodyRecord> {
+  const { kind, description } = proposalFor(p, amount, memo, evidence);
+  let id: number;
+  if (DEMO) id = demoDao().propose(kind, description);
+  else {
+    const agent = new Account(AGENT_ACCOUNT, new JsonRpcProvider({ url: NEAR_RPC_URL }), AGENT_PRIVATE_KEY as KeyPairString);
+    id = Number(await agent.callFunction({ contractId: DAO_ACCOUNT, methodName: "add_proposal", args: { proposal: { description, kind } }, gas: teraToGas(50), deposit: BigInt(0) }));
+  }
+  return {
+    backend: "sputnik",
+    ref: String(id),
+    url: `${TREZU_APP_URL}/${DAO_ACCOUNT}/requests/${id}`,
+    evidenceHash: evidence,
+    submittedAt: new Date().toISOString(),
+    state: "pending",
+    detail: `Proposal #${id} on ${DAO_ACCOUNT}, waiting for the council's votes.`,
+    kind,
+  };
+}
+
+interface OutlayerResult { request_id?: string; status?: string; tx_hash?: string; approval_id?: string; required?: number; approved?: number; error?: string; message?: string; result?: { reason?: string } }
+
+async function submitOutlayer(p: Payment, amount: string, memo: string, evidence: string): Promise<CustodyRecord> {
+  const dep = p.quote!.depositAddress;
+  const reg = await outlayer<OutlayerResult>("/wallet/v1/storage-deposit", { method: "POST", body: JSON.stringify({ token: NEAR_USDC_CONTRACT, account_id: dep }) });
+  if (reg.status >= 400) throw new Error(`OutLayer refused the storage deposit: ${reg.body.message ?? reg.body.error ?? reg.status}`);
+  const { status, body } = await outlayer<OutlayerResult>("/wallet/v1/call", {
+    method: "POST",
+    idempotencyKey: `bluvfi-${p.id}`,
+    body: JSON.stringify({ receiver_id: NEAR_USDC_CONTRACT, method_name: "ft_transfer", args: { receiver_id: dep, amount, memo }, gas: "30000000000000", deposit: "1" }),
+  });
+  // A policy refusal (limits, allowlist, frozen) comes back synchronously as 403. That is the TEE-enforced policy working.
+  if (status === 403) throw new Error(`OutLayer policy refused the payout (${body.error}): ${body.message ?? ""}`);
+  if (status >= 400 || !body.request_id) throw new Error(`OutLayer call failed (${status}): ${body.message ?? body.error ?? "no request id"}`);
+  const rec: CustodyRecord = {
+    backend: "outlayer", ref: body.request_id, evidenceHash: evidence, submittedAt: new Date().toISOString(),
+    state: "pending", detail: "", approvalId: body.approval_id, txHash: body.tx_hash,
+    url: body.approval_id ? "https://app.outlayer.ai/wallet/approvals" : undefined,
+  };
+  return applyOutlayerStatus(rec, body);
+}
+
+function applyOutlayerStatus(rec: CustodyRecord, b: OutlayerResult): CustodyRecord {
+  const s = b.status ?? "";
+  rec.txHash = b.tx_hash ?? rec.txHash;
+  if (s === "success") Object.assign(rec, { state: "executed", detail: `OutLayer sent the USDC (tx ${rec.txHash ?? "?"}).` });
+  else if (s === "rejected") Object.assign(rec, { state: "rejected", detail: "The OutLayer approvers rejected this payout." });
+  else if (s === "failed" || s === "needs_review") Object.assign(rec, { state: "failed", detail: `OutLayer could not execute it (${b.result?.reason ?? s}).` });
+  else if (s === "pending_approval") Object.assign(rec, { state: "pending", detail: `Waiting for OutLayer approvers (${b.approved ?? 0} of ${b.required ?? "?"}).` });
+  else Object.assign(rec, { state: "pending", detail: `OutLayer status: ${s || "processing"}.` });
+  return rec;
+}
+
+// ---------- Follow a submitted payout ----------
+
+export async function refreshPayout(rec: CustodyRecord): Promise<CustodyRecord> {
+  if (rec.backend === "outlayer") {
+    const { body } = await outlayer<OutlayerResult>(`/wallet/v1/requests/${encodeURIComponent(rec.ref)}`);
+    return applyOutlayerStatus(rec, body);
+  }
+  const prop: DaoProposal = DEMO ? demoDao().get(Number(rec.ref)) : await viewDao<DaoProposal>("get_proposal", { id: Number(rec.ref) });
+  rec.votes = prop.votes;
+  const n = Object.keys(prop.votes ?? {}).length;
+  if (prop.status === "Approved") Object.assign(rec, { state: "executed", detail: `Proposal #${rec.ref} approved and executed: the DAO sent the USDC to the NEAR Intents deposit address.` });
+  else if (prop.status === "Rejected" || prop.status === "Removed" || prop.status === "Expired") Object.assign(rec, { state: "rejected", detail: `Proposal #${rec.ref} was ${prop.status.toLowerCase()}. Nothing left the treasury.` });
+  else if (prop.status === "Failed") Object.assign(rec, { state: "failed", detail: `Proposal #${rec.ref} was approved but the transfer failed; the funds are still in the DAO.` });
+  else Object.assign(rec, { state: "pending", detail: `Proposal #${rec.ref} is open, ${n} vote${n === 1 ? "" : "s"} so far.` });
+  return rec;
+}
+
+// ---------- Gasless council votes (NEP-366) ----------
+
+export const relayerEnabled = () => !DEMO && CUSTODY === "sputnik" && !!RELAYER_ACCOUNT && /^(ed25519|mldsa65):/.test(RELAYER_PRIVATE_KEY);
+
+interface DecodedDelegate {
+  delegateAction: {
+    senderId: string;
+    receiverId: string;
+    actions: { functionCall?: { methodName: string; args: number[] | Uint8Array; gas: bigint; deposit: bigint } }[];
+  };
+}
+
+/**
+ * Relay a council member's vote. The vote is a SignedDelegate made in their browser with their own key; the
+ * relayer only pays the gas. It relays nothing but one `act_proposal` on our DAO, with no deposit, from a
+ * council member, so it cannot be used to spend the relayer's NEAR on anything else.
+ */
+export async function relayVote(signedDelegateBase64: string): Promise<{ txHash: string; sender: string }> {
+  if (!relayerEnabled()) throw new Error("The relayer is not configured (RELAYER_ACCOUNT, RELAYER_PRIVATE_KEY).");
+  const decoded = deserialize(SCHEMA.SignedDelegate, Buffer.from(signedDelegateBase64, "base64")) as unknown as DecodedDelegate;
+  const da = decoded.delegateAction;
+  if (da.receiverId !== DAO_ACCOUNT) throw new Error("Only votes on our DAO are relayed");
+  const fc = da.actions.length === 1 ? da.actions[0].functionCall : undefined;
+  if (!fc || fc.methodName !== "act_proposal") throw new Error("Only a single act_proposal call is relayed");
+  if (BigInt(fc.deposit) !== BigInt(0)) throw new Error("Votes carry no deposit");
+  const args = JSON.parse(Buffer.from(Uint8Array.from(fc.args)).toString()) as { action?: string };
+  if (!["VoteApprove", "VoteReject", "VoteRemove"].includes(String(args.action))) throw new Error("Only votes are relayed");
+  const policy = await viewDao<DaoPolicy>("get_policy");
+  const council = policy.roles.flatMap((r) => (typeof r.kind === "object" && "Group" in r.kind ? r.kind.Group : []));
+  if (!council.includes(da.senderId)) throw new Error(`${da.senderId} is not on the DAO council`);
+  const relayer = new Account(RELAYER_ACCOUNT, new JsonRpcProvider({ url: NEAR_RPC_URL }), RELAYER_PRIVATE_KEY as KeyPairString);
+  const out = await relayer.relayMetaTransaction(decoded as never);
+  return { txHash: String((out as { transaction?: { hash?: string } }).transaction?.hash ?? ""), sender: da.senderId };
+}
+
+// ---------- Demo mode: a simulated DAO with the same rules ----------
+
+/** In demo mode the DAO lives in the app state: proposals open, council votes, approval at the signer threshold. */
+export function demoDao() {
+  const s = state();
+  const dao = (s.demoDao ??= { lastId: 41, proposals: {} });
+  return {
+    propose(kind: unknown, description: string) {
+      const id = ++dao.lastId;
+      dao.proposals[id] = { id, status: "InProgress", kind, votes: {}, description };
+      return id;
+    },
+    get(id: number): DaoProposal {
+      const p = dao.proposals[id];
+      if (!p) throw new Error(`No proposal #${id}`);
+      return p;
+    },
+    vote(id: number, member: string, action: "VoteApprove" | "VoteReject") {
+      const p = this.get(id);
+      if (p.status !== "InProgress") throw new Error(`Proposal #${id} is ${p.status}`);
+      p.votes[member] = action === "VoteApprove" ? "Approve" : "Reject";
+      const yes = Object.values(p.votes).filter((v) => v === "Approve").length;
+      const no = Object.values(p.votes).filter((v) => v === "Reject").length;
+      if (yes >= APPROVAL_THRESHOLD_SIGNERS) p.status = "Approved";
+      else if (no >= APPROVAL_THRESHOLD_SIGNERS) p.status = "Rejected";
+      return p;
+    },
+  };
+}

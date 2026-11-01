@@ -3,7 +3,7 @@ import { getCollateralAndVerify } from "@phala/dcap-qvl";
 import { NEAR_AI_BASE, NEAR_AI_KEY, NEAR_AI_MODEL } from "./config";
 import { parseJudgment } from "./nearai-core";
 import { checkMeasurements } from "./tdx";
-import type { AiJudgment, Attestation, SignedDecision } from "./types";
+import type { AiJudgment, AiSource, Attestation, SignedDecision } from "./types";
 
 export interface Judged {
   decision: SignedDecision;
@@ -26,11 +26,26 @@ const norm = (s: string) => s.toLowerCase().replace(/^0x/, "");
 type Report = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 /**
+ * Everything NEAR AI Cloud returned for one review, kept byte for byte so it can be verified again later.
+ * Demo mode replays these from `fixtures/nearai/`; `source` says where a bundle came from.
+ */
+export interface NearAiBundle {
+  model: string;
+  nonce: string;
+  requestBody: unknown;
+  attestationReport: Report;
+  rawResponse: string;
+  signatureResponse: { text?: string; signature?: string; signing_address?: string; signature_kind?: string; error_code?: string; message?: string };
+  recordedAt: string;
+  source: AiSource;
+}
+
+/**
  * Flow (docs.near.ai/cloud/verification): attestation with our own nonce first, then the completion,
  * then the response signature. The signed hashes cover the exact request and response bytes, so both
  * are kept as sent and received. Throws on any failure; the caller then holds the payment for a human.
  */
-export async function judgeWithNearAi(requestBody: unknown): Promise<Judged> {
+export async function fetchNearAi(requestBody: unknown): Promise<NearAiBundle> {
   if (!NEAR_AI_KEY) throw new Error("NEAR_AI_API_KEY is not set");
   const nonce = randomBytes(32).toString("hex");
 
@@ -39,7 +54,7 @@ export async function judgeWithNearAi(requestBody: unknown): Promise<Judged> {
     { headers: headers(), signal: timeout() }
   );
   if (!attRes.ok) throw new Error(`NEAR AI attestation failed: ${attRes.status}`);
-  const att = (await attRes.json()) as Report;
+  const attestationReport = (await attRes.json()) as Report;
 
   const sentBody = JSON.stringify(requestBody);
   const chatRes = await fetch(`${NEAR_AI_BASE}/chat/completions`, {
@@ -50,14 +65,27 @@ export async function judgeWithNearAi(requestBody: unknown): Promise<Judged> {
   });
   if (!chatRes.ok) throw new Error(`NEAR AI chat failed: ${chatRes.status}`);
   const rawResponse = Buffer.from(await chatRes.arrayBuffer()).toString("utf8");
-  const chat = JSON.parse(rawResponse) as { id: string; choices: { message: { content: string } }[] };
-  const content = chat.choices[0].message.content;
+  const chatId = (JSON.parse(rawResponse) as { id: string }).id;
 
-  const sigRes = await fetch(`${NEAR_AI_BASE}/signature/${encodeURIComponent(chat.id)}?${new URLSearchParams({ signing_algo: ALGO })}`, { headers: headers(), signal: timeout() });
+  const sigRes = await fetch(`${NEAR_AI_BASE}/signature/${encodeURIComponent(chatId)}?${new URLSearchParams({ signing_algo: ALGO })}`, { headers: headers(), signal: timeout() });
   if (!sigRes.ok) throw new Error(`NEAR AI signature failed: ${sigRes.status}`);
-  const sig = (await sigRes.json()) as { text?: string; signature?: string; signing_address?: string; signature_kind?: string; error_code?: string; message?: string };
+  const signatureResponse = (await sigRes.json()) as NearAiBundle["signatureResponse"];
+  return { model: NEAR_AI_MODEL, nonce, requestBody, attestationReport, rawResponse, signatureResponse, recordedAt: new Date().toISOString(), source: "live" };
+}
+
+export const judgeWithNearAi = async (requestBody: unknown): Promise<Judged> => verifyNearAiBundle(await fetchNearAi(requestBody));
+
+/** Check a bundle, live or recorded: the same signature, attestation and hardware checks run either way. */
+export async function verifyNearAiBundle(b: NearAiBundle): Promise<Judged> {
+  const sig = b.signatureResponse;
   if (sig.error_code || !sig.text || !sig.signature || !sig.signing_address) throw new Error(`NEAR AI signature unavailable: ${sig.message ?? sig.error_code ?? "empty"}`);
   if (sig.signature_kind !== "provider_tee" && sig.signature_kind !== "gateway") throw new Error("NEAR AI signature has an unknown signature_kind");
+  const chat = JSON.parse(b.rawResponse) as { id: string; choices: { message: { content: string } }[] };
+  const content = chat.choices[0].message.content;
+  const att = b.attestationReport;
+  const nonce = b.nonce;
+  const rawResponse = b.rawResponse;
+  const requestBody = b.requestBody;
 
   // The report that must vouch for this signer: exactly one model report for provider_tee, the gateway report otherwise.
   const candidates: Report[] = sig.signature_kind === "gateway" ? [att.gateway_attestation].filter(Boolean) : (att.model_attestations ?? []);
@@ -65,21 +93,26 @@ export async function judgeWithNearAi(requestBody: unknown): Promise<Judged> {
   if (matches.length !== 1) throw new Error(`NEAR AI attestation: ${matches.length} reports match the signer, expected exactly 1`);
   const rep = matches[0];
 
-  const [cpu, gpu] = await Promise.all([verifyTdx(rep), verifyGpu(rep.nvidia_payload, nonce)]);
+  // A demo fixture was signed locally, so there is no hardware evidence to check and none is claimed.
+  const demoNote = "Demo fixture: signed with the public demo key in lib/demo.ts, not by attested hardware. Record real reviews with `npm run fixtures:record`.";
+  const [cpu, gpu] =
+    b.source === "demo-fixture"
+      ? [{ ok: false, reportData: "", note: demoNote }, { ok: false, nonce: "", note: "Demo fixture: no NVIDIA GPU evidence." }]
+      : await Promise.all([verifyTdx(rep), verifyGpu(rep.nvidia_payload, nonce)]);
   const attestation: Attestation = {
-    model: NEAR_AI_MODEL,
+    model: b.model,
     nonce: String(rep.request_nonce ?? ""),
     signingAddress: String(rep.signing_address),
     signingAlgo: ALGO,
     gpuEvidence: { arch: "HOPPER", nonce: gpu.nonce, verified: gpu.ok, note: gpu.note },
     // reportData is read from the quote itself (the report does not return it), so it is only as trustworthy as `verified`.
     cpuEvidence: { type: "intel-tdx", reportData: cpu.reportData, verified: cpu.ok, note: cpu.note },
-    source: "live",
+    source: b.source,
   };
   return {
     decision: {
       chatId: chat.id,
-      model: NEAR_AI_MODEL,
+      model: b.model,
       content,
       rawResponse,
       signatureKind: sig.signature_kind,
@@ -87,7 +120,7 @@ export async function judgeWithNearAi(requestBody: unknown): Promise<Judged> {
       signature: sig.signature,
       signingAddress: sig.signing_address,
       attestation,
-      source: "live",
+      source: b.source,
     },
     requestBody,
     expectedNonce: nonce,

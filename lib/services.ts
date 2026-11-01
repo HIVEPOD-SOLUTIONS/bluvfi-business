@@ -1,22 +1,30 @@
 import { lookupSignals, treasuryBalances } from "./chain";
-import { NEAR_AI_MODEL } from "./config";
+import { DEMO, NEAR_AI_MODEL } from "./config";
+import { refreshPayout, submitPayout } from "./custody";
+import { demoServices } from "./demo";
 import { judgeWithNearAi } from "./nearai";
 import { buildRequest, type JudgeFacts } from "./nearai-core";
-import { payX402, quotePayout, quoteReceivable, sendCallback, swapStatus } from "./rails";
+import { payX402, quoteForWidget, quotePayout, quoteReceivable, sendCallback, swapStatus } from "./rails";
 import { redact } from "./redact";
 
 /**
  * Every outside service the app talks to, in one object. The defaults are the real mainnet
- * services. Tests replace members of this object with fakes; nothing else does.
+ * services. Demo mode (BLUVFI_DEMO=1) swaps in the fixtures from lib/demo.ts; tests replace members
+ * with fakes. Nothing else changes them.
  */
 export const services = {
   redact,
   judge: (redactedText: string, facts: JudgeFacts) => judgeWithNearAi(buildRequest(NEAR_AI_MODEL, redactedText, facts)),
   quotePayout,
   quoteReceivable,
+  quoteForWidget,
   swapStatus,
   sendCallback,
   lookupSignals,
   treasuryBalances,
   payX402,
+  submitPayout,
+  refreshPayout,
 };
+
+if (DEMO) Object.assign(services, demoServices(NEAR_AI_MODEL));

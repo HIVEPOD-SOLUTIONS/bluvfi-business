@@ -72,8 +72,11 @@ export interface Attestation {
   signingAlgo: "ed25519";
   gpuEvidence: { arch: string; nonce: string; verified: boolean; note: string };
   cpuEvidence: { type: "intel-tdx"; reportData: string; verified: boolean; note: string };
-  source: "live";
+  source: AiSource;
 }
+
+/** live: fetched now. recorded: a real NEAR AI response replayed. demo-fixture: made locally for demo mode, never attested. */
+export type AiSource = "live" | "recorded" | "demo-fixture";
 
 export interface SignedDecision {
   chatId: string;
@@ -87,7 +90,7 @@ export interface SignedDecision {
   signature: string;
   signingAddress: string;
   attestation: Attestation;
-  source: "live";
+  source: AiSource;
 }
 
 export interface AiJudgment {
@@ -105,7 +108,7 @@ export interface VerifiedPanel {
     binding: boolean;
     model: string;
     nonce: string;
-    source: "live";
+    source: AiSource;
     notes: string[];
   };
   signature: {
@@ -119,7 +122,8 @@ export interface VerifiedPanel {
   };
   policyVersion: number;
   policyHash: string;
-  zkProof: null | { system: string; note: string };
+  /** Zero-knowledge proof of the policy check, made with o1js (lib/zk.ts). */
+  zkProof: null | { system: string; status: "pending" | "verified" | "invalid"; note: string; outputBits?: number; proverSeconds?: number };
   pqSignature: { algo: "ML-DSA-65"; publicKey: string; signature: string; valid: boolean };
 }
 
@@ -127,6 +131,7 @@ export type PaymentStatus =
   | "paid"
   | "approved"
   | "ready_to_send"
+  | "proposed"
   | "awaiting_approval"
   | "held"
   | "blocked"
@@ -140,7 +145,7 @@ export interface CallbackRecord {
   status: "pending" | "confirmed" | "denied";
   answer?: string;
   answeredAt?: string;
-  delivered: "telegram" | "voice" | "manual";
+  delivered: "telegram" | "voice" | "manual" | "demo";
 }
 
 /** A real 1Click quote. The treasury sends amountIn to depositAddress before the deadline. */
@@ -149,9 +154,33 @@ export interface Quote {
   /** Required by some origin chains; must be sent with the deposit and passed to the status call. */
   depositMemo?: string;
   amountIn: string;
+  /** amountIn in raw units (USDC: 6 decimals), what the custodian transfers. */
+  amountInRaw?: string;
   amountOut: string;
   deadline?: string;
-  source: "1click";
+  /** 1Click signature over the quote, shown by Trezu on the payment request. */
+  signature?: string;
+  source: "1click" | "1click-dry" | "demo-fixture";
+}
+
+/**
+ * Where a released payment sits with the custodian (lib/custody.ts). The evidence hash is written onchain with it
+ * (the DAO proposal description, or the ft_transfer memo), binding the payout to this record.
+ */
+export interface CustodyRecord {
+  backend: "sputnik" | "outlayer";
+  /** DAO proposal id, or OutLayer request id. */
+  ref: string;
+  url?: string;
+  evidenceHash: string;
+  submittedAt: string;
+  state: "pending" | "executed" | "rejected" | "failed";
+  detail: string;
+  votes?: Record<string, string>;
+  /** Sputnik: the proposal kind, needed verbatim by act_proposal. */
+  kind?: unknown;
+  approvalId?: string;
+  txHash?: string;
 }
 
 export interface Payment {
@@ -167,12 +196,17 @@ export interface Payment {
   verified: VerifiedPanel;
   callback?: CallbackRecord;
   quote?: Quote;
+  custody?: CustodyRecord;
+  /** Public inputs of the policy-check proof for this payment (lib/zk.ts). */
+  zkJob?: import("./zk").ZkJob;
   /** Transaction hash a signer reports after sending to the deposit address. */
   txRef?: string;
   settlement?: { status: string; checkedAt: string };
   holdUntil?: string;
   createdAt: string;
   redactedInput: string;
+  /** Who stripped personal data before the model saw it. */
+  redactedBy?: "near-ai+local-regex" | "local-regex";
   recordHash: string;
   approvedBy?: string;
   prevHash: string;

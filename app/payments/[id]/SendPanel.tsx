@@ -13,7 +13,7 @@ export function SendPanel({
     <section className="card mb-4" style={{ borderColor: "rgba(10,10,232,.5)" }}>
       <h2>Send the funds</h2>
       <p className="mt-1 text-sm" style={{ color: "var(--tx-1)" }}>
-        Approved. Proofpay holds no treasury key, so a signer sends this from the treasury wallet. NEAR Intents then delivers {quote.amountOut} {asset} on {chain}.
+        Approved. Bluvfi Business holds no treasury key, so a signer sends this from the treasury wallet. NEAR Intents then delivers {quote.amountOut} {asset} on {chain}.
       </p>
       <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
         <dt style={{ color: "var(--tx-2)" }}>Send</dt><dd className="amount">{quote.amountIn} USDC (NEAR mainnet)</dd>

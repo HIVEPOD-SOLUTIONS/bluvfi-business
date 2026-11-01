@@ -9,7 +9,7 @@ const bytesToHex = (b: Uint8Array) => Buffer.from(b).toString("hex");
 
 /** Derive a purpose-bound 32-byte key from the master key. */
 export const deriveKey = (masterHex: string, purpose: string) =>
-  createHmac("sha256", Buffer.from(masterHex, "hex")).update(`proofpay:${purpose}`).digest("hex");
+  createHmac("sha256", Buffer.from(masterHex, "hex")).update(`bluvfi-business:${purpose}`).digest("hex");
 
 /** JSON with sorted keys, so a hash of it never depends on property order. */
 export function canonical(v: unknown): string {

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { MASTER_KEY } from "./config";
+import { DEMO, MASTER_KEY } from "./config";
 import { deriveKey } from "./crypto";
 import { DEFAULT_POLICY_BODY, makePolicy } from "./policy";
 import { services } from "./services";
@@ -21,11 +21,13 @@ export interface State {
   ledgerPublic: boolean;
   x402Spend: { at: string; url: string; priceUsd: number }[];
   checkLog: { at: string; verdict: string }[];
+  /** Demo mode only: the simulated treasury DAO (lib/custody.ts). */
+  demoDao?: { lastId: number; proposals: Record<number, { id: number; status: string; kind: unknown; votes: Record<string, string>; description: string }> };
 }
 
-/** Keys come from PROOFPAY_MASTER_KEY, never from the snapshot file. */
+/** Keys come from BLUVFI_MASTER_KEY, never from the snapshot file. */
 const need = () => {
-  if (!/^[0-9a-f]{64}$/i.test(MASTER_KEY)) throw new Error("PROOFPAY_MASTER_KEY is not set (64 hex characters)");
+  if (!/^[0-9a-f]{64}$/i.test(MASTER_KEY)) throw new Error("BLUVFI_MASTER_KEY is not set (64 hex characters)");
   return MASTER_KEY;
 };
 export const dataKey = () => deriveKey(need(), "record-encryption");
@@ -47,10 +49,10 @@ const fresh = (): State => ({
   checkLog: [],
 });
 
-// State lives in this process and is snapshotted to a JSON file after every write (set PROOFPAY_PERSIST=0 to
+// State lives in this process and is snapshotted to a JSON file after every write (set BLUVFI_PERSIST=0 to
 // disable, e.g. in tests). The snapshot holds business data and encrypted records, not keys.
-const FILE = process.env.PROOFPAY_PERSIST === "0" ? "" : (process.env.PROOFPAY_DATA_FILE ?? ".data/state.json");
-const g = globalThis as unknown as { __proofpay?: State };
+const FILE = process.env.BLUVFI_PERSIST === "0" ? "" : (process.env.BLUVFI_DATA_FILE ?? (DEMO ? ".data/demo.json" : ".data/state.json"));
+const g = globalThis as unknown as { __bluvfiBusiness?: State };
 
 function load(): State {
   if (FILE && existsSync(FILE)) {
@@ -63,17 +65,20 @@ function load(): State {
   return fresh();
 }
 
-export const state = (): State => (g.__proofpay ??= load());
+export const state = (): State => (g.__bluvfiBusiness ??= load());
 /** Test helper. */
 export const resetState = () => {
-  g.__proofpay = fresh();
-  return g.__proofpay;
+  g.__bluvfiBusiness = fresh();
+  return g.__bluvfiBusiness;
 };
+/** False in tests and the CLI demo, which keep nothing on disk. */
+export const persistenceOn = () => !!FILE;
+
 export function persist() {
-  if (!FILE || !g.__proofpay) return;
+  if (!FILE || !g.__bluvfiBusiness) return;
   mkdirSync(dirname(FILE), { recursive: true });
   const tmp = FILE + ".tmp";
-  writeFileSync(tmp, JSON.stringify(g.__proofpay));
+  writeFileSync(tmp, JSON.stringify(g.__bluvfiBusiness));
   renameSync(tmp, FILE);
 }
 
@@ -83,7 +88,7 @@ export const currentPolicy = () => state().policies[state().policies.length - 1]
 export const spentTodayUsd = () => {
   const today = new Date().toISOString().slice(0, 10);
   return state().payments
-    .filter((p) => (p.status === "paid" || p.status === "ready_to_send") && p.createdAt.startsWith(today))
+    .filter((p) => (p.status === "paid" || p.status === "ready_to_send" || p.status === "proposed") && p.createdAt.startsWith(today))
     .reduce((s, p) => s + p.invoice.amountUsd, 0);
 };
 
