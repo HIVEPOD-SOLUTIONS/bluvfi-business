@@ -1,0 +1,90 @@
+import { canonical, sha256 } from "./crypto";
+import type { CheckResult, Invoice, Policy, PolicyProposal } from "./types";
+
+/**
+ * Policy gate. Deterministic, no AI in the loop: whatever the model says, this decides
+ * whether money may move. There is no smart contract in this build; the gate runs in the
+ * server process and is the only code path that can release a payment.
+ */
+export function hashPolicy(p: Omit<Policy, "hash">): string {
+  return sha256(canonical(p));
+}
+
+export function makePolicy(
+  version: number,
+  body: PolicyProposal["changes"],
+  createdAt = new Date().toISOString()
+): Policy {
+  const partial = { version, createdAt, ...body };
+  return { ...partial, hash: hashPolicy(partial) };
+}
+
+export const DEFAULT_POLICY_BODY: PolicyProposal["changes"] = {
+  perPaymentLimitUsd: 10_000,
+  dailyLimitUsd: 15_000,
+  approvalThresholdUsd: 5_000,
+  holdWindowMinutes: 30,
+  allowedChains: ["near", "eth", "arb", "base", "sol"],
+  allowedAssets: ["USDC", "USDT"],
+  vendorAllowlist: [],
+  x402DailyLimitUsd: 5,
+};
+
+export interface PolicyContext {
+  killSwitch: boolean;
+  spentTodayUsd: number;
+}
+
+export function evaluatePolicy(inv: Invoice, policy: Policy, ctx: PolicyContext): CheckResult[] {
+  const r: CheckResult[] = [];
+  const add = (
+    id: string,
+    label: string,
+    ok: boolean,
+    okMsg: string,
+    badMsg: string,
+    bad: "warn" | "block" = "block"
+  ) => r.push({ id, label, verdict: ok ? "allow" : bad, reason: ok ? okMsg : badMsg });
+
+  const usd = (n: number) => `$${n.toLocaleString()}`;
+  add("kill", "Kill switch", !ctx.killSwitch, "Payments are enabled.", "Kill switch is on. All payments are stopped.");
+  add(
+    "limit",
+    "Per-payment limit",
+    inv.amountUsd <= policy.perPaymentLimitUsd,
+    `${usd(inv.amountUsd)} is within the ${usd(policy.perPaymentLimitUsd)} limit.`,
+    `${usd(inv.amountUsd)} is over the ${usd(policy.perPaymentLimitUsd)} per-payment limit.`
+  );
+  add(
+    "daily",
+    "Daily limit",
+    ctx.spentTodayUsd + inv.amountUsd <= policy.dailyLimitUsd,
+    "Within today's spending limit.",
+    `Paying this would take today's total to ${usd(ctx.spentTodayUsd + inv.amountUsd)}, over the ${usd(policy.dailyLimitUsd)} daily limit.`
+  );
+  add(
+    "chain",
+    "Allowed chain",
+    policy.allowedChains.includes(inv.chain),
+    `Paying on ${inv.chain} is permitted.`,
+    `Paying on ${inv.chain} is not permitted by policy v${policy.version}.`
+  );
+  add(
+    "asset",
+    "Allowed asset",
+    policy.allowedAssets.includes(inv.asset),
+    `${inv.asset} is permitted.`,
+    `${inv.asset} is not permitted by policy v${policy.version}.`
+  );
+  add(
+    "allowlist",
+    "Vendor allowlist",
+    policy.vendorAllowlist.includes(inv.vendorName),
+    "Vendor is on the allowlist.",
+    "Vendor is not on the allowlist. A signer must add it first.",
+    "warn"
+  );
+  return r;
+}
+
+export const needsApproval = (inv: Invoice, p: Policy) => inv.amountUsd >= p.approvalThresholdUsd;

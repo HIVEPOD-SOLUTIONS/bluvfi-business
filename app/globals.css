@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+/* Bluvfi design system v1.0 tokens */
+:root {
+  --blue: #0a0ae8;
+  --blue-deep: #0000cc;
+  --sage: #8fae82;
+  --gold: #c9a84c;
+  --red-alert: #e05252;
+  --amber: #e8a838;
+  --bg-0: #0f100d;
+  --bg-1: #1b1c19;
+  --bg-2: #252620;
+  --bg-3: #2e2f2a;
+  --tx-0: #f2f0e8;
+  --tx-1: #a7a79a;
+  --tx-2: #6b6b62;
+  --bd: rgba(242, 240, 232, 0.1);
+  --bd-sage: rgba(143, 174, 130, 0.25);
+  --bd-gold: rgba(201, 168, 76, 0.3);
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 12px;
+  --r-xl: 14px;
+  --r-2xl: 16px;
+  --r-3xl: 24px;
+  --dur-instant: 80ms linear;
+  --dur-fast: 150ms ease-out;
+  --dur-standard: 250ms ease-out;
+  --dur-slow: 400ms ease-out;
+}
+
+@theme inline {
+  --color-blue: var(--blue);
+  --color-sage: var(--sage);
+  --color-gold: var(--gold);
+  --color-alert: var(--red-alert);
+  --color-amber: var(--amber);
+  --color-bg0: var(--bg-0);
+  --color-bg1: var(--bg-1);
+  --color-bg2: var(--bg-2);
+  --color-bg3: var(--bg-3);
+  --color-tx0: var(--tx-0);
+  --color-tx1: var(--tx-1);
+  --color-tx2: var(--tx-2);
+  --font-sans: var(--font-dm-sans), system-ui, sans-serif;
+  --font-mono: var(--font-space-mono), ui-monospace, monospace;
+}
+
+html,
+body {
+  background: var(--bg-0);
+  color: var(--tx-0);
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+h1, h2, h3 { color: var(--tx-0); font-weight: 700; }
+h1 { font-size: 24px; letter-spacing: -0.03em; line-height: 1.2; }
+h2 { font-size: 17px; letter-spacing: -0.02em; font-weight: 600; }
+h3 { font-size: 14px; letter-spacing: -0.01em; font-weight: 600; }
+a { color: inherit; }
+
+.label {
+  font-family: var(--font-space-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tx-2);
+}
+.mono { font-family: var(--font-space-mono), monospace; font-variant-numeric: tabular-nums; }
+.amount { font-family: var(--font-space-mono), monospace; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+
+.card {
+  background: var(--bg-1);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-2xl);
+  padding: 20px;
+  transition: border-color var(--dur-standard), background var(--dur-standard);
+}
+a.card:hover { border-color: var(--bd-sage); background: #20211d; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 40px; padding: 0 16px; border-radius: var(--r-lg);
+  font-weight: 600; font-size: 14px; border: 1px solid transparent; cursor: pointer;
+  transition: transform var(--dur-instant), background var(--dur-standard), border-color var(--dur-standard), opacity var(--dur-fast);
+  text-decoration: none; white-space: nowrap;
+}
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn:focus-visible, .input:focus-visible, a:focus-visible, select:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.btn-primary { background: var(--blue); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: #2020ff; }
+.btn-secondary { background: var(--bg-2); color: var(--tx-0); border-color: var(--bd); }
+.btn-secondary:hover:not(:disabled) { background: var(--bg-3); }
+.btn-ghost { background: transparent; color: var(--tx-1); border-color: var(--bd); }
+.btn-ghost:hover:not(:disabled) { background: var(--bg-2); color: var(--tx-0); }
+.btn-danger { background: rgba(224, 82, 82, 0.14); color: var(--red-alert); border-color: rgba(224, 82, 82, 0.35); }
+.btn-danger:hover:not(:disabled) { background: rgba(224, 82, 82, 0.24); }
+.btn-sm { min-height: 32px; padding: 0 12px; font-size: 13px; }
+
+.input {
+  width: 100%; min-height: 42px; padding: 0 12px; background: var(--bg-2); color: var(--tx-0);
+  border: 1px solid var(--bd); border-radius: var(--r-md); font-size: 14px; font-family: inherit;
+}
+textarea.input { padding: 10px 12px; min-height: 84px; }
+.input::placeholder { color: var(--tx-2); }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; border: 1px solid var(--bd); background: var(--bg-2); color: var(--tx-1);
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.badge-ok { color: var(--sage); border-color: var(--bd-sage); background: rgba(143, 174, 130, 0.1); }
+.badge-warn { color: var(--amber); border-color: rgba(232, 168, 56, 0.35); background: rgba(232, 168, 56, 0.1); }
+.badge-bad { color: var(--red-alert); border-color: rgba(224, 82, 82, 0.35); background: rgba(224, 82, 82, 0.1); }
+.badge-gold { color: var(--gold); border-color: var(--bd-gold); background: rgba(201, 168, 76, 0.08); }
+.badge-blue { color: #8c8cff; border-color: rgba(10, 10, 232, 0.5); background: rgba(10, 10, 232, 0.14); }
+
+.divider { border-top: 1px solid var(--bd); }
+.pos { color: var(--sage); }
+.neg { color: var(--red-alert); }
+
+.toast-in { animation: toast var(--dur-slow) both; }
+@keyframes toast { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+table.t { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.t th { text-align: left; }
+table.t th, table.t td { padding: 10px 12px; border-bottom: 1px solid var(--bd); vertical-align: top; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+/* grid children must be allowed to shrink so wide <pre> blocks scroll instead of widening the page */
+.grid > * { min-width: 0; }
