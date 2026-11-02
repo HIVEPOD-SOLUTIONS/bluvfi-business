@@ -92,7 +92,7 @@ npm run dev
   - **`add_proposal` is our `request_payment`.** The spec names a contract method `request_payment`; with an existing DAO, filing a proposal is that request, and the council's vote is the approval.
   - **OutLayer:** the agent holds only an API key, and the app refuses a wallet with no stored policy.
   - **Hybrid:** both checks must pass, **and** OutLayer must cap each payment at the approval threshold or less. Otherwise the app refuses to pay. So a large payment routed to the wallet, by a bug or a compromised server, is refused by OutLayer, and can only leave through a council vote. The spending wallet's balance, read from the chain, is the most that can ever leave without one.
-  - **Post-quantum option:** the agent key may also be ML-DSA (`mldsa65:`), which NEAR and near-api-js support.
+  - **Post-quantum option:** the agent key may also be ML-DSA-65 (`ml-dsa-65:`), which NEAR and near-api-js support. NEAR lists such keys as `ml-dsa-65-hash:…` (the SHA3-256 of the key), and the custody check reads both forms.
 - **Gas allowance lock-out.** A function-call key whose gas allowance runs out stops working. Because the agent account has no full-access key, it cannot add a new key itself: the account is locked. Nothing is lost, since the agent account holds no treasury funds. The fix is a new agent account with a fresh scoped key, which the council swaps into the agent's DAO role. The custody check warns when the allowance is nearly used. A key added with no allowance limit draws gas from the account's own NEAR balance instead, so keep a little NEAR there.
 - **Kill switch.** It stops this app immediately. For a hard stop onchain, the Overview shows the `near account delete-keys` command that revokes the agent's key. The council can also reject or remove open proposals.
 - **Gasless votes.** A council member's browser holds a key that may only call `act_proposal` on the DAO, and signs a NEP-366 delegate action. Before anything is relayed (`relayVote`), the relayer checks that it is:
@@ -122,6 +122,8 @@ Each requirement is met by something that already exists, or by this app's gate.
 | Hold window | Held payments cannot be approved until `holdUntil`; cancelling is always possible. Because the agent can only act by submitting a payout to the custodian, and that happens after the window and a signer's approval, the hold sits in front of the only onchain action. Neither a DAO nor OutLayer offers a timelock of its own | App, in front of the onchain step |
 | Kill switch any signer can flip | App flag (who and when is recorded) stops all payments and API spend at once. **Onchain hard stops, both generated for you on the Overview:** (1) the council removes the agent from its DAO role (a `ChangePolicyRemoveRole` / `ChangePolicyAddOrUpdateRole` proposal built from the live policy, the same as Members in Trezu), which needs no key held by the agent's owner, and the app then stops submitting on its own at its next custody check (checks are cached for up to five minutes); (2) the agent key's owner deletes the key (`near account delete-keys …`) | App flag, plus council or key-owner action onchain |
 | Policy changes only through a multisig, every version hashed | **Sputnik custody: the DAO council approves each change onchain.** A signer drafts it; the agent files, with its scoped key, a proposal that does nothing but carry the change's tag (version plus a hash of the exact rules) as a `FunctionCall` to the DAO's own view method `get_last_proposal_id` (Trezu-style roles have no `Vote` kind; a plain `Vote` proposal is accepted too); the council votes; the app applies the change only once it reads that proposal as `Approved` from the chain (`lib/governance.ts`). Other custody: `APPROVAL_THRESHOLD_SIGNERS` distinct named signers. Always: proposals are validated, each version's hash is re-verified on the Policy page, a Sputnik payout proposal states the policy version and hash it was approved under, and an OutLayer memo carries the record's evidence hash, which covers it | **Onchain (DAO) with Sputnik**, app-level otherwise |
+| Optional privacy, as policy | A **privacy floor** in the hashed policy (`public` = none, `basic`, `advanced`). Every payment is raised to at least the floor, at intake and again at release, and the payment shows a "Privacy floor" check when it was raised. At `advanced` (NEAR Intents confidential), the DAO payout proposal leaves the vendor, invoice and payee out of its public description: it carries only the payment id, the 1Click deposit address and the evidence hash. The USDC amount sent to the deposit address is still visible onchain | App gate; confidential delivery by NEAR Intents |
+| Post-quantum keys for whoever can move the money | The custody check reads every council member's keys from the chain (`view_access_key_list`) and reports which hold only ML-DSA (lattice, FIPS 204) full-access keys, and whether the agent and relayer keys are ML-DSA. With **Require post-quantum keys** on in the policy, payouts stop until all of them are, because a quantum computer that breaks ed25519 could forge a council vote from any classical key | Checked from the chain |
 | Function-call key lock-out | A function-call key whose gas allowance runs out stops working until the owner adds a new one. The custody check warns when the allowance is nearly used | Checked from the chain |
 
 **Trezu note:** a Trezu treasury has the roles Requestor (creates payment requests, cannot vote), Finance (votes on payments) and Governance (members, voting rules, policy). Put the agent in **Requestor only**. Trezu creates DAOs with a 0.1 NEAR proposal bond, which a function-call key cannot attach, so a Governance proposal must set the bond to 0 first; the custody check says so until it is done.
@@ -155,6 +157,7 @@ This build deploys **no smart contract**, so there are no contract audit finding
 | ML-DSA-65 records, encrypted records, view keys | Done |
 | Demo mode, fixtures, hosted demo | `npm run demo`, `npm run demo:ui`, Docker with `BLUVFI_DEMO=1` (`npm run demo:serve`) |
 | Zero-knowledge proof of the policy check | Written in TypeScript with **o1js** (`lib/zk-program.ts`): the policy gate as a ZK circuit. Every payment's statement (amounts, limits, chain, asset, allowlist, policy hash, payment) is proved in a background process (~15 s) and verified on the payment page against the committed verification key (`zk/verification-key.json`), plus a check that the proof's statement is this payment's and its output equals the policy result. Runs on Windows, macOS and Linux; tested with real proofs. `npm run demo -- --zk` shows it. See `zk/README.md` |
+| Post-quantum policy check | Every payment's policy check (the same public statement the o1js proof uses) is signed at intake with **ML-DSA-65** (lattice, FIPS 204) and **SLH-DSA-SHA2-128f** (hash-based, FIPS 205; secure as long as SHA-256 is), in `lib/pqcheck.ts`. The payment page and `npm run zk:verify` re-run the check from its public inputs and verify both signatures against this app's keys. Forging it needs a break of both lattices and hashes. It is post-quantum where the o1js proof (elliptic curves) is not. It is not zero-knowledge, which hides nothing here because every input is public. A post-quantum ZK proof (Lattice Jolt, or a hash-based STARK) needs a Rust toolchain and stays on the roadmap |
 | Persistence | JSON snapshot (`.data/`), single process, no database |
 
 **Not built, and why:**
@@ -175,7 +178,7 @@ This build deploys **no smart contract**, so there are no contract audit finding
 | **x402 (PingPay Agent Pay)** | Check sold per call; the agent's own API spending is gated by the same policy |
 | **Agent Market** | A worker that answers hired jobs with Bluvfi Business Check |
 | **NEAR RPC / NearBlocks** | Treasury balances, counterparty signals, and onchain custody checks |
-| **ML-DSA** | Post-quantum record signatures. Agent keys may be `mldsa65:` |
+| **ML-DSA** | Post-quantum record signatures. Agent and council keys may be ML-DSA-65 (`ml-dsa-65:`) |
 
 ## Libraries and AI-generated code
 
@@ -200,7 +203,7 @@ This build deploys **no smart contract**, so there are no contract audit finding
 ## Tests
 
 ```bash
-npm test         # 70 tests; outside services are mocked inside tests/ only
+npm test         # 77 tests; outside services are mocked inside tests/ only
 npm run demo     # the end-to-end story; exits non-zero if an outcome or a signature is wrong
 ```
 

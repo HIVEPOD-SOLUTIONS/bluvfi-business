@@ -93,6 +93,41 @@ type KeyPermission = "FullAccess" | { FunctionCall: { receiver_id: string; metho
 const isProposeOnly = (perm: KeyPermission) =>
   perm !== "FullAccess" && perm.FunctionCall.receiver_id === DAO_ACCOUNT && perm.FunctionCall.method_names.length === 1 && perm.FunctionCall.method_names[0] === "add_proposal";
 
+/**
+ * ML-DSA (FIPS 204, lattice-based) keys are post-quantum; ed25519 and secp256k1 keys are not. nearcore writes a full
+ * ML-DSA key as `ml-dsa-65:…`, and lists access keys (`view_access_key_list`) as `ml-dsa-65-hash:…`, the SHA3-256 of
+ * the 1,952-byte key (core/crypto/src/signature.rs, KeyType and PublicKeyHandle). Both count.
+ */
+export const isPostQuantumKey = (publicKey: string) => /^ml-?dsa/i.test(publicKey);
+
+/**
+ * Who can move the money, by key type. A quantum computer that can break ed25519 could forge a signature from any
+ * classical full-access key on a council account, and with it a vote. Reads up to 25 council accounts.
+ */
+async function postQuantumCheck(agentKey: string, council: string[], facts: string[], problems: string[]) {
+  const required = !!currentPolicy().requirePostQuantumKeys;
+  const flag = (msg: string) => (required ? problems : facts).push(required ? msg : `Post-quantum note: ${msg}`);
+  if (agentKey && !isPostQuantumKey(agentKey)) flag(`the agent key is ${agentKey.split(":")[0]}, not ML-DSA. Use an ML-DSA-65 key (ml-dsa-65:…; NEAR supports them).`);
+  if (RELAYER_ACCOUNT && /^(ed25519|ml-dsa-65):/.test(RELAYER_PRIVATE_KEY)) {
+    const rk = KeyPair.fromString(RELAYER_PRIVATE_KEY as KeyPairString).getPublicKey().toString();
+    if (!isPostQuantumKey(rk)) flag(`the relayer key is ${rk.split(":")[0]}, not ML-DSA.`);
+  }
+  const lists = await Promise.all(council.slice(0, 25).map(async (m) => {
+    try {
+      const { keys } = await rpc<{ keys: { public_key: string; access_key: { permission: KeyPermission } }[] }>({ request_type: "view_access_key_list", account_id: m });
+      return { m, classical: (keys ?? []).filter((k) => k.access_key.permission === "FullAccess" && !isPostQuantumKey(k.public_key)).length };
+    } catch {
+      return { m, classical: -1 };
+    }
+  }));
+  for (const { m, classical } of lists) {
+    if (classical > 0) flag(`council member ${m} has ${classical} classical (non-ML-DSA) full-access key${classical === 1 ? "" : "s"}; a future quantum computer could forge its votes. Replace them with ML-DSA keys.`);
+    if (classical < 0) flag(`could not read the keys of council member ${m}.`);
+  }
+  const ready = lists.filter((x) => x.classical === 0).length;
+  facts.push(`Post-quantum: ${ready} of ${lists.length} council member${lists.length === 1 ? "" : "s"} hold only ML-DSA full-access keys; agent key ${agentKey && isPostQuantumKey(agentKey) ? "ML-DSA" : "classical"}. Policy ${required ? "requires" : "does not yet require"} post-quantum keys.`);
+}
+
 /** Permissions that let an account vote on proposals. The agent must hold none of them. */
 const VOTING = /:(\*|VoteApprove|VoteReject|VoteRemove)$/;
 interface DaoProposal { id: number; status: string; kind: unknown; votes: Record<string, string>; description: string }
@@ -145,6 +180,8 @@ const demoCheck = (): CustodyCheck => ({
   problems: [],
 });
 
+class SkipSingleKey extends Error {}
+
 async function checkSputnik(): Promise<CustodyCheck> {
   const facts: string[] = [];
   const problems: string[] = [];
@@ -152,6 +189,9 @@ async function checkSputnik(): Promise<CustodyCheck> {
   let publicKey = "";
   try {
     publicKey = KeyPair.fromString(AGENT_PRIVATE_KEY as KeyPairString).getPublicKey().toString();
+    // nearcore names ML-DSA access keys by their hash, not the full key, so an ML-DSA agent key is checked through
+    // the key list below, which already requires every key on the account to be add_proposal-only.
+    if (isPostQuantumKey(publicKey)) throw new SkipSingleKey();
     const key = await rpc<{ permission: KeyPermission }>({
       request_type: "view_access_key", account_id: AGENT_ACCOUNT, public_key: publicKey,
     });
@@ -164,19 +204,24 @@ async function checkSputnik(): Promise<CustodyCheck> {
       if (fc.allowance && BigInt(fc.allowance) < BigInt(1e22)) problems.push("The agent key's gas allowance is almost used up; when it runs out the agent is locked out until the owner adds a new key.");
     }
   } catch (e) {
-    problems.push(`Could not read the agent key (${(e as Error).message}).`);
+    if (e instanceof SkipSingleKey) facts.push(`Agent key is ML-DSA-65 (post-quantum); it is checked with the account's key list.`);
+    else problems.push(`Could not read the agent key (${(e as Error).message}).`);
   }
   // "Holds only" the scoped key: every key on the agent account must be one. Another key, above all a full-access
   // one, could transfer the account's NEAR, add keys or deploy code, so whoever holds it could act as the agent.
   try {
     const { keys } = await rpc<{ keys: { public_key: string; access_key: { permission: KeyPermission } }[] }>({ request_type: "view_access_key_list", account_id: AGENT_ACCOUNT });
-    if (!Array.isArray(keys)) throw new Error("no key list");
+    if (!Array.isArray(keys) || !keys.length) throw new Error("no keys found");
     const others = keys.filter((k) => !isProposeOnly(k.access_key.permission));
     for (const k of others) {
       const perm = k.access_key.permission;
       problems.push(perm === "FullAccess"
         ? `${AGENT_ACCOUNT} also has a FULL-ACCESS key ${k.public_key.slice(0, 18)}…: whoever holds it can transfer from the account, add keys or deploy code. Delete it (near account delete-keys ${AGENT_ACCOUNT} public-keys ${k.public_key}) so the account holds only its add_proposal key.`
         : `${AGENT_ACCOUNT} also has key ${k.public_key.slice(0, 18)}…, which may call ${perm.FunctionCall.receiver_id} [${perm.FunctionCall.method_names.join(", ") || "any method"}]. Every key on the agent account must be limited to add_proposal on ${DAO_ACCOUNT}.`);
+    }
+    if (isPostQuantumKey(publicKey)) {
+      const low = keys.some((k) => k.access_key.permission !== "FullAccess" && !!k.access_key.permission.FunctionCall.allowance && BigInt(k.access_key.permission.FunctionCall.allowance) < BigInt(1e22));
+      if (low) problems.push("An agent key's gas allowance is almost used up; when it runs out the agent is locked out until it is replaced.");
     }
     if (!others.length) {
       facts.push(`All ${keys.length} key${keys.length === 1 ? "" : "s"} on ${AGENT_ACCOUNT} can only call add_proposal on ${DAO_ACCOUNT}: no one, the agent included, can transfer from the account, add keys, deploy code or vote with it. With no full-access key left, the account cannot add a key itself, so if it runs out of gas allowance or NEAR, create a new agent account and have the council swap it into the agent's role.`);
@@ -219,6 +264,8 @@ async function checkSputnik(): Promise<CustodyCheck> {
         ? `Note: the DAO executes a payout on ${need} of ${members.length} council approvals, so any single council member can approve one. Raise the threshold in Trezu for a real multisig.`
         : `The DAO executes a payout on ${need} of ${members.length} council approvals, enforced onchain.`);
     }
+
+    await postQuantumCheck(publicKey, members, facts, problems);
 
     // Onchain hard stop: the council removes the agent from the role that lets it propose.
     const held = policy.roles.filter((r) => typeof r.kind === "object" && "Group" in r.kind && r.kind.Group.includes(AGENT_ACCOUNT));
@@ -430,13 +477,18 @@ function proposalFor(p: Payment, amount: string, memo: string, evidence: string)
       ],
     },
   };
+  // A confidential payment keeps who and why out of the public proposal. Signers see them in the app, and the
+  // evidence hash binds this payout to the encrypted record. The USDC amount to the deposit address stays visible onchain.
+  const priv = p.confidentiality === "advanced";
   const description = trezuDescription({
     proposal_action: "payment-transfer",
-    title: `Invoice ${p.invoice.invoiceNumber}: ${p.invoice.vendorName}`,
-    notes: `Proposed by the Bluvfi Business agent. ${p.invoice.amountUsd} USD in ${p.invoice.asset} on ${p.invoice.chain}. AI recommends ${p.ai.decision} (risk ${p.ai.riskScore}/100); every policy and fraud check passed.`,
+    title: priv ? `Confidential payment ${p.id}` : `Invoice ${p.invoice.invoiceNumber}: ${p.invoice.vendorName}`,
+    notes: priv
+      ? "Proposed by the Bluvfi Business agent. Confidential payment: the vendor, invoice and payee are kept out of this public proposal. Signers see them in Bluvfi Business; the evidence hash below binds this payout to the encrypted record. Every policy and fraud check passed."
+      : `Proposed by the Bluvfi Business agent. ${p.invoice.amountUsd} USD in ${p.invoice.asset} on ${p.invoice.chain}. AI recommends ${p.ai.decision} (risk ${p.ai.riskScore}/100); every policy and fraud check passed.`,
     url: PUBLIC_BASE_URL ? `${PUBLIC_BASE_URL}/payments/${p.id}` : "",
-    recipient: p.invoice.payoutAddress,
-    destinationNetwork: ASSET_ID[`${p.invoice.chain}:${p.invoice.asset}`] ?? "",
+    recipient: priv ? "" : p.invoice.payoutAddress,
+    destinationNetwork: priv ? "" : ASSET_ID[`${p.invoice.chain}:${p.invoice.asset}`] ?? "",
     depositAddress: dep,
     signature: p.quote!.signature ?? "",
     // Ours, beyond what Trezu displays: the record this payout is bound to, and the signed AI review behind it.
@@ -535,7 +587,7 @@ export async function refreshPayout(rec: CustodyRecord): Promise<CustodyRecord> 
 
 // ---------- Gasless council votes (NEP-366) ----------
 
-export const relayerEnabled = () => !DEMO && DAO_CUSTODY && !!RELAYER_ACCOUNT && /^(ed25519|mldsa65):/.test(RELAYER_PRIVATE_KEY);
+export const relayerEnabled = () => !DEMO && DAO_CUSTODY && !!RELAYER_ACCOUNT && /^(ed25519|ml-dsa-65):/.test(RELAYER_PRIVATE_KEY);
 
 interface DecodedDelegate {
   delegateAction: {

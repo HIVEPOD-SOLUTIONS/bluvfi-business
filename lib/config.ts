@@ -66,7 +66,7 @@ export const X402_PAYER_URL = (process.env.X402_PAYER_URL ?? "").replace(/\/$/, 
  */
 export const DAO_ACCOUNT = process.env.DAO_ACCOUNT ?? (DEMO ? "bluvfi-demo.sputnik-dao.near" : "");
 export const AGENT_ACCOUNT = process.env.AGENT_ACCOUNT ?? "";
-/** `ed25519:…` (or `mldsa65:…`, post-quantum) secret of the agent's function-call key. */
+/** `ed25519:…` (or `ml-dsa-65:…`, post-quantum) secret of the agent's function-call key. */
 export const AGENT_PRIVATE_KEY = process.env.AGENT_PRIVATE_KEY ?? "";
 /** Pays gas for council votes sent as NEP-366 meta transactions (only `act_proposal` on DAO_ACCOUNT). */
 export const RELAYER_ACCOUNT = process.env.RELAYER_ACCOUNT ?? "";
@@ -121,7 +121,7 @@ export function missingConfig(): { key: string; why: string }[] {
   if (DAO_CUSTODY && !DEMO) {
     need(/\.near$/.test(DAO_ACCOUNT), "DAO_ACCOUNT", "your Sputnik DAO / Trezu treasury, e.g. acme.sputnik-dao.near");
     need(!!AGENT_ACCOUNT, "AGENT_ACCOUNT", "the NEAR account the agent proposes from");
-    need(/^(ed25519|mldsa65):/.test(AGENT_PRIVATE_KEY), "AGENT_PRIVATE_KEY", "the agent's function-call key, scoped to add_proposal on the DAO");
+    need(/^(ed25519|ml-dsa-65):/.test(AGENT_PRIVATE_KEY), "AGENT_PRIVATE_KEY", "the agent's function-call key, scoped to add_proposal on the DAO");
   }
   if (CUSTODY === "hybrid" && !DEMO) {
     need(!!OUTLAYER_API_KEY, "OUTLAYER_API_KEY", "the agent's API key for the OutLayer spending wallet");

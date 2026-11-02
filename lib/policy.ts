@@ -1,5 +1,5 @@
 import { canonical, sha256 } from "./crypto";
-import type { CheckResult, Invoice, Policy, PolicyProposal } from "./types";
+import type { CheckResult, Confidentiality, Invoice, Policy, PolicyProposal } from "./types";
 
 /**
  * Policy gate. Deterministic, no AI in the loop: whatever the model says, this decides
@@ -42,6 +42,16 @@ export const DEFAULT_POLICY_BODY: PolicyProposal["changes"] = {
   allowedAssets: ["USDC", "USDT"],
   vendorAllowlist: [],
   x402DailyLimitUsd: 5,
+  privacyFloor: "public",
+  requirePostQuantumKeys: false,
+};
+
+const PRIVACY_RANK: Record<Confidentiality, number> = { public: 0, basic: 1, advanced: 2 };
+
+/** The confidentiality a payment actually gets: what was asked for, raised to the policy's privacy floor. */
+export const withPrivacyFloor = (asked: Confidentiality, p: Policy): Confidentiality => {
+  const floor = p.privacyFloor ?? "public";
+  return PRIVACY_RANK[asked] >= PRIVACY_RANK[floor] ? asked : floor;
 };
 
 export interface PolicyContext {

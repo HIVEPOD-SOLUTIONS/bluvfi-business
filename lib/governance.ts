@@ -31,6 +31,8 @@ export function validateChanges(c: PolicyProposal["changes"]) {
   if (badChain) throw new Error(`Unknown chain "${badChain}". Supported: ${[...KNOWN_CHAINS].join(", ")}.`);
   const badAsset = c.allowedAssets.find((x) => !KNOWN_ASSETS.has(x));
   if (badAsset) throw new Error(`Unknown asset "${badAsset}". Supported: ${[...KNOWN_ASSETS].join(", ")}.`);
+  if (c.privacyFloor !== undefined && !["public", "basic", "advanced"].includes(c.privacyFloor)) throw new Error("The privacy floor must be public, basic or advanced.");
+  if (c.requirePostQuantumKeys !== undefined && typeof c.requirePostQuantumKeys !== "boolean") throw new Error("Require post-quantum keys must be true or false.");
 }
 
 /** The tag a DAO proposal must carry: the version it becomes and a hash of the exact rules. */
@@ -60,7 +62,8 @@ function daoPolicyText(version: number, changes: PolicyProposal["changes"]) {
   const description =
     `Bluvfi Business policy v${version}: per payment ${usd(changes.perPaymentLimitUsd)}, daily ${usd(changes.dailyLimitUsd)}, ` +
     `signer approval from ${usd(changes.approvalThresholdUsd)}, hold ${changes.holdWindowMinutes} min, chains ${changes.allowedChains.join("/")}, ` +
-    `assets ${changes.allowedAssets.join("/")}, ${changes.vendorAllowlist.length} allowlisted vendor(s), API spend ${usd(changes.x402DailyLimitUsd)}/day. ${tag}`;
+    `assets ${changes.allowedAssets.join("/")}, ${changes.vendorAllowlist.length} allowlisted vendor(s), API spend ${usd(changes.x402DailyLimitUsd)}/day, ` +
+    `privacy floor ${changes.privacyFloor ?? "public"}, post-quantum keys ${changes.requirePostQuantumKeys ? "required" : "optional"}. ${tag}`;
   const kind = carrierKind();
   const args = JSON.stringify({ proposal: { description, kind } });
   return {

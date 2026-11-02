@@ -45,6 +45,14 @@ export interface Policy {
   allowedAssets: string[];
   vendorAllowlist: string[];
   x402DailyLimitUsd: number;
+  /**
+   * Optional privacy, set as policy: no payment goes out with less confidentiality than this. "public" means no floor.
+   * At "advanced", DAO payout proposals also leave the vendor, invoice and amount text out of their public description.
+   * Missing on versions made before it existed, which means "public".
+   */
+  privacyFloor?: Confidentiality;
+  /** Refuse payouts unless every key that can move money (agent, relayer, council) is post-quantum (ML-DSA). Missing means off. */
+  requirePostQuantumKeys?: boolean;
   hash: string;
   createdAt: string;
 }
@@ -127,6 +135,8 @@ export interface VerifiedPanel {
   /** Zero-knowledge proof of the policy check, made with o1js (lib/zk.ts). */
   zkProof: null | { system: string; status: "pending" | "verified" | "invalid"; note: string; outputBits?: number; proverSeconds?: number };
   pqSignature: { algo: "ML-DSA-65"; publicKey: string; signature: string; valid: boolean };
+  /** The policy check signed with ML-DSA-65 and SLH-DSA (lib/pqcheck.ts): post-quantum, re-runnable by anyone. */
+  policyCheckPq?: import("./pqcheck").PqPolicyCheck;
 }
 
 export type PaymentStatus =

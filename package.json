@@ -14,6 +14,7 @@
     "zk:prove": "tsx scripts/zk-prove.ts",
     "zk:vk": "tsx scripts/zk-vk.ts",
     "zk:verify": "tsx scripts/zk-verify.ts",
+    "spec:pdf": "tsx scripts/spec-pdf.ts",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts"

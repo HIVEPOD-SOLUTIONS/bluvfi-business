@@ -2,12 +2,13 @@ import { canonical, mlDsaSign, mlDsaVerify, sha256, encrypt } from "./crypto";
 import { CUSTODY, DEMO, NEAR_AI_MODEL, SIGNER_NAMES } from "./config";
 import { demoDao } from "./custody";
 import { makeJob, proveInBackground, SYSTEM as ZK_SYSTEM, verifyZk, writeJob } from "./zk";
+import { signPolicyCheck } from "./pqcheck";
 import { runFraudChecks, runPublicCheck, worst } from "./fraud";
 import type { Judged } from "./nearai";
 import { attestationTrusted, computeFacts, unavailablePanel, verifyDecision } from "./nearai-core";
-import { evaluatePolicy, needsApproval } from "./policy";
+import { evaluatePolicy, needsApproval, withPrivacyFloor } from "./policy";
 import { services } from "./services";
-import { currentPolicy, dataKey, fraudContext, persist, persistenceOn, pqSeed, prefetchCounterparty, spentTodayUsd, state } from "./store";
+import { currentPolicy, dataKey, fraudContext, persist, persistenceOn, pqSeed, pqSeeds, prefetchCounterparty, spentTodayUsd, state } from "./store";
 import type { CheckRequest, CheckResponse, CheckResult, Confidentiality, Invoice, Payment, PaymentStatus } from "./types";
 
 const uid = (p: string) => `${p}-${sha256(`${p}${Date.now()}${Math.random()}`).slice(0, 8)}`;
@@ -43,6 +44,11 @@ export async function processInvoice(inv: Invoice, confidentiality: Confidential
 
   const policyCtx = { killSwitch: s.killSwitch, spentTodayUsd: spentTodayUsd() };
   const policyChecks = evaluatePolicy(inv, policy, policyCtx);
+  // Privacy is optional, but the policy can set a floor (for investors, institutions and others who need it).
+  const conf = withPrivacyFloor(confidentiality, policy);
+  if (conf !== confidentiality) {
+    policyChecks.push({ id: "privacy", label: "Privacy floor", verdict: "allow", reason: `Confidentiality raised from ${confidentiality} to ${conf}: policy v${policy.version} sets a privacy floor.` });
+  }
   await prefetchCounterparty(inv.payoutAddress, inv.chain);
   const fraudChecks = runFraudChecks(inv, fraudContext());
   const trusted = attestationTrusted(panel);
@@ -91,7 +97,7 @@ export async function processInvoice(inv: Invoice, confidentiality: Confidential
     status,
     headline,
     reason,
-    confidentiality,
+    confidentiality: conf,
     checks,
     ai: judgment,
     verified: {
@@ -110,6 +116,8 @@ export async function processInvoice(inv: Invoice, confidentiality: Confidential
   // The same policy check as a zero-knowledge statement (lib/zk.ts), proved by o1js in a background process.
   payment.zkJob = makeJob(payment.id, inv, policy, policyCtx);
   payment.verified.zkProof = { system: ZK_SYSTEM, status: "pending", note: "Statement written; the proof is being made in the background." };
+  // The same statement and result, signed with two post-quantum schemes (lattice and hash-based). Anyone can re-run it.
+  payment.verified.policyCheckPq = signPolicyCheck(payment.id, payment.zkJob, pqSeeds());
   if (persistenceOn()) {
     writeJob(payment.id, payment.zkJob);
     proveInBackground();
@@ -163,6 +171,7 @@ export async function release(p: Payment): Promise<void> {
     return;
   }
   try {
+    p.confidentiality = withPrivacyFloor(p.confidentiality, currentPolicy()); // the floor may have been raised since intake
     p.quote = await services.quotePayout(p.invoice, p.confidentiality);
   } catch (e) {
     p.status = "held";

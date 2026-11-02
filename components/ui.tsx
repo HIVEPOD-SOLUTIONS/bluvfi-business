@@ -53,6 +53,7 @@ const ALL_PROOFS = (p: Payment) => {
     { ok: v.signature.valid, label: "AI signature" },
     { ok: v.attestation.nonceBound && v.attestation.binding && v.attestation.gpu && v.attestation.cpu, label: "Attested" },
     { ok: v.pqSignature.valid, label: "ML-DSA" },
+    ...(v.policyCheckPq ? [{ ok: v.policyCheckPq.valid, label: "PQ policy check" }] : []),
   ];
 };
 

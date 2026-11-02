@@ -36,6 +36,9 @@ const need = () => {
 };
 export const dataKey = () => deriveKey(need(), "record-encryption");
 export const pqSeed = () => deriveKey(need(), "ml-dsa-signing");
+/** SLH-DSA needs a 48-byte seed: two derivations, 32 + 16 bytes. */
+export const slhSeed = () => deriveKey(need(), "slh-dsa-signing") + deriveKey(need(), "slh-dsa-signing:2").slice(0, 32);
+export const pqSeeds = () => ({ mlDsa: pqSeed(), slhDsa: slhSeed() });
 
 const fresh = (): State => ({
   policies: [makePolicy(1, DEFAULT_POLICY_BODY)],

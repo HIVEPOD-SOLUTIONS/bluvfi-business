@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { ml_dsa65 } from "@noble/post-quantum/ml-dsa.js";
+import { slh_dsa_sha2_128f } from "@noble/post-quantum/slh-dsa.js";
 
 export const sha256 = (s: string | Uint8Array) => createHash("sha256").update(s).digest("hex");
 
@@ -44,6 +45,30 @@ export function mlDsaSign(message: string, seedHex: string) {
   const sig = ml_dsa65.sign(new TextEncoder().encode(message), secretKey);
   return { publicKey: bytesToHex(publicKey), signature: bytesToHex(sig) };
 }
+export const mlDsaPublicKey = (seedHex: string) => bytesToHex(ml_dsa65.keygen(hexToBytes(seedHex)).publicKey);
+
+// SLH-DSA key generation takes ~25 ms, so each seed's key pair is made once per process.
+const slhKeys = new Map<string, { secretKey: Uint8Array; publicKey: Uint8Array }>();
+const slhKeyPair = (seedHex: string) => {
+  let k = slhKeys.get(seedHex);
+  if (!k) slhKeys.set(seedHex, (k = slh_dsa_sha2_128f.keygen(hexToBytes(seedHex))));
+  return k;
+};
+
+/** Hash-based post-quantum signature (SLH-DSA-SHA2-128f, FIPS 205): secure as long as SHA-256 is. Seed: 48 bytes hex. */
+export function slhDsaSign(message: string, seedHex: string) {
+  const { secretKey, publicKey } = slhKeyPair(seedHex);
+  return { publicKey: bytesToHex(publicKey), signature: bytesToHex(slh_dsa_sha2_128f.sign(new TextEncoder().encode(message), secretKey)) };
+}
+export const slhDsaPublicKey = (seedHex: string) => bytesToHex(slhKeyPair(seedHex).publicKey);
+export function slhDsaVerify(signatureHex: string, message: string, publicKeyHex: string) {
+  try {
+    return slh_dsa_sha2_128f.verify(hexToBytes(signatureHex), new TextEncoder().encode(message), hexToBytes(publicKeyHex));
+  } catch {
+    return false;
+  }
+}
+
 export function mlDsaVerify(signatureHex: string, message: string, publicKeyHex: string) {
   try {
     return ml_dsa65.verify(hexToBytes(signatureHex), new TextEncoder().encode(message), hexToBytes(publicKeyHex));

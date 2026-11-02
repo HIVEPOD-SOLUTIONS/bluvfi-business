@@ -2,9 +2,14 @@ import "./setup";
 import { AGENT_KEY } from "./setup-sputnik";
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
-import { actions, buildDelegateAction, encodeSignedDelegate, KeyPair } from "near-api-js";
+import { deserialize } from "borsh";
+import { actions, buildDelegateAction, encodeSignedDelegate, KeyPair, SCHEMA } from "near-api-js";
 import { processInvoice } from "../lib/agent";
-import { checkCustody, relayVote, resetCustodyCache } from "../lib/custody";
+import { checkCustody, isPostQuantumKey, relayVote, resetCustodyCache } from "../lib/custody";
+import { validateChanges } from "../lib/governance";
+import { DEFAULT_POLICY_BODY, makePolicy, withPrivacyFloor } from "../lib/policy";
+import { currentPolicy } from "../lib/store";
+import type { PolicyProposal } from "../lib/types";
 import { install, invoice, seed, state } from "./fakes";
 
 const DAO = "acme.sputnik-dao.near";
@@ -18,10 +23,22 @@ const POLICY = {
 };
 
 /** Keys on the agent account besides the agent's own (tests add some). */
+/** Appends a new policy version with these rules changed. */
+const nextPolicy = (over: Partial<PolicyProposal["changes"]>) => {
+  const p = currentPolicy();
+  const rules = Object.fromEntries(Object.keys(DEFAULT_POLICY_BODY).map((k) => [k, p[k as keyof typeof p]])) as PolicyProposal["changes"];
+  return makePolicy(p.version + 1, { ...rules, ...over });
+};
+
+/** The args of the last add_proposal sent, base64 (the proposal JSON). */
+let lastProposalArgs = "";
 let extraKeys: { public_key: string; access_key: { nonce: number; permission: unknown } }[] = [];
+/** Keys on council accounts, by account (default: one classical full-access key). */
+let councilKeys: Record<string, { public_key: string; access_key: { nonce: number; permission: unknown } }[]> = {};
 
 beforeEach(() => {
   extraKeys = [];
+  councilKeys = {};
   resetCustodyCache();
   install();
   seed();
@@ -37,12 +54,20 @@ function nearRpc(opts: { permission: unknown; sent: { method: string; params: un
     const req = JSON.parse(String(init?.body)) as { method: string; params: Record<string, unknown> };
     const ok = (result: unknown) => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { headers: { "content-type": "application/json" } });
     if (req.method === "query" && req.params.request_type === "view_access_key_list")
-      return ok({ keys: [{ public_key: AGENT_KEY.getPublicKey().toString(), access_key: { nonce: 7, permission: opts.permission } }, ...extraKeys] });
+      return ok(req.params.account_id === "acme-agent.near"
+        ? { keys: [{ public_key: AGENT_KEY.getPublicKey().toString(), access_key: { nonce: 7, permission: opts.permission } }, ...extraKeys] }
+        : { keys: councilKeys[String(req.params.account_id)] ?? [{ public_key: "ed25519:CouncilClassicalKey111", access_key: { nonce: 1, permission: "FullAccess" } }] });
     if (req.method === "query" && req.params.request_type === "view_access_key")
       return ok({ nonce: 7, permission: opts.permission, block_height: 1, block_hash: "11111111111111111111111111111111" });
     if (req.method === "query" && req.params.request_type === "call_function" && req.params.method_name === "get_policy") return ok(viewResult(POLICY));
     if (req.method === "block") return ok({ header: { hash: "11111111111111111111111111111111", height: 100 } });
     if (req.method === "send_tx" || req.method === "broadcast_tx_commit") {
+      try {
+        const signed = deserialize(SCHEMA.SignedTransaction, Buffer.from(String((req.params as { signed_tx_base64?: string }).signed_tx_base64 ?? ""), "base64")) as { transaction: { actions: { functionCall?: { args: Uint8Array } }[] } };
+        lastProposalArgs = Buffer.from(signed.transaction.actions[0].functionCall!.args).toString("base64");
+      } catch {
+        // a relayed vote is a delegate action, not an add_proposal call
+      }
       opts.sent.push({ method: req.method, params: req.params });
       return ok({
         final_execution_status: "FINAL",
@@ -175,4 +200,62 @@ test("custody: the relayer, whose key is on this server, must not be able to vot
   } finally {
     POLICY.roles.pop();
   }
+});
+
+test("custody: a confidential payment's DAO proposal leaves out who is paid and why", async () => {
+  state().policies.push(nextPolicy({ privacyFloor: "advanced" }));
+  await withFetch(nearRpc({ permission: scoped, sent: [] }), async () => {
+    const p = await processInvoice(invoice({ invoiceNumber: "INV-PRIV" }));
+    assert.equal(p.confidentiality, "advanced");
+    assert.ok(p.checks.some((c) => c.id === "privacy" && /raised from basic to advanced/.test(c.reason)));
+    assert.equal(p.status, "proposed", p.reason);
+    const desc = JSON.parse(Buffer.from(lastProposalArgs, "base64").toString()).proposal.description as string;
+    assert.match(desc, /Title: Confidential payment pay-/);
+    assert.match(desc, /Evidence: [0-9a-f]{64}/);
+    assert.match(desc, /Policy: v2:/);
+    for (const leak of ["Northwind", "Invoice INV-PRIV", "northwind.near", "1240 USD", "Recipient:"]) assert.ok(!desc.includes(leak), `leaks ${leak}`);
+  });
+});
+
+test("custody: post-quantum keys are reported, and required when the policy says so", async () => {
+  councilKeys = {
+    "maya.near": [{ public_key: "ml-dsa-65-hash:MayaPostQuantumKeyHash", access_key: { nonce: 1, permission: "FullAccess" } }],
+    "devon.near": [
+      { public_key: "ml-dsa-65-hash:DevonPostQuantumKeyHash", access_key: { nonce: 1, permission: "FullAccess" } },
+      { public_key: "ed25519:DevonOldKey", access_key: { nonce: 1, permission: "FullAccess" } },
+    ],
+  };
+  await withFetch(nearRpc({ permission: scoped, sent: [] }), async () => {
+    const c = await checkCustody();
+    assert.equal(c.ok, true, "optional by default: notes only");
+    assert.ok(c.facts.some((f) => /Post-quantum: 1 of 2 council members hold only ML-DSA full-access keys; agent key classical/.test(f)));
+    assert.ok(c.facts.some((f) => /Post-quantum note: council member devon\.near has 1 classical/.test(f)));
+  });
+
+  resetCustodyCache();
+  state().policies.push(nextPolicy({ requirePostQuantumKeys: true }));
+  await withFetch(nearRpc({ permission: scoped, sent: [] }), async () => {
+    const c = await checkCustody();
+    assert.equal(c.ok, false);
+    const all = c.problems.join(" ");
+    assert.match(all, /the agent key is ed25519, not ML-DSA/);
+    assert.match(all, /the relayer key is ed25519/);
+    assert.match(all, /council member devon\.near has 1 classical/);
+    assert.ok(!/maya\.near has/.test(all), "maya holds only ML-DSA keys");
+    const p = await processInvoice(invoice({ invoiceNumber: "INV-PQ" }));
+    assert.equal(p.status, "blocked");
+  });
+  // nearcore's forms (core/crypto/src/signature.rs): a full key, and the hash handle view_access_key_list returns.
+  assert.equal(isPostQuantumKey("ml-dsa-65:abc"), true);
+  assert.equal(isPostQuantumKey("ml-dsa-65-hash:abc"), true);
+  assert.equal(isPostQuantumKey("secp256k1:abc"), false);
+  assert.equal(isPostQuantumKey("ed25519:abc"), false);
+});
+
+test("policy: the privacy floor only ever raises confidentiality", () => {
+  const at = (floor?: "public" | "basic" | "advanced") => ({ ...currentPolicy(), privacyFloor: floor });
+  assert.equal(withPrivacyFloor("public", at("basic")), "basic");
+  assert.equal(withPrivacyFloor("advanced", at("basic")), "advanced", "never lowered");
+  assert.equal(withPrivacyFloor("public", at(undefined)), "public", "versions made before the floor existed have none");
+  assert.throws(() => validateChanges({ ...DEFAULT_POLICY_BODY, privacyFloor: "secret" as never }), /privacy floor/);
 });

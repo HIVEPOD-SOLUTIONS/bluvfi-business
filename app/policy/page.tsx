@@ -33,7 +33,7 @@ export default async function PolicyPage() {
                 <Badge tone={pr.status === "applied" ? "ok" : pr.status === "rejected" ? "bad" : "warn"}>{pr.status === "applied" ? "Applied" : pr.status === "rejected" ? "Rejected by the DAO" : pr.dao ? "Waiting for the DAO" : `${pr.approvals.length}/${pr.threshold} approvals`}</Badge>
               </div>
               <p className="mt-1 text-sm" style={{ color: "var(--tx-1)" }}>
-                Per payment ${pr.changes.perPaymentLimitUsd.toLocaleString()} · daily ${pr.changes.dailyLimitUsd.toLocaleString()} · approval at ${pr.changes.approvalThresholdUsd.toLocaleString()} · hold {pr.changes.holdWindowMinutes} min · chains {pr.changes.allowedChains.join(", ")}
+                Per payment ${pr.changes.perPaymentLimitUsd.toLocaleString()} · daily ${pr.changes.dailyLimitUsd.toLocaleString()} · approval at ${pr.changes.approvalThresholdUsd.toLocaleString()} · hold {pr.changes.holdWindowMinutes} min · chains {pr.changes.allowedChains.join(", ")} · privacy floor {pr.changes.privacyFloor ?? "public"} · post-quantum keys {pr.changes.requirePostQuantumKeys ? "required" : "optional"}
               </p>
               {pr.dao ? <p className="mt-1 text-sm" style={{ color: "var(--tx-2)" }}>Drafted by {pr.approvals[0]}.</p> : <p className="mt-1 text-sm" style={{ color: "var(--tx-2)" }}>Approved by: {pr.approvals.join(", ")}</p>}
               {pr.dao && pr.status === "open" && <DaoProposalBox id={pr.id} dao={pr.dao} />}
@@ -61,8 +61,10 @@ export default async function PolicyPage() {
         <ul className="mt-2 list-disc pl-5 text-sm" style={{ color: "var(--tx-1)" }}>
           <li>The agent can only <em>request</em> a payment. Release happens inside the policy gate, which re-checks every rule at the moment of release.</li>
           <li>The AI can recommend. It can tighten a result, never loosen one. A fully tricked model still cannot move money.</li>
-          <li>Policy changes only through approvals from distinct signers.</li>
-          <li><strong>Honest note:</strong> there is no smart contract. The gate is server code and the signers are application-level, not an onchain multisig.</li>
+          <li>{POLICY_VIA_DAO ? "Policy changes only when the treasury DAO's council approves them onchain." : "Policy changes only through approvals from distinct signers."}</li>
+          <li>Privacy is optional: the privacy floor raises every payment to at least that level, and at &quot;advanced&quot; the DAO proposal leaves out who is paid and why.</li>
+          <li>With &quot;Require post-quantum keys&quot; on, payouts stop until the agent, relayer and every council member use ML-DSA keys. The Overview shows who still uses classical keys.</li>
+          <li><strong>Honest note:</strong> there is no smart contract of ours. The gate is server code; {POLICY_VIA_DAO ? "the multisig is the DAO's council, onchain." : "the signers are application-level, not an onchain multisig."}</li>
         </ul>
       </section>
     </>

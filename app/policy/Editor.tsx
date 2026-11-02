@@ -10,10 +10,11 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
     approvalThresholdUsd: String(policy.approvalThresholdUsd), holdWindowMinutes: String(policy.holdWindowMinutes),
     x402DailyLimitUsd: String(policy.x402DailyLimitUsd), allowedChains: policy.allowedChains.join(", "),
     allowedAssets: policy.allowedAssets.join(", "), vendorAllowlist: policy.vendorAllowlist.join("\n"),
+    privacyFloor: policy.privacyFloor ?? "public", requirePostQuantumKeys: !!policy.requirePostQuantumKeys,
   });
   const [sent, setSent] = useState(false);
   const list = (s: string, sep: RegExp) => s.split(sep).map((x) => x.trim()).filter(Boolean);
-  const num = (k: keyof typeof f, label: string, hint?: string) => (
+  const num = (k: "perPaymentLimitUsd" | "dailyLimitUsd" | "approvalThresholdUsd" | "holdWindowMinutes" | "x402DailyLimitUsd", label: string, hint?: string) => (
     <label className="block">
       <span className="label">{label}</span>
       <input className="input mt-1" type="number" min="0" value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
@@ -32,6 +33,7 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
             approvalThresholdUsd: Number(f.approvalThresholdUsd), holdWindowMinutes: Number(f.holdWindowMinutes),
             x402DailyLimitUsd: Number(f.x402DailyLimitUsd), allowedChains: list(f.allowedChains, /[,\s]+/),
             allowedAssets: list(f.allowedAssets, /[,\s]+/).map((a) => a.toUpperCase()), vendorAllowlist: list(f.vendorAllowlist, /\n/),
+            privacyFloor: f.privacyFloor, requirePostQuantumKeys: f.requirePostQuantumKeys,
           },
         });
         if (ok) setSent(true);
@@ -46,6 +48,18 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
         <input className="input mt-1" value={f.allowedChains} onChange={(e) => setF({ ...f, allowedChains: e.target.value })} /></label>
       <label className="block"><span className="label">Allowed assets</span>
         <input className="input mt-1" value={f.allowedAssets} onChange={(e) => setF({ ...f, allowedAssets: e.target.value })} /></label>
+      <label className="block"><span className="label">Privacy floor</span>
+        <select className="input mt-1" value={f.privacyFloor} onChange={(e) => setF({ ...f, privacyFloor: e.target.value as Policy["privacyFloor"] & string })}>
+          <option value="public">None: each payment chooses</option>
+          <option value="basic">Basic or more</option>
+          <option value="advanced">Advanced: confidential payments only</option>
+        </select>
+        <span className="text-xs" style={{ color: "var(--tx-2)" }}>Privacy is optional. Teams that need it (investors, institutions) set a floor every payment must meet.</span></label>
+      <label className="flex items-start gap-2 self-end">
+        <input type="checkbox" className="mt-1" checked={f.requirePostQuantumKeys} onChange={(e) => setF({ ...f, requirePostQuantumKeys: e.target.checked })} />
+        <span><span className="label">Require post-quantum keys</span><br />
+          <span className="text-xs" style={{ color: "var(--tx-2)" }}>Refuse payouts unless the agent, relayer and every council member sign with ML-DSA keys, which quantum computers are not known to break.</span></span>
+      </label>
       <label className="block sm:col-span-2"><span className="label">Vendor allowlist (one per line)</span>
         <textarea className="input mt-1" value={f.vendorAllowlist} onChange={(e) => setF({ ...f, vendorAllowlist: e.target.value })} /></label>
       <div className="flex flex-wrap items-end gap-3 sm:col-span-2">

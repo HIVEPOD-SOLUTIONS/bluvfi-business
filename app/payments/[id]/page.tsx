@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { ActionButton } from "@/components/Actions";
 import { Badge, PageHead, STATUS, short, usd, when } from "@/components/ui";
 import { refreshZk } from "@/lib/agent";
-import { state } from "@/lib/store";
+import { appPqKeys, verifyPolicyCheck, type PqCheckResult } from "@/lib/pqcheck";
+import { pqSeeds, state } from "@/lib/store";
 import { currentSigner } from "@/lib/who";
 import { GaslessVote } from "@/components/GaslessVote";
 import { CUSTODY, DAO_ACCOUNT, DEMO, NEAR_RPC_URL } from "@/lib/config";
@@ -31,6 +32,15 @@ export default async function PaymentDetail({ params }: { params: Promise<{ id: 
   if (!found) notFound();
   const p = await refreshZk(found);
   const v = p.verified;
+  // Re-run the policy check and verify its post-quantum signatures on every view.
+  let pqc: PqCheckResult | undefined;
+  if (v.policyCheckPq && p.zkJob) {
+    try {
+      pqc = verifyPolicyCheck(p.id, p.zkJob, v.policyCheckPq, appPqKeys(pqSeeds()));
+    } catch (e) {
+      pqc = { status: "invalid", note: (e as Error).message };
+    }
+  }
   const st = STATUS[p.status];
   const inHold = p.status === "held" && !!p.holdUntil && new Date(p.holdUntil) > new Date();
   const canApprove = !!signer && !inHold && (p.status === "awaiting_approval" || p.status === "held");
@@ -129,7 +139,12 @@ export default async function PaymentDetail({ params }: { params: Promise<{ id: 
             <Row ok={c ? true : null} label="Evidence anchored onchain">
               {c ? `Evidence hash ${c.evidenceHash.slice(0, 16)}… is in the ${c.backend === "sputnik" ? "DAO proposal description" : "ft_transfer memo"}, so the payout and this record point at each other.` : CUSTODY === "manual" ? "Manual custody: no onchain anchor." : "Anchored when the payout is handed to the treasury."}
             </Row>
-            <Row ok={!v.zkProof || v.zkProof.status === "pending" ? null : v.zkProof.status === "verified"} label="Zero-knowledge proof of the policy check (o1js)">
+            {pqc && (
+              <Row ok={pqc.status === "verified"} label="Policy check, post-quantum signed (ML-DSA-65 + SLH-DSA)">
+                {pqc.note}
+              </Row>
+            )}
+            <Row ok={!v.zkProof || v.zkProof.status === "pending" ? null : v.zkProof.status === "verified"} label="Zero-knowledge proof of the policy check (o1js, not post-quantum)">
               {v.zkProof ? v.zkProof.note : "Not recorded for this payment."}{v.zkProof?.proverSeconds ? ` Proved in ${v.zkProof.proverSeconds}s.` : ""}
             </Row>
           </ul>
