@@ -211,11 +211,11 @@ function applyCustody(p: Payment) {
     p.status = "ready_to_send";
     p.txRef = c.txHash ?? `${c.backend}:${c.ref}`;
     p.headline = "Sent by the treasury: waiting for NEAR Intents to deliver";
-    p.reason = `${c.detail} NEAR Intents then delivers ${p.quote?.amountOut} ${p.invoice.asset} to the payee on ${p.invoice.chain}.`;
+    p.reason = `${c.route ? `${c.route} ` : ""}${c.detail} NEAR Intents then delivers ${p.quote?.amountOut} ${p.invoice.asset} to the payee on ${p.invoice.chain}.`;
   } else if (c.state === "pending") {
     p.status = "proposed";
     p.headline = c.backend === "sputnik" ? `Proposed to the treasury DAO (#${c.ref}): needs council votes` : "Submitted to the OutLayer wallet: waiting for its approvers";
-    p.reason = `${c.detail} The agent cannot move funds itself; ${where} only executes once the people who control the treasury approve it.`;
+    p.reason = `${c.route ? `${c.route} ` : ""}${c.detail} The agent cannot move funds itself; ${where} only executes once the people who control the treasury approve it.`;
   } else {
     const v = state().vendors.find((x) => x.name === p.invoice.vendorName);
     if (v) v.paidInvoiceNumbers = v.paidInvoiceNumbers.filter((n) => n !== p.invoice.invoiceNumber);

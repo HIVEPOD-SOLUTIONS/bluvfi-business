@@ -2,13 +2,14 @@ import { deserialize } from "borsh";
 import { Account, JsonRpcProvider, KeyPair, SCHEMA, teraToGas, type KeyPairString } from "near-api-js";
 import { ASSET_ID, NEAR_USDC_CONTRACT } from "./chains";
 import {
-  AGENT_ACCOUNT, AGENT_PRIVATE_KEY, APPROVAL_THRESHOLD_SIGNERS, CUSTODY, DAO_ACCOUNT, DEMO, NEAR_RPC_URL, OUTLAYER_API_KEY, OUTLAYER_BASE,
-  PUBLIC_BASE_URL, RELAYER_ACCOUNT, RELAYER_PRIVATE_KEY, TREZU_APP_URL,
+  AGENT_ACCOUNT, AGENT_PRIVATE_KEY, APPROVAL_THRESHOLD_SIGNERS, CUSTODY, DAO_ACCOUNT, DAO_CUSTODY, DEMO, NEAR_RPC_URL, OUTLAYER_API_KEY,
+  OUTLAYER_BASE, OUTLAYER_WALLET_ACCOUNT, PUBLIC_BASE_URL, RELAYER_ACCOUNT, RELAYER_PRIVATE_KEY, SPENDING_WALLET_LOW_USD,
+  SPENDING_WALLET_TARGET_USD, TREZU_APP_URL,
 } from "./config";
 import { canonical, sha256 } from "./crypto";
 import { currentPolicy, state } from "./store";
 import { REQUIRE_CUSTODIAN_LIMITS } from "./config";
-import type { CustodyRecord, Payment, Quote } from "./types";
+import type { CustodyRecord, Payment, Quote, TopUp } from "./types";
 
 /**
  * Custody without a contract of our own. The agent never holds a key that can move funds:
@@ -19,6 +20,10 @@ import type { CustodyRecord, Payment, Quote } from "./types";
  *    council's approving vote executes it. Votes can be sent gasless through the relayer below.
  *  - outlayer: an OutLayer agent wallet. The owner's policy (per-transaction and daily caps, allowlist, multisig
  *    above a threshold, freeze) is enforced inside Intel TDX; the agent holds only an API key.
+ *  - hybrid: the DAO is the vault and an OutLayer wallet is a spending wallet with a small balance. Payments under
+ *    the approval threshold are paid from the wallet, within OutLayer's limits; larger ones, or ones the wallet
+ *    cannot cover, become DAO proposals. When the wallet runs low the agent proposes a top-up from the DAO. The
+ *    wallet's balance is the most that can ever leave without a council vote.
  *
  * Either way the evidence hash of the payment record goes onchain with the payout, in the proposal description
  * or the ft_transfer memo.
@@ -60,10 +65,12 @@ async function rpc<T>(params: Record<string, unknown>): Promise<T> {
   return j.result;
 }
 
-export async function viewDao<T>(method: string, args: object = {}): Promise<T> {
-  const res = await rpc<{ result: number[] }>({ request_type: "call_function", account_id: DAO_ACCOUNT, method_name: method, args_base64: b64(args) });
+async function viewFn<T>(account: string, method: string, args: object = {}): Promise<T> {
+  const res = await rpc<{ result: number[] }>({ request_type: "call_function", account_id: account, method_name: method, args_base64: b64(args) });
   return JSON.parse(Buffer.from(res.result).toString()) as T;
 }
+
+export const viewDao = <T,>(method: string, args: object = {}) => viewFn<T>(DAO_ACCOUNT, method, args);
 
 interface VotePolicy { weight_kind?: string; quorum?: string; threshold: [number, number] | string }
 interface DaoPolicy {
@@ -79,6 +86,12 @@ export function approvalsNeeded(vp: VotePolicy | undefined, members: number): nu
   const t = vp.threshold;
   return Math.max(Array.isArray(t) ? Math.floor((members * t[0]) / t[1]) + 1 : Number(t), Number(vp.quorum ?? 0)) || undefined;
 }
+
+type KeyPermission = "FullAccess" | { FunctionCall: { receiver_id: string; method_names: string[]; allowance: string | null } };
+
+/** The only key the agent account may have: a function-call key that can call add_proposal on the DAO and nothing else. */
+const isProposeOnly = (perm: KeyPermission) =>
+  perm !== "FullAccess" && perm.FunctionCall.receiver_id === DAO_ACCOUNT && perm.FunctionCall.method_names.length === 1 && perm.FunctionCall.method_names[0] === "add_proposal";
 
 /** Permissions that let an account vote on proposals. The agent must hold none of them. */
 const VOTING = /:(\*|VoteApprove|VoteReject|VoteRemove)$/;
@@ -105,7 +118,11 @@ export const resetCustodyCache = () => { checkCache = undefined; };
  */
 export async function checkCustody(): Promise<CustodyCheck> {
   if (checkCache && Date.now() - checkCache.at < 5 * 60_000) return checkCache.c;
-  const c = DEMO ? demoCheck() : CUSTODY === "sputnik" ? await checkSputnik() : CUSTODY === "outlayer" ? await checkOutlayer() : manualCheck();
+  const c = DEMO ? demoCheck()
+    : CUSTODY === "sputnik" ? await checkSputnik()
+    : CUSTODY === "outlayer" ? await checkOutlayer()
+    : CUSTODY === "hybrid" ? await checkHybrid()
+    : manualCheck();
   if (c.ok) checkCache = { at: Date.now(), c };
   return c;
 }
@@ -122,7 +139,7 @@ const demoCheck = (): CustodyCheck => ({
   ok: true,
   facts: [
     `Treasury: ${DAO_ACCOUNT} (simulated in demo mode).`,
-    "Agent key: function-call only, receiver the DAO, method add_proposal (simulated).",
+    "Agent key: function-call only, receiver the DAO, method add_proposal, and the only key on the agent account (simulated).",
     "Proposal bond 0, so the scoped key can propose; council votes execute.",
   ],
   problems: [],
@@ -135,7 +152,7 @@ async function checkSputnik(): Promise<CustodyCheck> {
   let publicKey = "";
   try {
     publicKey = KeyPair.fromString(AGENT_PRIVATE_KEY as KeyPairString).getPublicKey().toString();
-    const key = await rpc<{ permission: "FullAccess" | { FunctionCall: { receiver_id: string; method_names: string[]; allowance: string | null } } }>({
+    const key = await rpc<{ permission: KeyPermission }>({
       request_type: "view_access_key", account_id: AGENT_ACCOUNT, public_key: publicKey,
     });
     if (key.permission === "FullAccess") problems.push(`The agent key on ${AGENT_ACCOUNT} is a FULL-ACCESS key. Replace it with a function-call key for add_proposal on ${DAO_ACCOUNT}.`);
@@ -148,6 +165,24 @@ async function checkSputnik(): Promise<CustodyCheck> {
     }
   } catch (e) {
     problems.push(`Could not read the agent key (${(e as Error).message}).`);
+  }
+  // "Holds only" the scoped key: every key on the agent account must be one. Another key, above all a full-access
+  // one, could transfer the account's NEAR, add keys or deploy code, so whoever holds it could act as the agent.
+  try {
+    const { keys } = await rpc<{ keys: { public_key: string; access_key: { permission: KeyPermission } }[] }>({ request_type: "view_access_key_list", account_id: AGENT_ACCOUNT });
+    if (!Array.isArray(keys)) throw new Error("no key list");
+    const others = keys.filter((k) => !isProposeOnly(k.access_key.permission));
+    for (const k of others) {
+      const perm = k.access_key.permission;
+      problems.push(perm === "FullAccess"
+        ? `${AGENT_ACCOUNT} also has a FULL-ACCESS key ${k.public_key.slice(0, 18)}…: whoever holds it can transfer from the account, add keys or deploy code. Delete it (near account delete-keys ${AGENT_ACCOUNT} public-keys ${k.public_key}) so the account holds only its add_proposal key.`
+        : `${AGENT_ACCOUNT} also has key ${k.public_key.slice(0, 18)}…, which may call ${perm.FunctionCall.receiver_id} [${perm.FunctionCall.method_names.join(", ") || "any method"}]. Every key on the agent account must be limited to add_proposal on ${DAO_ACCOUNT}.`);
+    }
+    if (!others.length) {
+      facts.push(`All ${keys.length} key${keys.length === 1 ? "" : "s"} on ${AGENT_ACCOUNT} can only call add_proposal on ${DAO_ACCOUNT}: no one, the agent included, can transfer from the account, add keys, deploy code or vote with it. With no full-access key left, the account cannot add a key itself, so if it runs out of gas allowance or NEAR, create a new agent account and have the council swap it into the agent's role.`);
+    }
+  } catch (e) {
+    problems.push(`Could not list the keys on ${AGENT_ACCOUNT} (${(e as Error).message}).`);
   }
   try {
     const policy = await viewDao<DaoPolicy>("get_policy");
@@ -166,7 +201,15 @@ async function checkSputnik(): Promise<CustodyCheck> {
       const vote = r.permissions.find((p) => VOTING.test(p));
       if (vote) problems.push(`${AGENT_ACCOUNT} holds voting rights through the DAO role "${r.name}" (${vote}). The agent should only be able to add proposals.`);
     }
-    if (!problems.some((x) => x.includes("voting rights"))) facts.push("The agent holds no voting rights in the DAO: it can propose a payout but never approve one.");
+    if (!problems.some((x) => x.includes("voting rights"))) facts.push("The agent holds no voting rights in the DAO: it can propose a payout but never approve one, and it cannot change the DAO's policy.");
+    const wider = [...new Set(agentRoles.flatMap((r) => r.permissions).filter((p) => /:AddProposal$/.test(p) && !/^(call|transfer):/.test(p)))];
+    if (wider.length) facts.push(`Note: the agent may also propose ${wider.join(", ")}. Those still need council votes; for least privilege give its role only call:AddProposal and transfer:AddProposal (Trezu's Requestor).`);
+
+    // The relayer's key sits on this server too. It must not be a council member, or the server could vote.
+    if (RELAYER_ACCOUNT) {
+      const relayerVotes = policy.roles.some((r) => typeof r.kind === "object" && "Group" in r.kind && r.kind.Group.includes(RELAYER_ACCOUNT) && r.permissions.some((p) => VOTING.test(p)));
+      if (relayerVotes) problems.push(`The relayer ${RELAYER_ACCOUNT} holds voting rights in the DAO. Its key is on this server, so use an account that is not on the council.`);
+    }
 
     // The approval threshold the chain applies to a payout (a FunctionCall proposal).
     const first = council[0];
@@ -218,9 +261,10 @@ async function outlayer<T>(path: string, init: RequestInit & { idempotencyKey?: 
 
 const usdText = (n: number) => `$${n.toLocaleString("en-US")}`;
 
-async function checkOutlayer(): Promise<CustodyCheck> {
+async function checkOutlayer(): Promise<CustodyCheck & { perPaymentUsd?: number }> {
   const facts: string[] = [];
   const problems: string[] = [];
+  let perPaymentUsd: number | undefined;
   try {
     const { status, body: p } = await outlayer<{
       controller?: string; frozen?: boolean; policy?: string;
@@ -243,6 +287,7 @@ async function checkOutlayer(): Promise<CustodyCheck> {
         else facts.push(msg);
       } else if (/^\d+$/.test(theirs)) {
         const n = Number(BigInt(theirs)) / 1e6;
+        if (label === "per-payment") perPaymentUsd = n;
         if (n <= ours) facts.push(`Limit sync: OutLayer allows ${usdText(n)} per ${label === "daily" ? "day" : "payment"}, within the app's ${usdText(ours)}. The custodian enforces it too.`);
         else {
           const msg = `Limit sync: OutLayer allows ${usdText(n)} per ${label === "daily" ? "day" : "payment"}, above the app's ${usdText(ours)}. Lower it in the OutLayer dashboard so the custodian backs the app's limit.`;
@@ -258,7 +303,100 @@ async function checkOutlayer(): Promise<CustodyCheck> {
   } catch (e) {
     problems.push(`Could not read the OutLayer policy (${(e as Error).message}).`);
   }
-  return { mode: "outlayer", ok: problems.length === 0, facts, problems };
+  return { mode: "outlayer", ok: problems.length === 0, facts, problems, perPaymentUsd };
+}
+
+/**
+ * Hybrid custody passes only if both custodians pass and OutLayer caps each payment at the approval threshold or
+ * less. Then a payment too large for the wallet that this app routes there by mistake (or by compromise) is
+ * refused by OutLayer, so a large payment can only leave through a council vote.
+ */
+async function checkHybrid(): Promise<CustodyCheck> {
+  const [dao, wallet] = await Promise.all([checkSputnik(), checkOutlayer()]);
+  const facts = [...dao.facts.map((f) => `Vault (DAO): ${f}`), ...wallet.facts.map((f) => `Spending wallet (OutLayer): ${f}`)];
+  const problems = [...dao.problems.map((f) => `Vault (DAO): ${f}`), ...wallet.problems.map((f) => `Spending wallet (OutLayer): ${f}`)];
+  const t = currentPolicy().approvalThresholdUsd;
+  if (wallet.perPaymentUsd === undefined) {
+    problems.push(`Spending wallet (OutLayer): no per-payment USDC limit is set. In hybrid custody OutLayer must cap each payment at the ${usdText(t)} approval threshold or less, so larger payments can only go through a council vote.`);
+  } else if (wallet.perPaymentUsd > t) {
+    problems.push(`Spending wallet (OutLayer): it allows ${usdText(wallet.perPaymentUsd)} per payment, above the ${usdText(t)} approval threshold. Lower it in the OutLayer dashboard so larger payments can only go through a council vote.`);
+  } else {
+    facts.push(`Routing: payments under ${usdText(t)} are paid from the spending wallet. OutLayer refuses any over ${usdText(wallet.perPaymentUsd)}, so larger payments can only leave through the DAO's council vote.`);
+  }
+  try {
+    const bal = await spendingWalletUsdc();
+    const { low, target } = spendingWalletBand();
+    facts.push(`The spending wallet ${OUTLAYER_WALLET_ACCOUNT} holds ${usdText(bal)} USDC: the most that can leave without a council vote. Below ${usdText(low)} the agent asks the DAO for a top-up to ${usdText(target)}.`);
+  } catch (e) {
+    problems.push(`Could not read the spending wallet's USDC balance on ${OUTLAYER_WALLET_ACCOUNT || "(OUTLAYER_WALLET_ACCOUNT not set)"} (${(e as Error).message}).`);
+  }
+  facts.push("To stop the spending wallet at once, freeze it in the OutLayer dashboard; the council keeps control of the vault.");
+  return { mode: "hybrid", ok: problems.length === 0, facts, problems, killCommand: dao.killCommand, councilKill: dao.councilKill };
+}
+
+// ---------- Hybrid: the spending wallet ----------
+
+/** USDC held by the OutLayer spending wallet, read from the chain. */
+export async function spendingWalletUsdc(): Promise<number> {
+  if (!OUTLAYER_WALLET_ACCOUNT) throw new Error("OUTLAYER_WALLET_ACCOUNT is not set");
+  return Number(BigInt(await viewFn<string>(NEAR_USDC_CONTRACT, "ft_balance_of", { account_id: OUTLAYER_WALLET_ACCOUNT }))) / 1e6;
+}
+
+/** Below `low` the agent asks the DAO to refill the wallet to `target`. Defaults: the daily limit, and twice it. */
+export function spendingWalletBand() {
+  const daily = currentPolicy().dailyLimitUsd;
+  const low = SPENDING_WALLET_LOW_USD ?? daily;
+  return { low, target: Math.max(SPENDING_WALLET_TARGET_USD ?? daily * 2, low) };
+}
+
+/** Where a payment goes in hybrid custody. Anything the wallet cannot be shown to cover goes to the council. */
+export async function hybridRoute(amountUsd: number): Promise<{ backend: "sputnik" | "outlayer"; why: string }> {
+  const t = currentPolicy().approvalThresholdUsd;
+  if (amountUsd >= t) return { backend: "sputnik", why: `${usdText(amountUsd)} is at or over the ${usdText(t)} approval threshold, so it goes to the DAO council.` };
+  const bal = await spendingWalletUsdc().catch(() => undefined);
+  if (bal === undefined) return { backend: "sputnik", why: "The spending wallet's balance could not be read, so this goes to the DAO council." };
+  if (bal < amountUsd) return { backend: "sputnik", why: `The spending wallet holds ${usdText(bal)}, less than ${usdText(amountUsd)}, so this goes to the DAO council.` };
+  return { backend: "outlayer", why: `Under the ${usdText(t)} approval threshold, so it is paid from the spending wallet, within OutLayer's limits.` };
+}
+
+/**
+ * Hybrid custody: when the spending wallet is below its low mark, the agent files one DAO proposal (with its
+ * add_proposal key) to refill it to the target. The council still votes on it, and only one is open at a time.
+ */
+export async function topUpIfLow(): Promise<{ topUp?: TopUp; note: string }> {
+  if (CUSTODY !== "hybrid" || DEMO) return { note: "Top-ups are only used with hybrid custody." };
+  const s = state();
+  if (s.killSwitch) return { topUp: s.topUp, note: "The kill switch is on, so no top-up is requested." };
+  if (s.topUp?.status === "InProgress") {
+    s.topUp.status = (await viewDao<DaoProposal>("get_proposal", { id: s.topUp.proposalId })).status;
+    if (s.topUp.status === "InProgress") return { topUp: s.topUp, note: `Top-up proposal #${s.topUp.proposalId} is still waiting for council votes.` };
+  }
+  const bal = await spendingWalletUsdc();
+  const { low, target } = spendingWalletBand();
+  if (bal >= low) return { topUp: s.topUp, note: `The spending wallet holds ${usdText(bal)}, at or above its ${usdText(low)} low mark.` };
+  const check = await checkCustody();
+  if (!check.ok) throw new Error(`Custody check failed: ${check.problems.join(" ")}`);
+  const amountUsd = Math.ceil(target - bal);
+  const kind = {
+    FunctionCall: {
+      receiver_id: NEAR_USDC_CONTRACT,
+      actions: [
+        { method_name: "storage_deposit", args: b64({ account_id: OUTLAYER_WALLET_ACCOUNT, registration_only: true }), deposit: STORAGE_DEPOSIT_YOCTO, gas: "10000000000000" },
+        { method_name: "ft_transfer", args: b64({ receiver_id: OUTLAYER_WALLET_ACCOUNT, amount: String(amountUsd * 1e6), memo: "bluvfi:top-up" }), deposit: "1", gas: "20000000000000" },
+      ],
+    },
+  };
+  const description = trezuDescription({
+    proposal_action: "payment-transfer",
+    title: "Top up the agent's spending wallet",
+    notes: `Filed by the Bluvfi Business agent. The OutLayer spending wallet holds ${usdText(bal)}, under its ${usdText(low)} low mark; this refills it to ${usdText(target)}. Payments under the ${usdText(currentPolicy().approvalThresholdUsd)} approval threshold are paid from it, within OutLayer's limits.`,
+    url: PUBLIC_BASE_URL,
+    recipient: OUTLAYER_WALLET_ACCOUNT,
+    destinationNetwork: ASSET_ID["near:USDC"],
+  });
+  const id = await addDaoProposal(kind, description);
+  s.topUp = { proposalId: id, amountUsd, requestedAt: new Date().toISOString(), status: "InProgress", url: `${TREZU_APP_URL}/${DAO_ACCOUNT}/requests/${id}` };
+  return { topUp: s.topUp, note: `Filed top-up proposal #${id} for ${usdText(amountUsd)}. The council must approve it.` };
 }
 
 // ---------- Submit a payout ----------
@@ -271,6 +409,13 @@ export async function submitPayout(p: Payment): Promise<CustodyRecord> {
   const evidence = evidenceHash(p);
   const amount = rawUsdc(p.quote, p.invoice.amountUsd);
   const memo = `bluvfi:${evidence.slice(0, 32)}`;
+  if (CUSTODY === "hybrid") {
+    const route = await hybridRoute(p.invoice.amountUsd);
+    const rec = route.backend === "outlayer" ? await submitOutlayer(p, amount, memo, evidence) : await submitSputnik(p, amount, memo, evidence);
+    rec.route = route.why;
+    await topUpIfLow().catch(() => undefined); // best effort: the payout is already with its custodian
+    return rec;
+  }
   return CUSTODY === "outlayer" ? submitOutlayer(p, amount, memo, evidence) : submitSputnik(p, amount, memo, evidence);
 }
 
@@ -390,7 +535,7 @@ export async function refreshPayout(rec: CustodyRecord): Promise<CustodyRecord> 
 
 // ---------- Gasless council votes (NEP-366) ----------
 
-export const relayerEnabled = () => !DEMO && CUSTODY === "sputnik" && !!RELAYER_ACCOUNT && /^(ed25519|mldsa65):/.test(RELAYER_PRIVATE_KEY);
+export const relayerEnabled = () => !DEMO && DAO_CUSTODY && !!RELAYER_ACCOUNT && /^(ed25519|mldsa65):/.test(RELAYER_PRIVATE_KEY);
 
 interface DecodedDelegate {
   delegateAction: {

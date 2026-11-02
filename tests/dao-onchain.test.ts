@@ -1,5 +1,5 @@
 import "./setup";
-import "./setup-sputnik";
+import { AGENT_KEY } from "./setup-sputnik";
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import { approvalsNeeded, checkCustody, resetCustodyCache } from "../lib/custody";
@@ -24,6 +24,7 @@ const view = (o: unknown) => ({ result: Array.from(Buffer.from(JSON.stringify(o)
 const rpc = async (_url: string, init?: RequestInit) => {
   const req = JSON.parse(String(init?.body)) as { method: string; params: Record<string, unknown> };
   const ok = (result: unknown) => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { headers: { "content-type": "application/json" } });
+  if (req.method === "query" && req.params.request_type === "view_access_key_list") return ok({ keys: [{ public_key: AGENT_KEY.getPublicKey().toString(), access_key: { nonce: 7, permission } }] });
   if (req.method === "query" && req.params.request_type === "view_access_key") return ok({ nonce: 7, permission, block_height: 1, block_hash: "11111111111111111111111111111111" });
   if (req.method === "query" && req.params.request_type === "call_function") {
     if (req.params.method_name === "get_policy")

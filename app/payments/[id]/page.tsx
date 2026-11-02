@@ -71,6 +71,7 @@ export default async function PaymentDetail({ params }: { params: Promise<{ id: 
             <h2>Treasury</h2>
             <Badge tone={c.state === "executed" ? "ok" : c.state === "pending" ? "blue" : "bad"}>{c.backend === "sputnik" ? `DAO proposal #${c.ref}` : "OutLayer wallet"} · {c.state}</Badge>
           </div>
+          {c.route && <p className="mt-1 text-sm"><span className="label">Route</span> {c.route}</p>}
           <p className="mt-1" style={{ color: "var(--tx-1)" }}>{c.detail}</p>
           <p className="mt-2 text-sm" style={{ color: "var(--tx-2)" }}>
             {c.backend === "sputnik"

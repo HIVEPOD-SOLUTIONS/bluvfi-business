@@ -5,7 +5,7 @@ import { deriveKey } from "./crypto";
 import { DEFAULT_POLICY_BODY, makePolicy } from "./policy";
 import { services } from "./services";
 import type { CounterpartySignals } from "./fraud";
-import type { BlocklistEntry, Payment, Policy, PolicyProposal, PurchaseOrder, Receivable, Vendor, ViewGrant } from "./types";
+import type { BlocklistEntry, Payment, Policy, PolicyProposal, PurchaseOrder, Receivable, TopUp, Vendor, ViewGrant } from "./types";
 
 export interface State {
   policies: Policy[];
@@ -23,6 +23,8 @@ export interface State {
   ledgerPublic: boolean;
   x402Spend: { at: string; url: string; priceUsd: number }[];
   checkLog: { at: string; verdict: string }[];
+  /** Hybrid custody: the latest DAO proposal to refill the spending wallet. */
+  topUp?: TopUp;
   /** Demo mode only: the simulated treasury DAO (lib/custody.ts). */
   demoDao?: { lastId: number; proposals: Record<number, { id: number; status: string; kind: unknown; votes: Record<string, string>; description: string }> };
 }

@@ -79,6 +79,7 @@ npm run dev
 7. **Payout.** A real NEAR Intents 1Click quote (with `confidentiality: public | basic | advanced` per payment) gives a deposit address. The payout then goes to the **custodian**:
    - **Sputnik DAO / Trezu:** the agent calls `add_proposal` with `storage_deposit` + `ft_transfer` of USDC to the deposit address. The council's approving vote executes it.
    - **OutLayer:** `POST /wallet/v1/call ft_transfer`. OutLayer's policy enforces limits and allowlists inside Intel TDX, and above its threshold the request waits for approvers.
+   - **Hybrid (`CUSTODY=hybrid`):** the DAO is the vault and an OutLayer wallet is a small spending wallet. Payments under the approval threshold are paid from the wallet; payments at or over it, or larger than the wallet holds, become DAO proposals. When the wallet falls below its low mark (default: the daily limit) the agent files one DAO proposal to refill it to its target (default: twice the daily limit), and the council votes on it.
    - **Manual:** a signer sends from their own wallet and records the transaction.
 8. **Evidence.** A hash of the record is written onchain with the payout: in the DAO proposal description, or in the `ft_transfer` memo. The policy check is also proved in zero knowledge with o1js (`lib/zk-program.ts`), in the background, and the proof is verified on the payment page. The record is hash-chained, signed with ML-DSA-65, and kept encrypted (AES-256-GCM). Auditors get time-limited view keys (`/view`), a CSV and a PDF.
 
@@ -86,10 +87,13 @@ npm run dev
 
 - **The agent cannot move funds.**
   - **Sputnik:** the agent key is a NEAR **function-call access key** limited to `add_proposal` on the DAO. Such a key can attach no deposit, so the DAO's bond must be 0.
-  - **The app verifies this from the chain** (`view_access_key` plus the DAO's `get_policy`) and refuses to submit payouts if the key is full-access, scoped to other methods, or the bond is not 0 (`lib/custody.ts checkCustody`).
+  - **The agent holds only that key.** Every key on the agent account must be one that can call `add_proposal` on the DAO and nothing else. A full-access key, or a key for any other contract or method, fails the check, and the Overview shows the `near account delete-keys` command to remove it. So no one, the agent included, can transfer from the agent account, add keys, deploy code or vote with it.
+  - **The app verifies this from the chain** (`view_access_key`, `view_access_key_list` and the DAO's `get_policy`) and refuses to submit payouts if any key is full-access or scoped to anything else, if the agent's DAO role can vote, if the relayer account can vote, or if the bond is not 0 (`lib/custody.ts checkCustody`). The DAO roles mean the agent can propose but never approve a payout or change the DAO's policy.
+  - **`add_proposal` is our `request_payment`.** The spec names a contract method `request_payment`; with an existing DAO, filing a proposal is that request, and the council's vote is the approval.
   - **OutLayer:** the agent holds only an API key, and the app refuses a wallet with no stored policy.
+  - **Hybrid:** both checks must pass, **and** OutLayer must cap each payment at the approval threshold or less. Otherwise the app refuses to pay. So a large payment routed to the wallet, by a bug or a compromised server, is refused by OutLayer, and can only leave through a council vote. The spending wallet's balance, read from the chain, is the most that can ever leave without one.
   - **Post-quantum option:** the agent key may also be ML-DSA (`mldsa65:`), which NEAR and near-api-js support.
-- **Gas allowance lock-out.** A function-call key whose gas allowance runs out stops working until the owner adds a new one. The custody check warns when the allowance is nearly used.
+- **Gas allowance lock-out.** A function-call key whose gas allowance runs out stops working. Because the agent account has no full-access key, it cannot add a new key itself: the account is locked. Nothing is lost, since the agent account holds no treasury funds. The fix is a new agent account with a fresh scoped key, which the council swaps into the agent's DAO role. The custody check warns when the allowance is nearly used. A key added with no allowance limit draws gas from the account's own NEAR balance instead, so keep a little NEAR there.
 - **Kill switch.** It stops this app immediately. For a hard stop onchain, the Overview shows the `near account delete-keys` command that revokes the agent's key. The council can also reject or remove open proposals.
 - **Gasless votes.** A council member's browser holds a key that may only call `act_proposal` on the DAO, and signs a NEP-366 delegate action. Before anything is relayed (`relayVote`), the relayer checks that it is:
   - one `act_proposal` on our DAO;
@@ -110,9 +114,10 @@ Each requirement is met by something that already exists, or by this app's gate.
 
 | Requirement | What enforces it | Where it is enforced |
 |---|---|---|
-| The agent cannot spend | Sputnik: a function-call key limited to `add_proposal`, checked from the chain before every payout, **and** the agent holds only a Requestor-style role: the check fails if any DAO role gives it voting rights, so it can propose but never approve. OutLayer: an API key, with keys held in a TEE | **Onchain / TEE** |
+| The agent cannot spend | Sputnik: a function-call key limited to `add_proposal`, checked from the chain before every payout, and the **only** kind of key on the agent account (`view_access_key_list`: no full-access key, no key for anything else), **and** the agent holds only a Requestor-style role: the check fails if any DAO role gives it voting rights, so it can propose but never approve. OutLayer: an API key, with keys held in a TEE | **Onchain / TEE** |
 | Council approval and the approval threshold | Sputnik's vote threshold (or OutLayer's approvers) executes the payout. The app reads the threshold the DAO actually applies to payouts (from `get_policy`, the role's own vote policy first) and shows it on the Overview, warning if one council member can approve alone | **Onchain / TEE** |
 | Per-payment and daily limits, permitted chains and assets | OutLayer's stored policy where used; always the app's policy gate, re-checked at the moment of release (`lib/policy.ts`, `release()`) | OutLayer: TEE, and the custody check compares OutLayer's per-payment limit with the app's and says whether it backs it. Sputnik: **this app only**, because a DAO has no spending limits; the council still sees every proposal |
+| Most that can leave without a council vote | Hybrid: the spending wallet's balance, refilled only by DAO proposals the council approves, and each payment from it capped by OutLayer at the approval threshold. Sputnik: nothing leaves without a vote | **Onchain balance + TEE** with hybrid |
 | Vendor allowlist | The app's policy gate (a non-listed vendor is held for a human); OutLayer address rules where used | App, plus OutLayer where used |
 | Hold window | Held payments cannot be approved until `holdUntil`; cancelling is always possible. Because the agent can only act by submitting a payout to the custodian, and that happens after the window and a signer's approval, the hold sits in front of the only onchain action. Neither a DAO nor OutLayer offers a timelock of its own | App, in front of the onchain step |
 | Kill switch any signer can flip | App flag (who and when is recorded) stops all payments and API spend at once. **Onchain hard stops, both generated for you on the Overview:** (1) the council removes the agent from its DAO role (a `ChangePolicyRemoveRole` / `ChangePolicyAddOrUpdateRole` proposal built from the live policy, the same as Members in Trezu), which needs no key held by the agent's owner, and the app then stops submitting on its own at its next custody check (checks are cached for up to five minutes); (2) the agent key's owner deletes the key (`near account delete-keys …`) | App flag, plus council or key-owner action onchain |
@@ -120,6 +125,8 @@ Each requirement is met by something that already exists, or by this app's gate.
 | Function-call key lock-out | A function-call key whose gas allowance runs out stops working until the owner adds a new one. The custody check warns when the allowance is nearly used | Checked from the chain |
 
 **Trezu note:** a Trezu treasury has the roles Requestor (creates payment requests, cannot vote), Finance (votes on payments) and Governance (members, voting rules, policy). Put the agent in **Requestor only**. Trezu creates DAOs with a 0.1 NEAR proposal bond, which a function-call key cannot attach, so a Governance proposal must set the bond to 0 first; the custody check says so until it is done.
+
+**Hybrid custody closes most of that gap without a contract:** routine payments come from a wallet whose limits OutLayer enforces in a TEE, and whose balance is a hard ceiling; everything larger goes to the council. What stays app-only is the hold window and the vendor allowlist for DAO payouts.
 
 What this does **not** give you, and cannot without writing a contract: with Sputnik custody, a compromised app server could ignore its own limits, allowlist and hold window, because a DAO enforces votes, not amounts or delays. The council reviewing each proposal is the backstop, and revoking the agent key is the hard stop. OutLayer's policy is the option that enforces limits outside this app. While the kill switch is on, the Overview lists payouts still waiting onchain, with links to reject them; the agent cannot withdraw them itself.
 
@@ -137,6 +144,7 @@ This build deploys **no smart contract**, so there are no contract audit finding
 | Sputnik DAO custody (scoped key, proposals, status) | Done, tested against a mocked NEAR RPC. **Not yet run on mainnet** |
 | Gasless council votes (NEP-366 relayer) | Done. Relay guards are tested; browser signing has not been run against mainnet |
 | OutLayer custody | Done to OutLayer's OpenAPI document, tested with mocks. **Not yet run against OutLayer** |
+| Hybrid custody (DAO vault + OutLayer spending wallet) | Done: routing by size and balance, the combined custody check, top-up proposals, both balances on the Overview (`tests/hybrid.test.ts`). Tested against a mocked NEAR RPC and OutLayer API. **Not yet run on mainnet or against OutLayer** |
 | 1Click quotes, confidentiality, status, dry-run | Field names match the 1Click OpenAPI document. Never executed with funds |
 | Whisper voice answers | Done to NEAR AI's API reference; not run against Twilio or NEAR AI |
 | Check over x402 | **PingPay Agent Pay** (x402 v2: buyers pay USDC on Base, we receive USDC on NEAR through NEAR Intents), or any x402 v1 facilitator that supports `near`. PingPay routes and shapes were checked against its docs and live endpoints on 2026-11-01: `https://staging.pingpay.io/agentpay/x402/supported` answers as documented and `prepare` requires a key; the documented `https://pay.pingpay.io` did not yet serve these routes. The app checks `/supported` before taking payments. **Not yet run with a funded payment** |
@@ -163,7 +171,7 @@ This build deploys **no smart contract**, so there are no contract audit finding
 | **Aurora Intents swap widget** | Clients pay invoices from any wallet and token; amount, asset and recipient are fixed by our server |
 | **Meta transactions (NEP-366)** | Gasless council votes through a relayer that only relays votes |
 | **NEAR Intents / 1Click** | Cross-chain payouts in USDC to vendors on Base, Arbitrum, Ethereum, Solana and NEAR, with per-payment confidentiality. The same flow powers client pay links |
-| **OutLayer** | Alternative custody: a policy wallet whose limits and approvals are enforced in Intel TDX |
+| **OutLayer** | Alternative custody, or the spending wallet in hybrid custody: a policy wallet whose limits and approvals are enforced in Intel TDX |
 | **x402 (PingPay Agent Pay)** | Check sold per call; the agent's own API spending is gated by the same policy |
 | **Agent Market** | A worker that answers hired jobs with Bluvfi Business Check |
 | **NEAR RPC / NearBlocks** | Treasury balances, counterparty signals, and onchain custody checks |
@@ -192,7 +200,7 @@ This build deploys **no smart contract**, so there are no contract audit finding
 ## Tests
 
 ```bash
-npm test         # 43 tests; outside services are mocked inside tests/ only
+npm test         # 70 tests; outside services are mocked inside tests/ only
 npm run demo     # the end-to-end story; exits non-zero if an outcome or a signature is wrong
 ```
 

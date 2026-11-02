@@ -183,6 +183,18 @@ export interface CustodyRecord {
   kind?: unknown;
   approvalId?: string;
   txHash?: string;
+  /** Hybrid custody: why the payout went to the spending wallet or to the DAO. */
+  route?: string;
+}
+
+/** Hybrid custody: the agent's open request for the DAO to refill the spending wallet. */
+export interface TopUp {
+  proposalId: number;
+  amountUsd: number;
+  requestedAt: string;
+  /** The DAO proposal's status as last read: InProgress, Approved, Rejected, … */
+  status: string;
+  url: string;
 }
 
 export interface Payment {

@@ -59,6 +59,9 @@ export const X402_PAYER_URL = (process.env.X402_PAYER_URL ?? "").replace(/\/$/, 
  *    that may only call `add_proposal` on the DAO, so it can propose a payout and nothing else; council members vote.
  *  - outlayer: an OutLayer agent wallet. Its owner-set policy (limits, allowlist, multisig, freeze) is enforced in
  *    Intel TDX; the agent holds only an API key.
+ *  - hybrid: both. The DAO is the vault; an OutLayer wallet holds a small working balance the agent pays routine
+ *    invoices from, under OutLayer's limits. Payments at or over the approval threshold, or larger than the wallet
+ *    holds, go to the DAO for a council vote, and the agent asks the DAO to top the wallet up when it runs low.
  *  - manual: no custody integration; a signer sends from their own wallet and records the transaction.
  */
 export const DAO_ACCOUNT = process.env.DAO_ACCOUNT ?? (DEMO ? "bluvfi-demo.sputnik-dao.near" : "");
@@ -71,20 +74,27 @@ export const RELAYER_PRIVATE_KEY = process.env.RELAYER_PRIVATE_KEY ?? "";
 export const TREZU_APP_URL = (process.env.TREZU_APP_URL ?? "https://trezu.app").replace(/\/$/, "");
 export const OUTLAYER_BASE = (process.env.OUTLAYER_BASE_URL ?? "https://api.outlayer.ai").replace(/\/$/, "");
 export const OUTLAYER_API_KEY = process.env.OUTLAYER_API_KEY ?? "";
-export type CustodyMode = "sputnik" | "outlayer" | "manual";
+/** Hybrid custody: the OutLayer wallet's NEAR account, which the DAO tops up and whose USDC balance is read from the chain. */
+export const OUTLAYER_WALLET_ACCOUNT = process.env.OUTLAYER_WALLET_ACCOUNT ?? "";
+/** Hybrid custody: ask the DAO for a top-up below this USDC balance, up to the target (defaults: the daily limit, and twice it). */
+export const SPENDING_WALLET_LOW_USD = Number(process.env.SPENDING_WALLET_LOW_USD ?? 0) || undefined;
+export const SPENDING_WALLET_TARGET_USD = Number(process.env.SPENDING_WALLET_TARGET_USD ?? 0) || undefined;
+export type CustodyMode = "sputnik" | "outlayer" | "hybrid" | "manual";
 export const CUSTODY: CustodyMode =
   DEMO ? "sputnik"
-  : process.env.CUSTODY === "sputnik" || process.env.CUSTODY === "outlayer" || process.env.CUSTODY === "manual" ? process.env.CUSTODY
+  : process.env.CUSTODY === "sputnik" || process.env.CUSTODY === "outlayer" || process.env.CUSTODY === "hybrid" || process.env.CUSTODY === "manual" ? process.env.CUSTODY
   : DAO_ACCOUNT && AGENT_ACCOUNT && AGENT_PRIVATE_KEY ? "sputnik"
   : OUTLAYER_API_KEY ? "outlayer"
   : "manual";
+/** Sputnik or hybrid custody: the treasury is a DAO, so the council approves payouts and policy changes. */
+export const DAO_CUSTODY = CUSTODY === "sputnik" || CUSTODY === "hybrid";
 /** With Sputnik custody, policy changes are approved by the DAO council (a Vote proposal), not by app signers. POLICY_VIA_DAO=0 opts out. */
 /** REQUIRE_CUSTODIAN_LIMITS=1: with OutLayer custody, refuse payouts while the custodian lacks a limit, or has a looser one, than this app's policy. */
 export const REQUIRE_CUSTODIAN_LIMITS = process.env.REQUIRE_CUSTODIAN_LIMITS === "1";
-export const POLICY_VIA_DAO = CUSTODY === "sputnik" && !DEMO && process.env.POLICY_VIA_DAO !== "0";
+export const POLICY_VIA_DAO = DAO_CUSTODY && !DEMO && process.env.POLICY_VIA_DAO !== "0";
 
 /** NEAR mainnet account that receives money and is the 1Click refund address. With a DAO, the DAO itself. */
-export const TREASURY_ACCOUNT = env("TREASURY_ACCOUNT") || (CUSTODY === "sputnik" ? DAO_ACCOUNT : "");
+export const TREASURY_ACCOUNT = env("TREASURY_ACCOUNT") || (DAO_CUSTODY ? DAO_ACCOUNT : "");
 export const MASTER_KEY = env("BLUVFI_MASTER_KEY");
 
 /** `BLUVFI_SIGNERS="maya:token1,devon:token2"`: who may approve, and the secret each signs in with. */
@@ -108,10 +118,14 @@ export function missingConfig(): { key: string; why: string }[] {
   need(SIGNERS.length > 0, "BLUVFI_SIGNERS", "name:token pairs (token 16+ characters) for the people who can approve");
   need(/\.near$|^[0-9a-f]{64}$/.test(TREASURY_ACCOUNT), "TREASURY_ACCOUNT", "your NEAR mainnet account (name.near or a 64-hex implicit account)");
   need(!!NEAR_AI_KEY || DEMO, "NEAR_AI_API_KEY", "private AI review; without it every payment is held for a human");
-  if (CUSTODY === "sputnik" && !DEMO) {
+  if (DAO_CUSTODY && !DEMO) {
     need(/\.near$/.test(DAO_ACCOUNT), "DAO_ACCOUNT", "your Sputnik DAO / Trezu treasury, e.g. acme.sputnik-dao.near");
     need(!!AGENT_ACCOUNT, "AGENT_ACCOUNT", "the NEAR account the agent proposes from");
     need(/^(ed25519|mldsa65):/.test(AGENT_PRIVATE_KEY), "AGENT_PRIVATE_KEY", "the agent's function-call key, scoped to add_proposal on the DAO");
+  }
+  if (CUSTODY === "hybrid" && !DEMO) {
+    need(!!OUTLAYER_API_KEY, "OUTLAYER_API_KEY", "the agent's API key for the OutLayer spending wallet");
+    need(/[.]near$|^[0-9a-f]{64}$/.test(OUTLAYER_WALLET_ACCOUNT), "OUTLAYER_WALLET_ACCOUNT", "the OutLayer wallet's NEAR account, which the DAO tops up");
   }
   return out;
 }

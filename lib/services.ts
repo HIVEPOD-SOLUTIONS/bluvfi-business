@@ -1,4 +1,4 @@
-import { lookupSignals, treasuryBalances } from "./chain";
+import { lookupSignals, spendingWalletBalances, treasuryBalances } from "./chain";
 import { DEMO, NEAR_AI_MODEL } from "./config";
 import { refreshPayout, submitPayout } from "./custody";
 import { demoServices } from "./demo";
@@ -22,6 +22,7 @@ export const services = {
   sendCallback,
   lookupSignals,
   treasuryBalances,
+  spendingWalletBalances,
   payX402,
   submitPayout,
   refreshPayout,

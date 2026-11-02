@@ -1,10 +1,10 @@
 import "./setup";
-import "./setup-sputnik";
+import { AGENT_KEY } from "./setup-sputnik";
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import { actions, buildDelegateAction, encodeSignedDelegate, KeyPair } from "near-api-js";
 import { processInvoice } from "../lib/agent";
-import { checkCustody, relayVote } from "../lib/custody";
+import { checkCustody, relayVote, resetCustodyCache } from "../lib/custody";
 import { install, invoice, seed, state } from "./fakes";
 
 const DAO = "acme.sputnik-dao.near";
@@ -17,7 +17,12 @@ const POLICY = {
   ],
 };
 
+/** Keys on the agent account besides the agent's own (tests add some). */
+let extraKeys: { public_key: string; access_key: { nonce: number; permission: unknown } }[] = [];
+
 beforeEach(() => {
+  extraKeys = [];
+  resetCustodyCache();
   install();
   seed();
   // Prior payment to the vendor, so the counterparty check passes and the invoice is clear to pay.
@@ -31,6 +36,8 @@ function nearRpc(opts: { permission: unknown; sent: { method: string; params: un
   return async (_url: string, init?: RequestInit) => {
     const req = JSON.parse(String(init?.body)) as { method: string; params: Record<string, unknown> };
     const ok = (result: unknown) => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { headers: { "content-type": "application/json" } });
+    if (req.method === "query" && req.params.request_type === "view_access_key_list")
+      return ok({ keys: [{ public_key: AGENT_KEY.getPublicKey().toString(), access_key: { nonce: 7, permission: opts.permission } }, ...extraKeys] });
     if (req.method === "query" && req.params.request_type === "view_access_key")
       return ok({ nonce: 7, permission: opts.permission, block_height: 1, block_hash: "11111111111111111111111111111111" });
     if (req.method === "query" && req.params.request_type === "call_function" && req.params.method_name === "get_policy") return ok(viewResult(POLICY));
@@ -128,4 +135,44 @@ test("relayer: only one act_proposal vote on our DAO, from a council member, wit
     assert.equal(ok.sender, "maya.near");
     assert.equal(sent.length, 1);
   });
+});
+
+test("custody: the agent account must hold only its add_proposal key; any other key is refused", async () => {
+  const other = KeyPair.fromRandom("ed25519").getPublicKey().toString();
+  extraKeys = [{ public_key: other, access_key: { nonce: 1, permission: "FullAccess" } }];
+  await withFetch(nearRpc({ permission: scoped, sent: [] }), async () => {
+    const c = await checkCustody();
+    assert.equal(c.ok, false);
+    assert.match(c.problems.join(" "), /also has a FULL-ACCESS key/);
+    assert.ok(c.problems.join(" ").includes(`delete-keys acme-agent.near public-keys ${other}`));
+    const p = await processInvoice(invoice({ invoiceNumber: "INV-FA2" }));
+    assert.equal(p.status, "blocked");
+  });
+
+  resetCustodyCache();
+  extraKeys = [{ public_key: other, access_key: { nonce: 1, permission: { FunctionCall: { receiver_id: "usdc.near", method_names: ["ft_transfer"], allowance: null } } } }];
+  await withFetch(nearRpc({ permission: scoped, sent: [] }), async () => {
+    assert.match((await checkCustody()).problems.join(" "), /may call usdc\.near \[ft_transfer\]/);
+  });
+
+  resetCustodyCache();
+  extraKeys = [{ public_key: other, access_key: { nonce: 1, permission: scoped } }];
+  await withFetch(nearRpc({ permission: scoped, sent: [] }), async () => {
+    const c = await checkCustody();
+    assert.equal(c.ok, true, c.problems.join(" "));
+    assert.ok(c.facts.some((f) => /^All 2 keys on acme-agent\.near can only call add_proposal/.test(f)));
+  });
+});
+
+test("custody: the relayer, whose key is on this server, must not be able to vote", async () => {
+  POLICY.roles.push({ name: "ops", kind: { Group: ["acme-relayer.near"] }, permissions: ["*:VoteApprove"] });
+  try {
+    await withFetch(nearRpc({ permission: scoped, sent: [] }), async () => {
+      const c = await checkCustody();
+      assert.equal(c.ok, false);
+      assert.match(c.problems.join(" "), /relayer acme-relayer\.near holds voting rights/);
+    });
+  } finally {
+    POLICY.roles.pop();
+  }
 });

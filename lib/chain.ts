@@ -1,4 +1,4 @@
-import { EVM_RPC_URL, NEARBLOCKS_BASE, NEARBLOCKS_KEY, NEAR_RPC_URL, TREASURY_ACCOUNT } from "./config";
+import { EVM_RPC_URL, NEARBLOCKS_BASE, NEARBLOCKS_KEY, NEAR_RPC_URL, OUTLAYER_WALLET_ACCOUNT, TREASURY_ACCOUNT } from "./config";
 import { NEAR_USDC_CONTRACT } from "./chains";
 import type { CounterpartySignals } from "./fraud";
 
@@ -81,13 +81,23 @@ export interface Balance { chain: string; asset: string; amount: number; usd: bo
 /** Live treasury balances on NEAR mainnet: USDC (counted as USD) and NEAR (units, not converted). */
 export async function treasuryBalances(): Promise<Balance[]> {
   if (!TREASURY_ACCOUNT) throw new Error("TREASURY_ACCOUNT is not set");
+  return accountBalances(TREASURY_ACCOUNT);
+}
+
+/** Hybrid custody: the OutLayer spending wallet's balances, read the same way. */
+export async function spendingWalletBalances(): Promise<Balance[]> {
+  if (!OUTLAYER_WALLET_ACCOUNT) throw new Error("OUTLAYER_WALLET_ACCOUNT is not set");
+  return accountBalances(OUTLAYER_WALLET_ACCOUNT);
+}
+
+async function accountBalances(account: string): Promise<Balance[]> {
   const [acct, usdc] = await Promise.all([
-    nearQuery({ request_type: "view_account", account_id: TREASURY_ACCOUNT }),
+    nearQuery({ request_type: "view_account", account_id: account }),
     nearQuery({
       request_type: "call_function",
       account_id: NEAR_USDC_CONTRACT,
       method_name: "ft_balance_of",
-      args_base64: Buffer.from(JSON.stringify({ account_id: TREASURY_ACCOUNT })).toString("base64"),
+      args_base64: Buffer.from(JSON.stringify({ account_id: account })).toString("base64"),
     }),
   ]);
   const out: Balance[] = [];

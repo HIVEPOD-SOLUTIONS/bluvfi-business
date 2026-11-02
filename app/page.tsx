@@ -1,14 +1,27 @@
 import Link from "next/link";
-import { KillSwitch } from "@/components/Actions";
+import { ActionButton, KillSwitch } from "@/components/Actions";
 import { Badge, Empty, PageHead, PaymentCard, Stat, usd, when } from "@/components/ui";
 import { CHAIN_LABEL } from "@/lib/chains";
 import type { Balance } from "@/lib/chain";
 import { CUSTODY, DEMO, missingConfig } from "@/lib/config";
-import { checkCustody } from "@/lib/custody";
+import { checkCustody, spendingWalletBand } from "@/lib/custody";
 import { services } from "@/lib/services";
 import { currentPolicy, spentTodayUsd, state } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
+
+function BalanceList({ balances }: { balances: Balance[] }) {
+  return (
+    <ul className="mt-2 divide-y" style={{ borderColor: "var(--bd)" }}>
+      {balances.map((b) => (
+        <li key={b.asset} className="flex items-center justify-between py-2.5" style={{ borderColor: "var(--bd)" }}>
+          <span>{CHAIN_LABEL[b.chain]} <span className="label ml-1">{b.asset}</span></span>
+          <span className="amount">{b.usd ? usd(b.amount) : b.amount.toFixed(2)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export default async function Overview() {
   const s = state();
@@ -21,8 +34,21 @@ export default async function Overview() {
   } catch (e) {
     balanceError = (e as Error).message;
   }
+  // Hybrid custody: the DAO is the vault and an OutLayer wallet the agent spends from. Both are read from the chain.
+  const hybrid = CUSTODY === "hybrid" && !DEMO;
+  let wallet: Balance[] = [];
+  let walletError = "";
+  if (hybrid) {
+    try {
+      wallet = await services.spendingWalletBalances();
+    } catch (e) {
+      walletError = (e as Error).message;
+    }
+  }
+  const band = hybrid ? spendingWalletBand() : undefined;
+  const walletUsdc = wallet.find((b) => b.usd)?.amount;
   const custody = await checkCustody().catch((e) => ({ mode: CUSTODY, ok: false, facts: [] as string[], problems: [(e as Error).message], killCommand: undefined as string | undefined, councilKill: undefined as string | undefined }));
-  const total = balances.filter((b) => b.usd).reduce((a, b) => a + b.amount, 0);
+  const total = [...balances, ...wallet].filter((b) => b.usd).reduce((a, b) => a + b.amount, 0);
   const attention = s.payments.filter(
     (p) => p.status === "held" || p.status === "awaiting_approval" || p.status === "ready_to_send" || p.status === "proposed" || (p.status === "blocked" && p.callback?.status === "pending")
   );
@@ -65,7 +91,7 @@ export default async function Overview() {
       )}
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Treasury (USDC)" value={balanceError ? "—" : usd(total)} sub={balanceError ? "balance unavailable" : DEMO ? "demo balance" : "NEAR mainnet"} />
+        <Stat label="Treasury (USDC)" value={balanceError ? "—" : usd(total)} sub={balanceError ? "balance unavailable" : DEMO ? "demo balance" : hybrid ? "vault + spending wallet, NEAR mainnet" : "NEAR mainnet"} />
         <Stat label="Paid or reserved today" value={usd(spentTodayUsd())} sub={`of ${usd(policy.dailyLimitUsd)} daily limit`} />
         <Stat label="Stopped before paying" value={usd(saved)} sub={`${blocked} payment${blocked === 1 ? "" : "s"} blocked or cancelled`} tone={saved > 0 ? "pos" : undefined} />
         <Stat label="Policy" value={`v${policy.version}`} sub={<span className="mono">{policy.hash.slice(0, 12)}…</span>} />
@@ -74,17 +100,32 @@ export default async function Overview() {
       <section className="mt-6 grid gap-4 lg:grid-cols-3">
         <div className="card lg:col-span-1">
           <h2>Treasury balances</h2>
+          {hybrid && <h3 className="label mt-3">Vault (DAO, council votes)</h3>}
           {balanceError ? (
             <p className="mt-3 text-sm neg">Could not read the treasury: {balanceError}</p>
           ) : (
-            <ul className="mt-3 divide-y" style={{ borderColor: "var(--bd)" }}>
-              {balances.map((b) => (
-                <li key={b.asset} className="flex items-center justify-between py-2.5" style={{ borderColor: "var(--bd)" }}>
-                  <span>{CHAIN_LABEL[b.chain]} <span className="label ml-1">{b.asset}</span></span>
-                  <span className="amount">{b.usd ? usd(b.amount) : b.amount.toFixed(2)}</span>
-                </li>
-              ))}
-            </ul>
+            <BalanceList balances={balances} />
+          )}
+          {hybrid && (
+            <>
+              <h3 className="label mt-4">Spending wallet (OutLayer, agent pays from it)</h3>
+              {walletError ? <p className="mt-2 text-sm neg">Could not read the spending wallet: {walletError}</p> : <BalanceList balances={wallet} />}
+              {band && (
+                <p className="mt-2 text-sm" style={{ color: "var(--tx-1)" }}>
+                  {walletUsdc !== undefined && walletUsdc < band.low
+                    ? <span style={{ color: "var(--amber)" }}>Below its {usd(band.low)} low mark. </span>
+                    : null}
+                  The agent asks the DAO to refill it to {usd(band.target)} when it falls under {usd(band.low)}. Its balance is the most that can leave without a council vote.
+                </p>
+              )}
+              {s.topUp && (
+                <p className="mt-2 text-sm">
+                  Top-up {usd(s.topUp.amountUsd)}: DAO proposal #{s.topUp.proposalId}, {s.topUp.status === "InProgress" ? "waiting for council votes" : s.topUp.status.toLowerCase()}.{" "}
+                  <a href={s.topUp.url} target="_blank" rel="noreferrer" style={{ color: "#8c8cff" }}>Open in Trezu</a>
+                </p>
+              )}
+              <div className="mt-2"><ActionButton url="/api/custody/topup" small>Check and request a top-up</ActionButton></div>
+            </>
           )}
           <p className="mt-3 text-sm" style={{ color: "var(--tx-2)" }}>{DEMO ? "Demo balances, not read from the chain." : "Read live from NEAR mainnet. NEAR is shown in units, not converted."}</p>
         </div>
