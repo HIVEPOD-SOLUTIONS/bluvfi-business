@@ -6,7 +6,11 @@
  * throwaway keys, so the whole flow runs with no keys and no funds. Verification still runs on the fixtures.
  */
 export const DEMO = process.env.BLUVFI_DEMO === "1";
-export const NETWORK = "mainnet" as const;
+/** BLUVFI_NETWORK=testnet points the NEAR side (RPC, account names, OutLayer) at testnet, for the real-chain test suite. 1Click, NEAR AI Cloud and NRAS have no testnet. */
+export const NETWORK: "mainnet" | "testnet" = process.env.BLUVFI_NETWORK === "testnet" ? "testnet" : "mainnet";
+export const NEAR_SUFFIX = NETWORK === "testnet" ? "testnet" : "near";
+const NEAR_ACCOUNT = new RegExp(`\\.${NEAR_SUFFIX}$`);
+const NEAR_ACCOUNT_OR_IMPLICIT = new RegExp(`\\.${NEAR_SUFFIX}$|^[0-9a-f]{64}$`);
 
 /** Throwaway values for demo mode only; never used when BLUVFI_DEMO is off. */
 const DEMO_DEFAULTS = {
@@ -20,7 +24,7 @@ export const NEAR_AI_KEY = process.env.NEAR_AI_API_KEY ?? "";
 export const NEAR_AI_BASE = process.env.NEAR_AI_BASE_URL ?? "https://cloud-api.near.ai/v1";
 export const NEAR_AI_MODEL = process.env.NEAR_AI_MODEL ?? "zai-org/GLM-5.1-FP8";
 
-export const NEAR_RPC_URL = process.env.NEAR_RPC_URL ?? "https://rpc.mainnet.near.org";
+export const NEAR_RPC_URL = process.env.NEAR_RPC_URL ?? (NETWORK === "testnet" ? "https://test.rpc.fastnear.com" : "https://rpc.mainnet.near.org");
 export const EVM_RPC_URL = process.env.EVM_RPC_URL ?? "https://ethereum-rpc.publicnode.com";
 
 export const ONECLICK_BASE = process.env.ONECLICK_BASE_URL ?? "https://1click.chaindefuser.com";
@@ -72,7 +76,7 @@ export const AGENT_PRIVATE_KEY = process.env.AGENT_PRIVATE_KEY ?? "";
 export const RELAYER_ACCOUNT = process.env.RELAYER_ACCOUNT ?? "";
 export const RELAYER_PRIVATE_KEY = process.env.RELAYER_PRIVATE_KEY ?? "";
 export const TREZU_APP_URL = (process.env.TREZU_APP_URL ?? "https://trezu.app").replace(/\/$/, "");
-export const OUTLAYER_BASE = (process.env.OUTLAYER_BASE_URL ?? "https://api.outlayer.ai").replace(/\/$/, "");
+export const OUTLAYER_BASE = (process.env.OUTLAYER_BASE_URL ?? (NETWORK === "testnet" ? "https://testnet-api.outlayer.ai" : "https://api.outlayer.ai")).replace(/\/$/, "");
 export const OUTLAYER_API_KEY = process.env.OUTLAYER_API_KEY ?? "";
 /** Hybrid custody: the OutLayer wallet's NEAR account, which the DAO tops up and whose USDC balance is read from the chain. */
 export const OUTLAYER_WALLET_ACCOUNT = process.env.OUTLAYER_WALLET_ACCOUNT ?? "";
@@ -88,7 +92,7 @@ export const CUSTODY: CustodyMode =
   : "manual";
 /** Sputnik or hybrid custody: the treasury is a DAO, so the council approves payouts and policy changes. */
 export const DAO_CUSTODY = CUSTODY === "sputnik" || CUSTODY === "hybrid";
-/** With Sputnik custody, policy changes are approved by the DAO council (a Vote proposal), not by app signers. POLICY_VIA_DAO=0 opts out. */
+/** With Sputnik custody, policy changes are approved by the DAO council (a carrier proposal), not by app signers. POLICY_VIA_DAO=0 opts out. */
 /** REQUIRE_CUSTODIAN_LIMITS=1: with OutLayer custody, refuse payouts while the custodian lacks a limit, or has a looser one, than this app's policy. */
 export const REQUIRE_CUSTODIAN_LIMITS = process.env.REQUIRE_CUSTODIAN_LIMITS === "1";
 export const POLICY_VIA_DAO = DAO_CUSTODY && !DEMO && process.env.POLICY_VIA_DAO !== "0";
@@ -116,16 +120,16 @@ export function missingConfig(): { key: string; why: string }[] {
   const need = (ok: boolean, key: string, why: string) => ok || out.push({ key, why });
   need(/^[0-9a-f]{64}$/i.test(MASTER_KEY), "BLUVFI_MASTER_KEY", "64 hex characters; derives the record encryption and signing keys");
   need(SIGNERS.length > 0, "BLUVFI_SIGNERS", "name:token pairs (token 16+ characters) for the people who can approve");
-  need(/\.near$|^[0-9a-f]{64}$/.test(TREASURY_ACCOUNT), "TREASURY_ACCOUNT", "your NEAR mainnet account (name.near or a 64-hex implicit account)");
+  need(NEAR_ACCOUNT_OR_IMPLICIT.test(TREASURY_ACCOUNT), "TREASURY_ACCOUNT", `your NEAR ${NETWORK} account (name.${NEAR_SUFFIX} or a 64-hex implicit account)`);
   need(!!NEAR_AI_KEY || DEMO, "NEAR_AI_API_KEY", "private AI review; without it every payment is held for a human");
   if (DAO_CUSTODY && !DEMO) {
-    need(/\.near$/.test(DAO_ACCOUNT), "DAO_ACCOUNT", "your Sputnik DAO / Trezu treasury, e.g. acme.sputnik-dao.near");
+    need(NEAR_ACCOUNT.test(DAO_ACCOUNT), "DAO_ACCOUNT", "your Sputnik DAO / Trezu treasury, e.g. acme.sputnik-dao.near");
     need(!!AGENT_ACCOUNT, "AGENT_ACCOUNT", "the NEAR account the agent proposes from");
     need(/^(ed25519|ml-dsa-65):/.test(AGENT_PRIVATE_KEY), "AGENT_PRIVATE_KEY", "the agent's function-call key, scoped to add_proposal on the DAO");
   }
   if (CUSTODY === "hybrid" && !DEMO) {
     need(!!OUTLAYER_API_KEY, "OUTLAYER_API_KEY", "the agent's API key for the OutLayer spending wallet");
-    need(/[.]near$|^[0-9a-f]{64}$/.test(OUTLAYER_WALLET_ACCOUNT), "OUTLAYER_WALLET_ACCOUNT", "the OutLayer wallet's NEAR account, which the DAO tops up");
+    need(NEAR_ACCOUNT_OR_IMPLICIT.test(OUTLAYER_WALLET_ACCOUNT), "OUTLAYER_WALLET_ACCOUNT", "the OutLayer wallet's NEAR account, which the DAO tops up");
   }
   return out;
 }

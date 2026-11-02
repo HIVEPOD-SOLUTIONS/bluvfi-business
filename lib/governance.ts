@@ -36,7 +36,12 @@ export function validateChanges(c: PolicyProposal["changes"]) {
 }
 
 /** The tag a DAO proposal must carry: the version it becomes and a hash of the exact rules. */
-export const daoPolicyTag = (version: number, changes: PolicyProposal["changes"]) => `bluvfi-policy:v${version}:${sha256(canonical(changes))}`;
+/**
+ * Binds an approval to one exact change on top of one exact policy: the version it becomes, a hash of the rules, and the
+ * hash of the policy it replaces. A proposal the council approved long ago therefore cannot be replayed later, for example
+ * against a fresh app state, because the policy it was approved against no longer matches.
+ */
+export const daoPolicyTag = (version: number, changes: PolicyProposal["changes"], from: string) => `bluvfi-policy:v${version}:${sha256(canonical(changes))}:from-${from.slice(0, 16)}`;
 
 /**
  * The proposal that carries a policy change. Trezu-style DAOs give their roles call/transfer proposals but no `Vote`
@@ -58,7 +63,8 @@ const usd = (n: number) => `$${n.toLocaleString("en-US")}`;
 
 /** The text (and command) a council member uses to put this change to the DAO. */
 function daoPolicyText(version: number, changes: PolicyProposal["changes"]) {
-  const tag = daoPolicyTag(version, changes);
+  const from = currentPolicy().hash;
+  const tag = daoPolicyTag(version, changes, from);
   const description =
     `Bluvfi Business policy v${version}: per payment ${usd(changes.perPaymentLimitUsd)}, daily ${usd(changes.dailyLimitUsd)}, ` +
     `signer approval from ${usd(changes.approvalThresholdUsd)}, hold ${changes.holdWindowMinutes} min, chains ${changes.allowedChains.join("/")}, ` +
@@ -68,6 +74,7 @@ function daoPolicyText(version: number, changes: PolicyProposal["changes"]) {
   const args = JSON.stringify({ proposal: { description, kind } });
   return {
     tag,
+    from,
     description,
     kind,
     command: `near contract call-function as-transaction ${DAO_ACCOUNT} add_proposal json-args '${args}' prepaid-gas '100 Tgas' attached-deposit '0 NEAR' network-config mainnet`,
@@ -123,11 +130,13 @@ export async function syncDaoProposal(id: string): Promise<PolicyProposal> {
   const p = state().proposals.find((x) => x.id === id);
   if (!p?.dao) throw new Error("This proposal is not waiting for the DAO.");
   if (p.status === "applied") return p;
-  if (p.dao.version !== currentPolicy().version + 1) throw new Error("The policy changed after this was drafted. Draft the change again.");
+  if (p.dao.version !== currentPolicy().version + 1 || p.dao.from !== currentPolicy().hash) throw new Error("The policy changed after this was drafted. Draft the change again.");
   const last = await viewDao<number>("get_last_proposal_id");
   const from = Math.max(0, last - 200);
-  const recent = await viewDao<{ id: number; status: string; kind: unknown; description: string }[]>("get_proposals", { from_index: from, limit: Math.max(1, last - from) });
-  const hit = recent.find((x) => isPolicyCarrier(x.kind) && x.description.includes(p.dao!.tag));
+  const recent = await viewDao<{ id: number; status: string; kind: unknown; description: string; submission_time?: string }[]>("get_proposals", { from_index: from, limit: Math.max(1, last - from) });
+  // Only a proposal filed after this change was drafted counts (with five minutes of clock skew allowed).
+  const filedAfterDraft = (t?: string) => !t || Number(BigInt(t) / BigInt("1000000")) >= Date.parse(p.createdAt) - 5 * 60_000;
+  const hit = recent.find((x) => isPolicyCarrier(x.kind) && x.description.includes(p.dao!.tag) && filedAfterDraft(x.submission_time));
   if (!hit) throw new Error(`No DAO proposal carries this change's tag yet. Add it with the command shown, then check again.`);
   p.dao.proposalId = hit.id;
   p.dao.daoStatus = hit.status;

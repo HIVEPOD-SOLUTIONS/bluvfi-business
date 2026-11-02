@@ -132,6 +132,29 @@ Each requirement is met by something that already exists, or by this app's gate.
 
 What this does **not** give you, and cannot without writing a contract: with Sputnik custody, a compromised app server could ignore its own limits, allowlist and hold window, because a DAO enforces votes, not amounts or delays. The council reviewing each proposal is the backstop, and revoking the agent key is the hard stop. OutLayer's policy is the option that enforces limits outside this app. While the kill switch is on, the Overview lists payouts still waiting onchain, with links to reject them; the agent cannot withdraw them itself.
 
+### Layer 1 tested for real (nothing mocked)
+
+Two suites run against real services; neither uses a fake RPC, a fake DAO or a fake API.
+
+```bash
+npm run test:real                       # the gate rules through the real pipeline: real 1Click dry-run quotes, real payee lookups
+npm run testnet:keys && npm run testnet:setup   # once: throwaway testnet accounts, a real Sputnik DAO, a locked-down agent
+npm run test:testnet                    # Layer 1 against that DAO and OutLayer's testnet API
+```
+
+`testnet:setup` creates five named testnet accounts (NEAR's testnet account helper funds each with 10 NEAR), a real DAO from the `sputnikv2.testnet` factory (a 3-member council that executes on 2 votes, an agent in a Requestor role, proposal bond 0), and gives the agent account one function-call key (`add_proposal` on the DAO) after deleting its full-access key. `BLUVFI_NETWORK=testnet` points the app's NEAR side at testnet. What the testnet suite proves, with real transactions signed by the real council keys:
+
+- the custody check passes on the real DAO and reads its true 2-of-3 threshold;
+- the agent's key cannot vote, transfer, add keys or file a policy change, because **the chain rejects each attempt**;
+- the agent files a policy change, the council approves it onchain, and the app applies it only then; a rejected change never applies;
+- a payout proposal lands on the DAO with its evidence, and the council's rejection is followed;
+- the council's hard stop works: the agent is removed from its role, the custody check fails and the agent's key can no longer propose; the role is then restored;
+- a gasless vote: a council member signs a NEP-366 delegate action and the relayer pays the gas.
+
+Testing against the real thing found three bugs that the mocked tests had hidden, all fixed: an approved policy proposal could be **replayed** against a fresh app state (approvals are now bound to the exact policy they replace and must be filed after the draft); the relayer treated the agent's Requestor role as part of the council (it now relays only votes from roles that can vote); and a not-yet-final DAO view failed with an unclear error.
+
+What cannot be tested on testnet, and so is not: **1Click, NEAR AI Cloud and NVIDIA NRAS have no testnet**, so `test:real` uses 1Click's real mainnet dry-run quotes and leaves the AI key unset (the review then genuinely cannot run and payments are held for a human). A real 1Click quote refuses confidential (`basic`/`advanced`) payments without `ONECLICK_JWT`, and refuses a refund account that does not exist. **OutLayer's policy can only be set by its owner in OutLayer's dashboard**, so the limit-sync test is skipped, with its reason shown, until the testnet wallet in `.testnet/outlayer.json` has a policy. The older mocked tests (`custody`, `hybrid`, `outlayer`, `integrations` and others in `tests/`) still run under `npm test`.
+
 ### No contract, so no contract audit
 
 This build deploys **no smart contract**, so there are no contract audit findings to report. Custody uses audited, widely deployed code instead: Sputnik DAO v2 (what Trezu runs) or OutLayer. What we check about that setup at runtime is listed under *Security model*.

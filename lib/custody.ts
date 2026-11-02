@@ -66,7 +66,9 @@ async function rpc<T>(params: Record<string, unknown>): Promise<T> {
 }
 
 async function viewFn<T>(account: string, method: string, args: object = {}): Promise<T> {
-  const res = await rpc<{ result: number[] }>({ request_type: "call_function", account_id: account, method_name: method, args_base64: b64(args) });
+  const res = await rpc<{ result?: number[]; error?: string }>({ request_type: "call_function", account_id: account, method_name: method, args_base64: b64(args) });
+  // A view that panics (for example a proposal id the chain has not finalized yet) returns an error and no result.
+  if (!res.result) throw new Error(`${method} on ${account} returned no result${res.error ? `: ${res.error}` : ""}`);
   return JSON.parse(Buffer.from(res.result).toString()) as T;
 }
 
@@ -613,7 +615,8 @@ export async function relayVote(signedDelegateBase64: string): Promise<{ txHash:
   const args = JSON.parse(Buffer.from(Uint8Array.from(fc.args)).toString()) as { action?: string };
   if (!["VoteApprove", "VoteReject", "VoteRemove"].includes(String(args.action))) throw new Error("Only votes are relayed");
   const policy = await viewDao<DaoPolicy>("get_policy");
-  const council = policy.roles.flatMap((r) => (typeof r.kind === "object" && "Group" in r.kind ? r.kind.Group : []));
+  // Only roles that can vote count as the council: the agent's Requestor role must never get a vote relayed.
+  const council = policy.roles.filter((r) => r.permissions.some((p) => VOTING.test(p))).flatMap((r) => (typeof r.kind === "object" && "Group" in r.kind ? r.kind.Group : []));
   if (!council.includes(da.senderId)) throw new Error(`${da.senderId} is not on the DAO council`);
   const relayer = new Account(RELAYER_ACCOUNT, new JsonRpcProvider({ url: NEAR_RPC_URL }), RELAYER_PRIVATE_KEY as KeyPairString);
   const out = await relayer.relayMetaTransaction(decoded as never);

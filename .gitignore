@@ -43,3 +43,6 @@ next-env.d.ts
 
 # the example env file is committed on purpose
 !.env.example
+
+# throwaway testnet keys
+/.testnet/

@@ -17,7 +17,11 @@
     "spec:pdf": "tsx scripts/spec-pdf.ts",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "testnet:keys": "tsx scripts/testnet-keys.ts",
+    "testnet:setup": "tsx scripts/testnet-setup.ts",
+    "test:testnet": "tsx --test --test-concurrency=1 tests/testnet/*.test.ts",
+    "test:real": "tsx --test --test-concurrency=1 tests/real/*.test.ts"
   },
   "dependencies": {
     "@aurora-is-near/intents-swap-widget-standalone": "^7.28.0",
