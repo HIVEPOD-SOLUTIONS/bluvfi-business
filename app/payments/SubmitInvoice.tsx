@@ -11,7 +11,7 @@ export function SubmitInvoice({ vendors }: { vendors: VendorOption[] }) {
     asset: "USDC", payoutAddress: "", text: "", confidentiality: "basic",
   });
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
-  const field = (k: keyof typeof f, label: string, type = "text", extra: Record<string, string> = {}) => (
+  const field = (k: keyof typeof f, label: string, type = "text", extra: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
     <label className="block">
       <span className="label">{label}</span>
       <input className="input mt-1" type={type} value={f[k]} onChange={set(k)} {...extra} />
@@ -48,9 +48,9 @@ export function SubmitInvoice({ vendors }: { vendors: VendorOption[] }) {
           <datalist id="vendor-options">{vendors.map((v) => <option key={v.name} value={v.name} />)}</datalist>
         </label>
         {field("vendorDomain", "Domain the invoice came from")}
-        {field("invoiceNumber", "Invoice number", "text", { required: "true" })}
+        {field("invoiceNumber", "Invoice number", "text", { required: true })}
         {field("poNumber", "Purchase order")}
-        {field("amountUsd", "Amount (USD)", "number", { required: "true", min: "0.01", step: "0.01" })}
+        {field("amountUsd", "Amount (USD)", "number", { required: true, min: "0.01", step: "0.01" })}
         <label className="block">
           <span className="label">Chain</span>
           <select className="input mt-1" value={f.chain} onChange={set("chain")}>
@@ -63,7 +63,7 @@ export function SubmitInvoice({ vendors }: { vendors: VendorOption[] }) {
             {["USDC", "USDT"].map((c) => <option key={c}>{c}</option>)}
           </select>
         </label>
-        <div className="sm:col-span-2">{field("payoutAddress", "Payout address on the invoice", "text", { required: "true" })}</div>
+        <div className="sm:col-span-2">{field("payoutAddress", "Payout address on the invoice", "text", { required: true })}</div>
         <label className="block sm:col-span-2">
           <span className="label">Invoice text, exactly as received</span>
           <textarea className="input mt-1" required value={f.text} onChange={set("text")} />

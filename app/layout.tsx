@@ -20,7 +20,8 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   const signer = await currentSigner();
   return (
     <html lang="en" className={`${dmSans.variable} ${spaceMono.variable} h-full antialiased`}>
-      <body className="min-h-full">
+      {/* Browser extensions (e.g. Grammarly) add attributes to <body> before React loads; ignore only those. */}
+      <body className="min-h-full" suppressHydrationWarning>
         {DEMO && (
           <div role="status" className="px-4 py-2 text-center text-sm md:pl-60" style={{ background: "rgba(201,168,76,.16)", color: "#e9d48f" }}>
             Demo mode: fictional invoices, AI reviews replayed from fixtures, and a simulated DAO. No keys, no funds. Every signature is still checked.
