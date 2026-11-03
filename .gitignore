@@ -46,3 +46,6 @@ next-env.d.ts
 
 # throwaway testnet keys
 /.testnet/
+
+# the mainnet agent keys made by npm run mainnet:setup
+/.mainnet/

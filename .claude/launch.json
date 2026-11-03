@@ -37,6 +37,21 @@
       "env": {
         "AURORA_API_KEY": "placeholder-key"
       }
+    },
+    {
+      "name": "bluvfi-business-testnet",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "-p",
+        "3103"
+      ],
+      "port": 3103,
+      "env": {
+        "BLUVFI_NETWORK": "testnet"
+      }
     }
   ]
 }

@@ -11,6 +11,9 @@ const nextConfig: NextConfig = {
         as: "*.css",
       },
     },
+    // Browser setup (lib/setup.ts) writes .env.local at the project root, so Turbopack warns that it traces the whole
+    // project. That only matters for `output: "standalone"`, which this app does not use (the Dockerfile copies it all).
+    ignoreIssue: [{ path: "**/lib/setup.ts", title: /Dynamic filesystem access/ }],
   },
 };
 

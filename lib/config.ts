@@ -75,6 +75,8 @@ export const AGENT_PRIVATE_KEY = process.env.AGENT_PRIVATE_KEY ?? "";
 /** Pays gas for council votes sent as NEP-366 meta transactions (only `act_proposal` on DAO_ACCOUNT). */
 export const RELAYER_ACCOUNT = process.env.RELAYER_ACCOUNT ?? "";
 export const RELAYER_PRIVATE_KEY = process.env.RELAYER_PRIVATE_KEY ?? "";
+/** Privy app ID (https://dashboard.privy.io): lets /setup pay with an email or Google login instead of a NEAR wallet. Public by design. */
+export const PRIVY_APP_ID = process.env.PRIVY_APP_ID ?? "";
 export const TREZU_APP_URL = (process.env.TREZU_APP_URL ?? "https://trezu.app").replace(/\/$/, "");
 export const OUTLAYER_BASE = (process.env.OUTLAYER_BASE_URL ?? (NETWORK === "testnet" ? "https://testnet-api.outlayer.ai" : "https://api.outlayer.ai")).replace(/\/$/, "");
 export const OUTLAYER_API_KEY = process.env.OUTLAYER_API_KEY ?? "";

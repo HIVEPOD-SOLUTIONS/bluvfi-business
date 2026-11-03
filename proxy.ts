@@ -15,6 +15,8 @@ const PUBLIC = [
   /^\/view$/, /^\/api\/audit\/open$/,
   /^\/api\/telegram\/webhook$/, /^\/api\/twilio\/voice$/,
   /^\/apple-icon$/, /^\/manifest\.webmanifest$/,
+  // Treasury setup: its API checks a signer session, or the one-time setup code before any signer exists.
+  /^\/setup$/, /^\/api\/setup$/,
 ];
 
 export async function proxy(req: NextRequest) {
