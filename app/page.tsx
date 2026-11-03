@@ -3,7 +3,7 @@ import { ActionButton, KillSwitch } from "@/components/Actions";
 import { Badge, Empty, PageHead, PaymentCard, Stat, usd, when } from "@/components/ui";
 import { CHAIN_LABEL } from "@/lib/chains";
 import type { Balance } from "@/lib/chain";
-import { CUSTODY, DEMO, missingConfig } from "@/lib/config";
+import { CUSTODY, DAO_ACCOUNT, DEMO, missingConfig } from "@/lib/config";
 import { checkCustody, spendingWalletBand } from "@/lib/custody";
 import { services } from "@/lib/services";
 import { currentPolicy, spentTodayUsd, state } from "@/lib/store";
@@ -76,6 +76,7 @@ export default async function Overview() {
           <ul className="mt-2 grid gap-1 text-sm">
             {missing.map((m) => <li key={m.key}><span className="mono">{m.key}</span> <span style={{ color: "var(--tx-2)" }}>— {m.why}</span></li>)}
           </ul>
+          {!DAO_ACCOUNT && !DEMO && <p className="mt-3 text-sm"><Link href="/setup" style={{ color: "#8c8cff" }}>Set up a treasury from the browser →</Link> <span style={{ color: "var(--tx-2)" }}>Your wallet creates the DAO and the agent; the settings are written for you.</span></p>}
         </section>
       )}
 
