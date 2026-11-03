@@ -1,4 +1,5 @@
-import { NEAR_AI_BASE, NEAR_AI_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN } from "./config";
+import { cfg } from "./business";
+import { NEAR_AI_BASE, NEAR_AI_KEY } from "./config";
 
 /**
  * A vendor's spoken answer on a voice callback, transcribed by Whisper on NEAR AI Cloud
@@ -9,7 +10,7 @@ export async function transcribeTwilioRecording(recordingUrl: string): Promise<s
   if (!NEAR_AI_KEY) throw new Error("NEAR_AI_API_KEY is not set");
   if (!/^https:\/\/api\.twilio\.com\//.test(recordingUrl)) throw new Error("Not a Twilio recording URL");
   const audio = await fetch(`${recordingUrl}.wav`, {
-    headers: { authorization: `Basic ${Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString("base64")}` },
+    headers: { authorization: `Basic ${Buffer.from(`${cfg().TWILIO_ACCOUNT_SID}:${cfg().TWILIO_AUTH_TOKEN}`).toString("base64")}` },
     signal: AbortSignal.timeout(20_000),
   });
   if (!audio.ok) throw new Error(`Twilio recording fetch failed (${audio.status})`);

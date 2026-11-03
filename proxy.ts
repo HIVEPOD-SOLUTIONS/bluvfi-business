@@ -8,7 +8,7 @@ import { COOKIE, verifySession } from "@/lib/session";
  * ledger page, the API description, and the app icon and manifest.
  */
 const PUBLIC = [
-  /^\/login$/, /^\/api\/login$/, /^\/api\/logout$/,
+  /^\/login$/, /^\/api\/login$/, /^\/api\/login\/privy$/, /^\/api\/signup$/, /^\/api\/logout$/,
   /^\/pay\//, /^\/api\/pay\//,
   /^\/check$/, /^\/api\/check(\/try)?$/, /^\/api\/openapi$/,
   /^\/ledger$/,

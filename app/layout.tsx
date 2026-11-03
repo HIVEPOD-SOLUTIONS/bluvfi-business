@@ -3,7 +3,7 @@ import { DM_Sans, Space_Mono } from "next/font/google";
 import { Nav } from "@/components/Nav";
 import { Logo } from "@/components/Nav";
 import { DEMO } from "@/lib/config";
-import { currentSigner } from "@/lib/who";
+import { currentSession } from "@/lib/who";
 import Link from "next/link";
 import "./globals.css";
 
@@ -17,7 +17,8 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
-  const signer = await currentSigner();
+  const session = await currentSession();
+  const signer = session?.name;
   return (
     <html lang="en" className={`${dmSans.variable} ${spaceMono.variable} h-full antialiased`}>
       {/* Browser extensions (e.g. Grammarly) add attributes to <body> before React loads; ignore only those. */}
@@ -29,7 +30,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
         )}
         {signer ? (
           <>
-            <Nav signer={signer} demo={DEMO} />
+            <Nav signer={signer} demo={DEMO} business={session?.bizName} />
             <main className="md:pl-60 pb-24 md:pb-10">
               <div className="mx-auto max-w-5xl px-4 md:px-8 pt-6 md:pt-10">{children}</div>
             </main>

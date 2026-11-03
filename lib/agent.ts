@@ -1,5 +1,7 @@
+import { cfg } from "./business";
 import { canonical, mlDsaSign, mlDsaVerify, sha256, encrypt } from "./crypto";
-import { CUSTODY, DEMO, NEAR_AI_MODEL, SIGNER_NAMES } from "./config";
+import { DEMO, NEAR_AI_MODEL } from "./config";
+import { signerNames } from "./team";
 import { demoDao } from "./custody";
 import { makeJob, proveInBackground, SYSTEM as ZK_SYSTEM, verifyZk, writeJob } from "./zk";
 import { signPolicyCheck } from "./pqcheck";
@@ -187,7 +189,7 @@ export async function release(p: Payment): Promise<void> {
     return;
   }
   const v = s.vendors.find((x) => x.name === p.invoice.vendorName);
-  if (CUSTODY !== "manual") {
+  if (cfg().CUSTODY !== "manual") {
     // The custodian holds the funds. The agent can only hand it this payout; the DAO council or OutLayer's policy decides.
     try {
       p.custody = await services.submitPayout(p);
@@ -235,7 +237,7 @@ function applyCustody(p: Payment) {
 }
 
 const requireSigner = (signer: string) => {
-  if (!SIGNER_NAMES.includes(signer)) throw new Error("Unknown signer");
+  if (!signerNames().includes(signer)) throw new Error("Unknown signer");
 };
 
 export async function approve(id: string, signer: string): Promise<Payment> {

@@ -4,7 +4,7 @@ import { ErrorLine, useAction } from "@/components/Actions";
 import { Badge, VERDICT } from "@/components/ui";
 import type { CheckResponse } from "@/lib/types";
 
-export function Playground() {
+export function Playground({ biz = "" }: { biz?: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [f, setF] = useState({ payoutAddress: "", vendorName: "", vendorDomain: "", chain: "eth", invoiceText: "" });
@@ -15,7 +15,7 @@ export function Playground() {
     setRes(null); setError(null); setLoading(true);
     try {
       // The website uses the free, rate-limited tier. Agents call the paid /api/check.
-      const r = await fetch("/api/check/try", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(f) });
+      const r = await fetch(`/api/check/try${biz ? `?b=${biz}` : ""}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(f) });
       const j = await r.json();
       if (r.ok) setRes(j); else setError(j.error ?? `Failed (${r.status})`);
     } catch { setError("Could not reach the server."); } finally { setLoading(false); }

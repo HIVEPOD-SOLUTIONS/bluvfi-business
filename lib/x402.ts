@@ -1,5 +1,6 @@
+import { cfg } from "./business";
 import { NEAR_USDC_CONTRACT } from "./chains";
-import { PINGPAY_API_KEY, PINGPAY_BASE, TREASURY_ACCOUNT, X402_FACILITATOR_URL } from "./config";
+import { PINGPAY_BASE } from "./config";
 
 /**
  * Selling Bluvfi Business Check per call over x402. Two facilitators:
@@ -49,7 +50,7 @@ export async function pingpaySupported(): Promise<{ ok: boolean; note: string }>
 }
 
 function pingpay(): Facilitator {
-  const h = { "X-Api-Key": PINGPAY_API_KEY };
+  const h = { "X-Api-Key": cfg().PINGPAY_API_KEY };
   const url = (p: string) => `${PINGPAY_BASE}/agentpay/x402/${p}`;
   return {
     name: "PingPay Agent Pay",
@@ -85,20 +86,20 @@ function pingpay(): Facilitator {
 
 function generic(): Facilitator {
   return {
-    name: X402_FACILITATOR_URL,
+    name: cfg().X402_FACILITATOR_URL,
     version: 1,
     async requirements(resource) {
       return {
         scheme: "exact", network: "near", maxAmountRequired: PRICE_RAW, resource, description: DESCRIPTION,
-        mimeType: "application/json", payTo: TREASURY_ACCOUNT, maxTimeoutSeconds: 60, asset: NEAR_USDC_CONTRACT,
+        mimeType: "application/json", payTo: cfg().TREASURY_ACCOUNT, maxTimeoutSeconds: 60, asset: NEAR_USDC_CONTRACT,
       };
     },
     async verify(paymentPayload, paymentRequirements) {
-      const j = await post(`${X402_FACILITATOR_URL}/verify`, { x402Version: 1, paymentPayload, paymentRequirements });
+      const j = await post(`${cfg().X402_FACILITATOR_URL}/verify`, { x402Version: 1, paymentPayload, paymentRequirements });
       return { ok: j.isValid === true, reason: String(j.invalidReason ?? "") };
     },
     async settle(paymentPayload, paymentRequirements) {
-      const j = await post(`${X402_FACILITATOR_URL}/settle`, { x402Version: 1, paymentPayload, paymentRequirements });
+      const j = await post(`${cfg().X402_FACILITATOR_URL}/settle`, { x402Version: 1, paymentPayload, paymentRequirements });
       return { ok: j.success === true, reason: String(j.errorReason ?? "") };
     },
   };
@@ -106,7 +107,7 @@ function generic(): Facilitator {
 
 /** The configured facilitator, or null when Check cannot take payments yet. */
 export function facilitator(): Facilitator | null {
-  if (PINGPAY_API_KEY) return pingpay();
-  if (X402_FACILITATOR_URL && TREASURY_ACCOUNT) return generic();
+  if (cfg().PINGPAY_API_KEY) return pingpay();
+  if (cfg().X402_FACILITATOR_URL && cfg().TREASURY_ACCOUNT) return generic();
   return null;
 }

@@ -1,14 +1,17 @@
+import { cfg } from "@/lib/business";
 import { notFound } from "next/navigation";
+import { tenantPage } from "@/lib/who";
+import { bizOfId } from "@/lib/tenant";
 import { Logo } from "@/components/Nav";
 import { usd } from "@/components/ui";
-import { AURORA_API_KEY, COMPANY_NAME } from "@/lib/config";
+import { AURORA_API_KEY } from "@/lib/config";
 import { state } from "@/lib/store";
 import { AuroraPayLoader } from "./AuroraPayLoader";
 import { PayWidget } from "./PayWidget";
 
 export const dynamic = "force-dynamic";
 
-export default async function PayPage({ params }: { params: Promise<{ id: string }> }) {
+async function PayPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const r = state().receivables.find((x) => x.id === id);
   if (!r) notFound();
@@ -16,7 +19,7 @@ export default async function PayPage({ params }: { params: Promise<{ id: string
     <div className="mx-auto max-w-md pt-4">
       <div className="mb-6"><Logo /></div>
       <div className="card" style={{ borderColor: "var(--bd-sage)" }}>
-        <div className="label">Invoice from {COMPANY_NAME}</div>
+        <div className="label">Invoice from {cfg().COMPANY_NAME}</div>
         <h1 className="mt-1">{r.client}</h1>
         <p style={{ color: "var(--tx-1)" }}>{r.description}</p>
         <div className="amount mt-4 text-3xl">{usd(r.amountUsd)} <span className="label">USDC</span></div>
@@ -40,3 +43,5 @@ export default async function PayPage({ params }: { params: Promise<{ id: string
     </div>
   );
 }
+
+export default tenantPage(PayPage, ({ params }) => params.then(({ id }) => bizOfId(id)));

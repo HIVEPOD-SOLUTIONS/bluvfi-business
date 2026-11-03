@@ -1,20 +1,27 @@
 import { Badge, Empty, PageHead, STATUS, short, usd, when } from "@/components/ui";
 import { state } from "@/lib/store";
-import { currentSigner } from "@/lib/who";
+import { currentSession, publicBiz, tenantPage } from "@/lib/who";
+import { bizName } from "@/lib/business";
+import { currentBiz, DEFAULT_BIZ } from "@/lib/tenant";
 import { LedgerToggle } from "./Toggle";
 
 export const dynamic = "force-dynamic";
 
-export default async function Ledger() {
-  const signer = await currentSigner();
+/** The ledger is public per business: `?b=<business id>` opens that business's, if it chose to publish it. */
+async function Ledger() {
+  const session = await currentSession();
+  const signer = session && session.biz === currentBiz() ? session.name : "";
   const s = state();
   return (
     <>
       <PageHead
-        title="Public ledger"
+        title={`Public ledger · ${bizName()}`}
         sub="For DAOs that choose full transparency. Everything the agent paid or stopped, visible to anyone. Off by default."
         right={signer ? <LedgerToggle on={s.ledgerPublic} /> : undefined}
       />
+      {signer && s.ledgerPublic && (
+        <p className="mb-4 text-sm" style={{ color: "var(--tx-1)" }}>Anyone can open this at <span className="mono">{currentBiz() === DEFAULT_BIZ ? "/ledger" : `/ledger?b=${currentBiz()}`}</span>.</p>
+      )}
       {!s.ledgerPublic ? (
         <Empty title="This treasury keeps its ledger private" hint="Switch transparency on to publish payments here. Companies can instead grant an auditor a time-limited view key on the Auditor page." />
       ) : s.payments.length === 0 ? (
@@ -41,3 +48,5 @@ export default async function Ledger() {
     </>
   );
 }
+
+export default tenantPage(Ledger, ({ searchParams }: { searchParams: Promise<{ b?: string }> }) => publicBiz(searchParams));

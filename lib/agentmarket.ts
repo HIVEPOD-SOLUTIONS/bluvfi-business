@@ -1,5 +1,6 @@
+import { cfg } from "./business";
 import { publicCheck } from "./agent";
-import { AGENT_MARKET_BASE, AGENT_MARKET_TOKEN } from "./config";
+import { AGENT_MARKET_BASE } from "./config";
 import type { CheckResponse } from "./types";
 
 /**
@@ -14,7 +15,7 @@ interface Item {
   latestMessage?: { body: string; senderSide: string } | null;
 }
 
-const headers = () => ({ authorization: `Bearer ${AGENT_MARKET_TOKEN}`, "content-type": "application/json" });
+const headers = () => ({ authorization: `Bearer ${cfg().AGENT_MARKET_TOKEN}`, "content-type": "application/json" });
 const api = (path: string, init?: RequestInit) => fetch(`${AGENT_MARKET_BASE}${path}`, { ...init, headers: headers(), signal: AbortSignal.timeout(30_000) });
 
 export function parsePayee(text: string): { payoutAddress: string; vendorName?: string; vendorDomain?: string; chain?: string; invoiceText: string } | null {
@@ -42,7 +43,7 @@ export const verdictMarkdown = (r: CheckResponse, address: string) =>
 
 /** One polling pass. Returns what it did per assignment. */
 export async function pollAgentMarket(): Promise<{ assignmentId: string; action: "submitted" | "asked" | "failed"; detail?: string }[]> {
-  if (!AGENT_MARKET_TOKEN) throw new Error("AGENT_MARKET_TOKEN is not set");
+  if (!cfg().AGENT_MARKET_TOKEN) throw new Error("AGENT_MARKET_TOKEN is not set");
   const res = await api("/v1/agents/me/assignments?status=in_progress");
   if (!res.ok) throw new Error(`Agent Market assignments failed: ${res.status}`);
   const { assignments } = (await res.json()) as { assignments: Item[] };

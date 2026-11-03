@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { DEMO, MASTER_KEY } from "./config";
 import { deriveKey } from "./crypto";
 import { DEFAULT_POLICY_BODY, makePolicy } from "./policy";
 import { services } from "./services";
+import { currentBiz, DEFAULT_BIZ } from "./tenant";
 import type { CounterpartySignals } from "./fraud";
 import type { BlocklistEntry, Payment, Policy, PolicyProposal, PurchaseOrder, Receivable, TopUp, Vendor, ViewGrant } from "./types";
 
@@ -57,37 +58,52 @@ const fresh = (): State => ({
   checkLog: [],
 });
 
-// State lives in this process and is snapshotted to a JSON file after every write (set BLUVFI_PERSIST=0 to
-// disable, e.g. in tests). The snapshot holds business data and encrypted records, not keys.
-const FILE = process.env.BLUVFI_PERSIST === "0" ? "" : (process.env.BLUVFI_DATA_FILE ?? (DEMO ? ".data/demo.json" : ".data/state.json"));
-const g = globalThis as unknown as { __bluvfiBusiness?: State };
+// State lives in this process, one State per business, and is snapshotted to a JSON file after every write (set
+// BLUVFI_PERSIST=0 to disable, e.g. in tests). The operator's own business ('default') keeps the original file; every
+// other business has its own file under businesses/. The snapshot holds business data and encrypted records, not keys.
+const BASE_FILE = process.env.BLUVFI_PERSIST === "0" ? "" : (process.env.BLUVFI_DATA_FILE ?? (DEMO ? ".data/demo.json" : ".data/state.json"));
+const fileFor = (biz: string) => (!BASE_FILE ? "" : biz === DEFAULT_BIZ ? BASE_FILE : join(dirname(BASE_FILE), "businesses", `${biz}.json`));
+const g = globalThis as unknown as { __bluvfiBusinesses?: Map<string, State> };
+const all = () => (g.__bluvfiBusinesses ??= new Map());
 
-function load(): State {
-  if (FILE && existsSync(FILE)) {
+function load(biz: string): State {
+  const file = fileFor(biz);
+  if (file && existsSync(file)) {
     try {
-      return { ...fresh(), ...(JSON.parse(readFileSync(FILE, "utf8")) as Partial<State>) };
+      return { ...fresh(), ...(JSON.parse(readFileSync(file, "utf8")) as Partial<State>) };
     } catch {
-      throw new Error(`State file ${FILE} is unreadable. Fix or move it; refusing to start empty over it.`);
+      throw new Error(`State file ${file} is unreadable. Fix or move it; refusing to start empty over it.`);
     }
   }
   return fresh();
 }
 
-export const state = (): State => (g.__bluvfiBusiness ??= load());
-/** Test helper. */
-export const resetState = () => {
-  g.__bluvfiBusiness = fresh();
-  return g.__bluvfiBusiness;
+/** The records of the business this request runs in (lib/tenant.ts). */
+export const state = (): State => {
+  const biz = currentBiz();
+  let s = all().get(biz);
+  if (!s) all().set(biz, (s = load(biz)));
+  return s;
 };
+/** Test helper: empty records for the current business. */
+export const resetState = () => {
+  const s = fresh();
+  all().set(currentBiz(), s);
+  return s;
+};
+/** Test helper: forget every business's records held in memory. */
+export const resetAllState = () => all().clear();
 /** False in tests and the CLI demo, which keep nothing on disk. */
-export const persistenceOn = () => !!FILE;
+export const persistenceOn = () => !!fileFor(currentBiz());
 
 export function persist() {
-  if (!FILE || !g.__bluvfiBusiness) return;
-  mkdirSync(dirname(FILE), { recursive: true });
-  const tmp = FILE + ".tmp";
-  writeFileSync(tmp, JSON.stringify(g.__bluvfiBusiness));
-  renameSync(tmp, FILE);
+  const file = fileFor(currentBiz());
+  const s = all().get(currentBiz());
+  if (!file || !s) return;
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = file + ".tmp";
+  writeFileSync(tmp, JSON.stringify(s));
+  renameSync(tmp, file);
 }
 
 export const currentPolicy = () => state().policies[state().policies.length - 1];

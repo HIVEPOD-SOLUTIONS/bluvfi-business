@@ -1,6 +1,7 @@
 import { body, route, type Ctx } from "@/lib/http";
 import { services } from "@/lib/services";
 import { state } from "@/lib/store";
+import { bizOfId } from "@/lib/tenant";
 
 /**
  * Aurora's Intents swap widget asks here for every quote on a pay link (its `fetchQuote` hook). The payer's
@@ -25,4 +26,4 @@ export const POST = route<Ctx<"id">>(async (req, { params }) => {
     };
   }
   return quote;
-});
+}, (_req, { params }) => params.then(({ id }) => bizOfId(id)));

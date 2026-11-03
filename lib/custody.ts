@@ -1,11 +1,9 @@
+import { cfg } from "./business";
+import { currentBiz } from "./tenant";
 import { deserialize } from "borsh";
 import { Account, JsonRpcProvider, KeyPair, SCHEMA, teraToGas, type KeyPairString } from "near-api-js";
 import { ASSET_ID, NEAR_USDC_CONTRACT } from "./chains";
-import {
-  AGENT_ACCOUNT, AGENT_PRIVATE_KEY, APPROVAL_THRESHOLD_SIGNERS, CUSTODY, DAO_ACCOUNT, DAO_CUSTODY, DEMO, NEAR_RPC_URL, OUTLAYER_API_KEY,
-  OUTLAYER_BASE, OUTLAYER_WALLET_ACCOUNT, PUBLIC_BASE_URL, RELAYER_ACCOUNT, RELAYER_PRIVATE_KEY, SPENDING_WALLET_LOW_USD,
-  SPENDING_WALLET_TARGET_USD, TREZU_APP_URL,
-} from "./config";
+import { APPROVAL_THRESHOLD_SIGNERS, DEMO, NEAR_RPC_URL, OUTLAYER_BASE, PUBLIC_BASE_URL, RELAYER_ACCOUNT, RELAYER_PRIVATE_KEY, SPENDING_WALLET_LOW_USD, SPENDING_WALLET_TARGET_USD, TREZU_APP_URL } from "./config";
 import { canonical, sha256 } from "./crypto";
 import { currentPolicy, state } from "./store";
 import { REQUIRE_CUSTODIAN_LIMITS } from "./config";
@@ -72,7 +70,7 @@ async function viewFn<T>(account: string, method: string, args: object = {}): Pr
   return JSON.parse(Buffer.from(res.result).toString()) as T;
 }
 
-export const viewDao = <T,>(method: string, args: object = {}) => viewFn<T>(DAO_ACCOUNT, method, args);
+export const viewDao = <T,>(method: string, args: object = {}) => viewFn<T>(cfg().DAO_ACCOUNT, method, args);
 
 interface VotePolicy { weight_kind?: string; quorum?: string; threshold: [number, number] | string }
 interface DaoPolicy {
@@ -93,7 +91,7 @@ type KeyPermission = "FullAccess" | { FunctionCall: { receiver_id: string; metho
 
 /** The only key the agent account may have: a function-call key that can call add_proposal on the DAO and nothing else. */
 const isProposeOnly = (perm: KeyPermission) =>
-  perm !== "FullAccess" && perm.FunctionCall.receiver_id === DAO_ACCOUNT && perm.FunctionCall.method_names.length === 1 && perm.FunctionCall.method_names[0] === "add_proposal";
+  perm !== "FullAccess" && perm.FunctionCall.receiver_id === cfg().DAO_ACCOUNT && perm.FunctionCall.method_names.length === 1 && perm.FunctionCall.method_names[0] === "add_proposal";
 
 /**
  * ML-DSA (FIPS 204, lattice-based) keys are post-quantum; ed25519 and secp256k1 keys are not. nearcore writes a full
@@ -144,23 +142,25 @@ export interface CustodyCheck {
   councilKill?: string;
 }
 
-let checkCache: { at: number; c: CustodyCheck } | undefined;
+/** One cached check per business: a business must never be shown another's result. */
+const checkCache = new Map<string, { at: number; c: CustodyCheck }>();
 
 /** Test hook: forget the cached custody check. */
-export const resetCustodyCache = () => { checkCache = undefined; };
+export const resetCustodyCache = () => { checkCache.delete(currentBiz()); };
 
 /**
  * Proves, from the chain or the custodian, that the agent cannot move funds on its own. The app refuses to
  * submit payouts while this fails (for example with a full-access agent key or a DAO bond the key cannot pay).
  */
 export async function checkCustody(): Promise<CustodyCheck> {
-  if (checkCache && Date.now() - checkCache.at < 5 * 60_000) return checkCache.c;
+  const hit = checkCache.get(currentBiz());
+  if (hit && Date.now() - hit.at < 5 * 60_000) return hit.c;
   const c = DEMO ? demoCheck()
-    : CUSTODY === "sputnik" ? await checkSputnik()
-    : CUSTODY === "outlayer" ? await checkOutlayer()
-    : CUSTODY === "hybrid" ? await checkHybrid()
+    : cfg().CUSTODY === "sputnik" ? await checkSputnik()
+    : cfg().CUSTODY === "outlayer" ? await checkOutlayer()
+    : cfg().CUSTODY === "hybrid" ? await checkHybrid()
     : manualCheck();
-  if (c.ok) checkCache = { at: Date.now(), c };
+  if (c.ok) checkCache.set(currentBiz(), { at: Date.now(), c });
   return c;
 }
 
@@ -175,7 +175,7 @@ const demoCheck = (): CustodyCheck => ({
   mode: "sputnik (demo)",
   ok: true,
   facts: [
-    `Treasury: ${DAO_ACCOUNT} (simulated in demo mode).`,
+    `Treasury: ${cfg().DAO_ACCOUNT} (simulated in demo mode).`,
     "Agent key: function-call only, receiver the DAO, method add_proposal, and the only key on the agent account (simulated).",
     "Proposal bond 0, so the scoped key can propose; council votes execute.",
   ],
@@ -190,19 +190,19 @@ async function checkSputnik(): Promise<CustodyCheck> {
   let councilKill: string | undefined;
   let publicKey = "";
   try {
-    publicKey = KeyPair.fromString(AGENT_PRIVATE_KEY as KeyPairString).getPublicKey().toString();
+    publicKey = KeyPair.fromString(cfg().AGENT_PRIVATE_KEY as KeyPairString).getPublicKey().toString();
     // nearcore names ML-DSA access keys by their hash, not the full key, so an ML-DSA agent key is checked through
     // the key list below, which already requires every key on the account to be add_proposal-only.
     if (isPostQuantumKey(publicKey)) throw new SkipSingleKey();
     const key = await rpc<{ permission: KeyPermission }>({
-      request_type: "view_access_key", account_id: AGENT_ACCOUNT, public_key: publicKey,
+      request_type: "view_access_key", account_id: cfg().AGENT_ACCOUNT, public_key: publicKey,
     });
-    if (key.permission === "FullAccess") problems.push(`The agent key on ${AGENT_ACCOUNT} is a FULL-ACCESS key. Replace it with a function-call key for add_proposal on ${DAO_ACCOUNT}.`);
+    if (key.permission === "FullAccess") problems.push(`The agent key on ${cfg().AGENT_ACCOUNT} is a FULL-ACCESS key. Replace it with a function-call key for add_proposal on ${cfg().DAO_ACCOUNT}.`);
     else {
       const fc = key.permission.FunctionCall;
-      if (fc.receiver_id !== DAO_ACCOUNT) problems.push(`The agent key may call ${fc.receiver_id}, not the DAO ${DAO_ACCOUNT}.`);
+      if (fc.receiver_id !== cfg().DAO_ACCOUNT) problems.push(`The agent key may call ${fc.receiver_id}, not the DAO ${cfg().DAO_ACCOUNT}.`);
       if (fc.method_names.length !== 1 || fc.method_names[0] !== "add_proposal") problems.push(`The agent key may call [${fc.method_names.join(", ") || "any method"}]; it must be limited to add_proposal.`);
-      if (!problems.length) facts.push(`Agent key ${publicKey.slice(0, 18)}… on ${AGENT_ACCOUNT}: function-call only, receiver ${DAO_ACCOUNT}, method add_proposal${fc.allowance ? `, gas allowance ${(Number(BigInt(fc.allowance) / BigInt(1e18)) / 1e6).toFixed(3)} NEAR` : ""}. It cannot transfer, add keys or vote.`);
+      if (!problems.length) facts.push(`Agent key ${publicKey.slice(0, 18)}… on ${cfg().AGENT_ACCOUNT}: function-call only, receiver ${cfg().DAO_ACCOUNT}, method add_proposal${fc.allowance ? `, gas allowance ${(Number(BigInt(fc.allowance) / BigInt(1e18)) / 1e6).toFixed(3)} NEAR` : ""}. It cannot transfer, add keys or vote.`);
       if (fc.allowance && BigInt(fc.allowance) < BigInt(1e22)) problems.push("The agent key's gas allowance is almost used up; when it runs out the agent is locked out until the owner adds a new key.");
     }
   } catch (e) {
@@ -212,32 +212,32 @@ async function checkSputnik(): Promise<CustodyCheck> {
   // "Holds only" the scoped key: every key on the agent account must be one. Another key, above all a full-access
   // one, could transfer the account's NEAR, add keys or deploy code, so whoever holds it could act as the agent.
   try {
-    const { keys } = await rpc<{ keys: { public_key: string; access_key: { permission: KeyPermission } }[] }>({ request_type: "view_access_key_list", account_id: AGENT_ACCOUNT });
+    const { keys } = await rpc<{ keys: { public_key: string; access_key: { permission: KeyPermission } }[] }>({ request_type: "view_access_key_list", account_id: cfg().AGENT_ACCOUNT });
     if (!Array.isArray(keys) || !keys.length) throw new Error("no keys found");
     const others = keys.filter((k) => !isProposeOnly(k.access_key.permission));
     for (const k of others) {
       const perm = k.access_key.permission;
       problems.push(perm === "FullAccess"
-        ? `${AGENT_ACCOUNT} also has a FULL-ACCESS key ${k.public_key.slice(0, 18)}…: whoever holds it can transfer from the account, add keys or deploy code. Delete it (near account delete-keys ${AGENT_ACCOUNT} public-keys ${k.public_key}) so the account holds only its add_proposal key.`
-        : `${AGENT_ACCOUNT} also has key ${k.public_key.slice(0, 18)}…, which may call ${perm.FunctionCall.receiver_id} [${perm.FunctionCall.method_names.join(", ") || "any method"}]. Every key on the agent account must be limited to add_proposal on ${DAO_ACCOUNT}.`);
+        ? `${cfg().AGENT_ACCOUNT} also has a FULL-ACCESS key ${k.public_key.slice(0, 18)}…: whoever holds it can transfer from the account, add keys or deploy code. Delete it (near account delete-keys ${cfg().AGENT_ACCOUNT} public-keys ${k.public_key}) so the account holds only its add_proposal key.`
+        : `${cfg().AGENT_ACCOUNT} also has key ${k.public_key.slice(0, 18)}…, which may call ${perm.FunctionCall.receiver_id} [${perm.FunctionCall.method_names.join(", ") || "any method"}]. Every key on the agent account must be limited to add_proposal on ${cfg().DAO_ACCOUNT}.`);
     }
     if (isPostQuantumKey(publicKey)) {
       const low = keys.some((k) => k.access_key.permission !== "FullAccess" && !!k.access_key.permission.FunctionCall.allowance && BigInt(k.access_key.permission.FunctionCall.allowance) < BigInt(1e22));
       if (low) problems.push("An agent key's gas allowance is almost used up; when it runs out the agent is locked out until it is replaced.");
     }
     if (!others.length) {
-      facts.push(`All ${keys.length} key${keys.length === 1 ? "" : "s"} on ${AGENT_ACCOUNT} can only call add_proposal on ${DAO_ACCOUNT}: no one, the agent included, can transfer from the account, add keys, deploy code or vote with it. With no full-access key left, the account cannot add a key itself, so if it runs out of gas allowance or NEAR, create a new agent account and have the council swap it into the agent's role.`);
+      facts.push(`All ${keys.length} key${keys.length === 1 ? "" : "s"} on ${cfg().AGENT_ACCOUNT} can only call add_proposal on ${cfg().DAO_ACCOUNT}: no one, the agent included, can transfer from the account, add keys, deploy code or vote with it. With no full-access key left, the account cannot add a key itself, so if it runs out of gas allowance or NEAR, create a new agent account and have the council swap it into the agent's role.`);
     }
   } catch (e) {
-    problems.push(`Could not list the keys on ${AGENT_ACCOUNT} (${(e as Error).message}).`);
+    problems.push(`Could not list the keys on ${cfg().AGENT_ACCOUNT} (${(e as Error).message}).`);
   }
   try {
     const policy = await viewDao<DaoPolicy>("get_policy");
     if (policy.proposal_bond !== "0") problems.push(`The DAO's proposal bond is ${policy.proposal_bond} yocto. A function-call key cannot attach a deposit, so set the bond to 0 (a ChangePolicyUpdateParameters proposal).`);
     else facts.push("DAO proposal bond is 0, so the scoped key can propose.");
-    const agentRoles = policy.roles.filter((r) => r.kind === "Everyone" || ("Group" in r.kind && r.kind.Group.includes(AGENT_ACCOUNT)));
+    const agentRoles = policy.roles.filter((r) => r.kind === "Everyone" || ("Group" in r.kind && r.kind.Group.includes(cfg().AGENT_ACCOUNT)));
     const canPropose = agentRoles.some((r) => r.permissions.some((p) => /^(\*|call|transfer):(\*|AddProposal)$/.test(p)));
-    if (!canPropose) problems.push(`${AGENT_ACCOUNT} has no DAO role allowed to add call proposals.`);
+    if (!canPropose) problems.push(`${cfg().AGENT_ACCOUNT} has no DAO role allowed to add call proposals.`);
     const council = policy.roles.filter((r) => r.permissions.some((p) => /:(\*|VoteApprove)$/.test(p)) && typeof r.kind === "object" && "Group" in r.kind);
     const members = [...new Set(council.flatMap((r) => (r.kind as { Group: string[] }).Group))];
     facts.push(`Council (can approve): ${members.join(", ") || "none found"}.`);
@@ -246,7 +246,7 @@ async function checkSputnik(): Promise<CustodyCheck> {
     // would let it approve its own proposals the day its key is replaced.
     for (const r of agentRoles) {
       const vote = r.permissions.find((p) => VOTING.test(p));
-      if (vote) problems.push(`${AGENT_ACCOUNT} holds voting rights through the DAO role "${r.name}" (${vote}). The agent should only be able to add proposals.`);
+      if (vote) problems.push(`${cfg().AGENT_ACCOUNT} holds voting rights through the DAO role "${r.name}" (${vote}). The agent should only be able to add proposals.`);
     }
     if (!problems.some((x) => x.includes("voting rights"))) facts.push("The agent holds no voting rights in the DAO: it can propose a payout but never approve one, and it cannot change the DAO's policy.");
     const wider = [...new Set(agentRoles.flatMap((r) => r.permissions).filter((p) => /:AddProposal$/.test(p) && !/^(call|transfer):/.test(p)))];
@@ -270,19 +270,19 @@ async function checkSputnik(): Promise<CustodyCheck> {
     await postQuantumCheck(publicKey, members, facts, problems);
 
     // Onchain hard stop: the council removes the agent from the role that lets it propose.
-    const held = policy.roles.filter((r) => typeof r.kind === "object" && "Group" in r.kind && r.kind.Group.includes(AGENT_ACCOUNT));
+    const held = policy.roles.filter((r) => typeof r.kind === "object" && "Group" in r.kind && r.kind.Group.includes(cfg().AGENT_ACCOUNT));
     if (held.length) {
       councilKill = held.map((r) => {
-        const rest = (r.kind as { Group: string[] }).Group.filter((a) => a !== AGENT_ACCOUNT);
+        const rest = (r.kind as { Group: string[] }).Group.filter((a) => a !== cfg().AGENT_ACCOUNT);
         const kind = rest.length
           ? { ChangePolicyAddOrUpdateRole: { role: { name: r.name, kind: { Group: rest }, permissions: r.permissions, vote_policy: r.vote_policy ?? {} } } }
           : { ChangePolicyRemoveRole: { role: r.name } };
-        const description = `Bluvfi Business kill switch: remove ${AGENT_ACCOUNT} from the "${r.name}" role`;
-        return `near contract call-function as-transaction ${DAO_ACCOUNT} add_proposal json-args '${JSON.stringify({ proposal: { description, kind } })}' prepaid-gas '100 Tgas' attached-deposit '${policy.proposal_bond} yoctoNEAR' network-config mainnet sign-with-keychain send`;
+        const description = `Bluvfi Business kill switch: remove ${cfg().AGENT_ACCOUNT} from the "${r.name}" role`;
+        return `near contract call-function as-transaction ${cfg().DAO_ACCOUNT} add_proposal json-args '${JSON.stringify({ proposal: { description, kind } })}' prepaid-gas '100 Tgas' attached-deposit '${policy.proposal_bond} yoctoNEAR' network-config mainnet sign-with-keychain send`;
       }).join(String.fromCharCode(10));
     }
   } catch (e) {
-    problems.push(`Could not read the DAO policy of ${DAO_ACCOUNT} (${(e as Error).message}).`);
+    problems.push(`Could not read the DAO policy of ${cfg().DAO_ACCOUNT} (${(e as Error).message}).`);
   }
   return {
     mode: "sputnik",
@@ -290,7 +290,7 @@ async function checkSputnik(): Promise<CustodyCheck> {
     facts,
     problems,
     councilKill,
-    killCommand: publicKey ? `near account delete-keys ${AGENT_ACCOUNT} public-keys ${publicKey} network-config mainnet sign-with-keychain send` : undefined,
+    killCommand: publicKey ? `near account delete-keys ${cfg().AGENT_ACCOUNT} public-keys ${publicKey} network-config mainnet sign-with-keychain send` : undefined,
   };
 }
 
@@ -298,7 +298,7 @@ async function outlayer<T>(path: string, init: RequestInit & { idempotencyKey?: 
   const r = await fetch(`${OUTLAYER_BASE}${path}`, {
     ...init,
     headers: {
-      authorization: `Bearer ${OUTLAYER_API_KEY}`,
+      authorization: `Bearer ${cfg().OUTLAYER_API_KEY}`,
       "content-type": "application/json",
       ...(init.idempotencyKey ? { "X-Idempotency-Key": init.idempotencyKey } : {}),
     },
@@ -375,9 +375,9 @@ async function checkHybrid(): Promise<CustodyCheck> {
   try {
     const bal = await spendingWalletUsdc();
     const { low, target } = spendingWalletBand();
-    facts.push(`The spending wallet ${OUTLAYER_WALLET_ACCOUNT} holds ${usdText(bal)} USDC: the most that can leave without a council vote. Below ${usdText(low)} the agent asks the DAO for a top-up to ${usdText(target)}.`);
+    facts.push(`The spending wallet ${cfg().OUTLAYER_WALLET_ACCOUNT} holds ${usdText(bal)} USDC: the most that can leave without a council vote. Below ${usdText(low)} the agent asks the DAO for a top-up to ${usdText(target)}.`);
   } catch (e) {
-    problems.push(`Could not read the spending wallet's USDC balance on ${OUTLAYER_WALLET_ACCOUNT || "(OUTLAYER_WALLET_ACCOUNT not set)"} (${(e as Error).message}).`);
+    problems.push(`Could not read the spending wallet's USDC balance on ${cfg().OUTLAYER_WALLET_ACCOUNT || "(OUTLAYER_WALLET_ACCOUNT not set)"} (${(e as Error).message}).`);
   }
   facts.push("To stop the spending wallet at once, freeze it in the OutLayer dashboard; the council keeps control of the vault.");
   return { mode: "hybrid", ok: problems.length === 0, facts, problems, killCommand: dao.killCommand, councilKill: dao.councilKill };
@@ -387,8 +387,8 @@ async function checkHybrid(): Promise<CustodyCheck> {
 
 /** USDC held by the OutLayer spending wallet, read from the chain. */
 export async function spendingWalletUsdc(): Promise<number> {
-  if (!OUTLAYER_WALLET_ACCOUNT) throw new Error("OUTLAYER_WALLET_ACCOUNT is not set");
-  return Number(BigInt(await viewFn<string>(NEAR_USDC_CONTRACT, "ft_balance_of", { account_id: OUTLAYER_WALLET_ACCOUNT }))) / 1e6;
+  if (!cfg().OUTLAYER_WALLET_ACCOUNT) throw new Error("OUTLAYER_WALLET_ACCOUNT is not set");
+  return Number(BigInt(await viewFn<string>(NEAR_USDC_CONTRACT, "ft_balance_of", { account_id: cfg().OUTLAYER_WALLET_ACCOUNT }))) / 1e6;
 }
 
 /** Below `low` the agent asks the DAO to refill the wallet to `target`. Defaults: the daily limit, and twice it. */
@@ -413,7 +413,7 @@ export async function hybridRoute(amountUsd: number): Promise<{ backend: "sputni
  * add_proposal key) to refill it to the target. The council still votes on it, and only one is open at a time.
  */
 export async function topUpIfLow(): Promise<{ topUp?: TopUp; note: string }> {
-  if (CUSTODY !== "hybrid" || DEMO) return { note: "Top-ups are only used with hybrid custody." };
+  if (cfg().CUSTODY !== "hybrid" || DEMO) return { note: "Top-ups are only used with hybrid custody." };
   const s = state();
   if (s.killSwitch) return { topUp: s.topUp, note: "The kill switch is on, so no top-up is requested." };
   if (s.topUp?.status === "InProgress") {
@@ -430,8 +430,8 @@ export async function topUpIfLow(): Promise<{ topUp?: TopUp; note: string }> {
     FunctionCall: {
       receiver_id: NEAR_USDC_CONTRACT,
       actions: [
-        { method_name: "storage_deposit", args: b64({ account_id: OUTLAYER_WALLET_ACCOUNT, registration_only: true }), deposit: STORAGE_DEPOSIT_YOCTO, gas: "10000000000000" },
-        { method_name: "ft_transfer", args: b64({ receiver_id: OUTLAYER_WALLET_ACCOUNT, amount: String(amountUsd * 1e6), memo: "bluvfi:top-up" }), deposit: "1", gas: "20000000000000" },
+        { method_name: "storage_deposit", args: b64({ account_id: cfg().OUTLAYER_WALLET_ACCOUNT, registration_only: true }), deposit: STORAGE_DEPOSIT_YOCTO, gas: "10000000000000" },
+        { method_name: "ft_transfer", args: b64({ receiver_id: cfg().OUTLAYER_WALLET_ACCOUNT, amount: String(amountUsd * 1e6), memo: "bluvfi:top-up" }), deposit: "1", gas: "20000000000000" },
       ],
     },
   };
@@ -440,11 +440,11 @@ export async function topUpIfLow(): Promise<{ topUp?: TopUp; note: string }> {
     title: "Top up the agent's spending wallet",
     notes: `Filed by the Bluvfi Business agent. The OutLayer spending wallet holds ${usdText(bal)}, under its ${usdText(low)} low mark; this refills it to ${usdText(target)}. Payments under the ${usdText(currentPolicy().approvalThresholdUsd)} approval threshold are paid from it, within OutLayer's limits.`,
     url: PUBLIC_BASE_URL,
-    recipient: OUTLAYER_WALLET_ACCOUNT,
+    recipient: cfg().OUTLAYER_WALLET_ACCOUNT,
     destinationNetwork: ASSET_ID["near:USDC"],
   });
   const id = await addDaoProposal(kind, description);
-  s.topUp = { proposalId: id, amountUsd, requestedAt: new Date().toISOString(), status: "InProgress", url: `${TREZU_APP_URL}/${DAO_ACCOUNT}/requests/${id}` };
+  s.topUp = { proposalId: id, amountUsd, requestedAt: new Date().toISOString(), status: "InProgress", url: `${TREZU_APP_URL}/${cfg().DAO_ACCOUNT}/requests/${id}` };
   return { topUp: s.topUp, note: `Filed top-up proposal #${id} for ${usdText(amountUsd)}. The council must approve it.` };
 }
 
@@ -458,14 +458,14 @@ export async function submitPayout(p: Payment): Promise<CustodyRecord> {
   const evidence = evidenceHash(p);
   const amount = rawUsdc(p.quote, p.invoice.amountUsd);
   const memo = `bluvfi:${evidence.slice(0, 32)}`;
-  if (CUSTODY === "hybrid") {
+  if (cfg().CUSTODY === "hybrid") {
     const route = await hybridRoute(p.invoice.amountUsd);
     const rec = route.backend === "outlayer" ? await submitOutlayer(p, amount, memo, evidence) : await submitSputnik(p, amount, memo, evidence);
     rec.route = route.why;
     await topUpIfLow().catch(() => undefined); // best effort: the payout is already with its custodian
     return rec;
   }
-  return CUSTODY === "outlayer" ? submitOutlayer(p, amount, memo, evidence) : submitSputnik(p, amount, memo, evidence);
+  return cfg().CUSTODY === "outlayer" ? submitOutlayer(p, amount, memo, evidence) : submitSputnik(p, amount, memo, evidence);
 }
 
 function proposalFor(p: Payment, amount: string, memo: string, evidence: string) {
@@ -518,8 +518,8 @@ export function trezuDescription(data: Record<string, string>): string {
 /** The agent files a proposal with its scoped key (add_proposal on the DAO, no deposit). Returns the DAO's proposal id. */
 export async function addDaoProposal(kind: unknown, description: string): Promise<number> {
   if (DEMO) return demoDao().propose(kind as never, description);
-  const agent = new Account(AGENT_ACCOUNT, new JsonRpcProvider({ url: NEAR_RPC_URL }), AGENT_PRIVATE_KEY as KeyPairString);
-  return Number(await agent.callFunction({ contractId: DAO_ACCOUNT, methodName: "add_proposal", args: { proposal: { description, kind } }, gas: teraToGas(50), deposit: BigInt(0) }));
+  const agent = new Account(cfg().AGENT_ACCOUNT, new JsonRpcProvider({ url: NEAR_RPC_URL }), cfg().AGENT_PRIVATE_KEY as KeyPairString);
+  return Number(await agent.callFunction({ contractId: cfg().DAO_ACCOUNT, methodName: "add_proposal", args: { proposal: { description, kind } }, gas: teraToGas(50), deposit: BigInt(0) }));
 }
 
 async function submitSputnik(p: Payment, amount: string, memo: string, evidence: string): Promise<CustodyRecord> {
@@ -528,11 +528,11 @@ async function submitSputnik(p: Payment, amount: string, memo: string, evidence:
   return {
     backend: "sputnik",
     ref: String(id),
-    url: `${TREZU_APP_URL}/${DAO_ACCOUNT}/requests/${id}`,
+    url: `${TREZU_APP_URL}/${cfg().DAO_ACCOUNT}/requests/${id}`,
     evidenceHash: evidence,
     submittedAt: new Date().toISOString(),
     state: "pending",
-    detail: `Proposal #${id} on ${DAO_ACCOUNT}, waiting for the council's votes.`,
+    detail: `Proposal #${id} on ${cfg().DAO_ACCOUNT}, waiting for the council's votes.`,
     kind,
   };
 }
@@ -589,7 +589,7 @@ export async function refreshPayout(rec: CustodyRecord): Promise<CustodyRecord> 
 
 // ---------- Gasless council votes (NEP-366) ----------
 
-export const relayerEnabled = () => !DEMO && DAO_CUSTODY && !!RELAYER_ACCOUNT && /^(ed25519|ml-dsa-65):/.test(RELAYER_PRIVATE_KEY);
+export const relayerEnabled = () => !DEMO && cfg().DAO_CUSTODY && !!RELAYER_ACCOUNT && /^(ed25519|ml-dsa-65):/.test(RELAYER_PRIVATE_KEY);
 
 interface DecodedDelegate {
   delegateAction: {
@@ -608,7 +608,7 @@ export async function relayVote(signedDelegateBase64: string): Promise<{ txHash:
   if (!relayerEnabled()) throw new Error("The relayer is not configured (RELAYER_ACCOUNT, RELAYER_PRIVATE_KEY).");
   const decoded = deserialize(SCHEMA.SignedDelegate, Buffer.from(signedDelegateBase64, "base64")) as unknown as DecodedDelegate;
   const da = decoded.delegateAction;
-  if (da.receiverId !== DAO_ACCOUNT) throw new Error("Only votes on our DAO are relayed");
+  if (da.receiverId !== cfg().DAO_ACCOUNT) throw new Error("Only votes on our DAO are relayed");
   const fc = da.actions.length === 1 ? da.actions[0].functionCall : undefined;
   if (!fc || fc.methodName !== "act_proposal") throw new Error("Only a single act_proposal call is relayed");
   if (BigInt(fc.deposit) !== BigInt(0)) throw new Error("Votes carry no deposit");

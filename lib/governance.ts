@@ -1,5 +1,7 @@
+import { cfg } from "./business";
 import { ASSET_ID } from "./chains";
-import { APPROVAL_THRESHOLD_SIGNERS, DAO_ACCOUNT, POLICY_VIA_DAO, SIGNER_NAMES, TREZU_APP_URL } from "./config";
+import { TREZU_APP_URL } from "./config";
+import { approvalThreshold, signerNames } from "./team";
 import { canonical, sha256 } from "./crypto";
 import { addDaoProposal, checkCustody, viewDao } from "./custody";
 import { makePolicy } from "./policy";
@@ -49,14 +51,14 @@ export const daoPolicyTag = (version: number, changes: PolicyProposal["changes"]
  * its description holds the tag. The agent's scoped key can file it; the council's vote is the approval.
  */
 const carrierKind = () => ({
-  FunctionCall: { receiver_id: DAO_ACCOUNT, actions: [{ method_name: "get_last_proposal_id", args: Buffer.from("{}").toString("base64"), deposit: "0", gas: "5000000000000" }] },
+  FunctionCall: { receiver_id: cfg().DAO_ACCOUNT, actions: [{ method_name: "get_last_proposal_id", args: Buffer.from("{}").toString("base64"), deposit: "0", gas: "5000000000000" }] },
 });
 
 /** True for a proposal of the carrier shape (or a plain `Vote` proposal, for DAOs that have that kind). */
 export function isPolicyCarrier(kind: unknown): boolean {
   if (kind === "Vote") return true;
   const fc = (kind as { FunctionCall?: { receiver_id?: string; actions?: { method_name?: string }[] } } | null)?.FunctionCall;
-  return !!fc && fc.receiver_id === DAO_ACCOUNT && !!fc.actions?.length && fc.actions.every((a) => a.method_name === "get_last_proposal_id");
+  return !!fc && fc.receiver_id === cfg().DAO_ACCOUNT && !!fc.actions?.length && fc.actions.every((a) => a.method_name === "get_last_proposal_id");
 }
 
 const usd = (n: number) => `$${n.toLocaleString("en-US")}`;
@@ -77,13 +79,13 @@ function daoPolicyText(version: number, changes: PolicyProposal["changes"]) {
     from,
     description,
     kind,
-    command: `near contract call-function as-transaction ${DAO_ACCOUNT} add_proposal json-args '${args}' prepaid-gas '100 Tgas' attached-deposit '0 NEAR' network-config mainnet`,
-    url: `${TREZU_APP_URL}/${DAO_ACCOUNT}/requests`,
+    command: `near contract call-function as-transaction ${cfg().DAO_ACCOUNT} add_proposal json-args '${args}' prepaid-gas '100 Tgas' attached-deposit '0 NEAR' network-config mainnet`,
+    url: `${TREZU_APP_URL}/${cfg().DAO_ACCOUNT}/requests`,
   };
 }
 
 export function propose(changes: PolicyProposal["changes"], signer: string): PolicyProposal {
-  if (!SIGNER_NAMES.includes(signer)) throw new Error("Unknown signer");
+  if (!signerNames().includes(signer)) throw new Error("Unknown signer");
   validateChanges(changes);
   const next = currentPolicy().version + 1;
   const p: PolicyProposal = {
@@ -91,9 +93,9 @@ export function propose(changes: PolicyProposal["changes"], signer: string): Pol
     createdAt: new Date().toISOString(),
     changes,
     approvals: [signer],
-    threshold: APPROVAL_THRESHOLD_SIGNERS,
+    threshold: approvalThreshold(),
     status: "open",
-    ...(POLICY_VIA_DAO ? { dao: { version: next, ...daoPolicyText(next, changes) } } : {}),
+    ...(cfg().POLICY_VIA_DAO ? { dao: { version: next, ...daoPolicyText(next, changes) } } : {}),
   };
   state().proposals.unshift(p);
   maybeApply(p);
@@ -101,7 +103,7 @@ export function propose(changes: PolicyProposal["changes"], signer: string): Pol
 }
 
 export function approveProposal(id: string, signer: string): PolicyProposal {
-  if (!SIGNER_NAMES.includes(signer)) throw new Error("Unknown signer");
+  if (!signerNames().includes(signer)) throw new Error("Unknown signer");
   const p = state().proposals.find((x) => x.id === id);
   if (!p) throw new Error("Proposal not found");
   if (p.dao) throw new Error("This change is approved by the treasury DAO's council, not by app signers. Put it to the DAO, then check the DAO.");

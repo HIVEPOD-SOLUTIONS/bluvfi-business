@@ -1,3 +1,4 @@
+import { cfg } from "@/lib/business";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionButton } from "@/components/Actions";
@@ -5,9 +6,9 @@ import { Badge, PageHead, STATUS, short, usd, when } from "@/components/ui";
 import { refreshZk } from "@/lib/agent";
 import { appPqKeys, verifyPolicyCheck, type PqCheckResult } from "@/lib/pqcheck";
 import { pqSeeds, state } from "@/lib/store";
-import { currentSigner } from "@/lib/who";
+import { currentSigner, tenantPage } from "@/lib/who";
 import { GaslessVote } from "@/components/GaslessVote";
-import { CUSTODY, DAO_ACCOUNT, DEMO, NEAR_RPC_URL } from "@/lib/config";
+import { DEMO, NEAR_RPC_URL } from "@/lib/config";
 import { relayerEnabled, viewDao } from "@/lib/custody";
 import { SendPanel } from "./SendPanel";
 
@@ -25,7 +26,7 @@ function Row({ ok, label, children }: { ok: boolean | null; label: string; child
   );
 }
 
-export default async function PaymentDetail({ params }: { params: Promise<{ id: string }> }) {
+async function PaymentDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const signer = await currentSigner();
   const found = state().payments.find((x) => x.id === id);
@@ -85,7 +86,7 @@ export default async function PaymentDetail({ params }: { params: Promise<{ id: 
           <p className="mt-1" style={{ color: "var(--tx-1)" }}>{c.detail}</p>
           <p className="mt-2 text-sm" style={{ color: "var(--tx-2)" }}>
             {c.backend === "sputnik"
-              ? `The agent's NEAR key can only call add_proposal on ${DAO_ACCOUNT}. Money moves when the council approves, and the approving vote executes the transfer.`
+              ? `The agent's NEAR key can only call add_proposal on ${cfg().DAO_ACCOUNT}. Money moves when the council approves, and the approving vote executes the transfer.`
               : "The agent holds only an OutLayer API key. OutLayer enforces the owner's limits and approvals inside Intel TDX."}
           </p>
           <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
@@ -102,7 +103,7 @@ export default async function PaymentDetail({ params }: { params: Promise<{ id: 
                 {DEMO && !!signer && <ActionButton url={`/api/payments/${p.id}/vote`} payload={{ approve: true }} variant="primary" small>Vote approve as {signer} (demo DAO)</ActionButton>}
                 {DEMO && !!signer && <ActionButton url={`/api/payments/${p.id}/vote`} payload={{ approve: false }} variant="danger" small>Vote reject</ActionButton>}
               </div>
-              {c.backend === "sputnik" && relayerEnabled() && !!signer && <GaslessVote dao={DAO_ACCOUNT} proposalId={Number(c.ref)} kind={kind} rpcUrl={NEAR_RPC_URL} paymentId={p.id} />}
+              {c.backend === "sputnik" && relayerEnabled() && !!signer && <GaslessVote dao={cfg().DAO_ACCOUNT} proposalId={Number(c.ref)} kind={kind} rpcUrl={NEAR_RPC_URL} paymentId={p.id} />}
             </div>
           )}
           {p.status === "ready_to_send" && !!signer && <div className="mt-4"><ActionButton url={`/api/payments/${p.id}/settlement`} variant="secondary">Check delivery (1Click)</ActionButton></div>}
@@ -137,7 +138,7 @@ export default async function PaymentDetail({ params }: { params: Promise<{ id: 
               Record signed with a quantum-resistant key, so the evidence stays trustworthy later.
             </Row>
             <Row ok={c ? true : null} label="Evidence anchored onchain">
-              {c ? `Evidence hash ${c.evidenceHash.slice(0, 16)}… is in the ${c.backend === "sputnik" ? "DAO proposal description" : "ft_transfer memo"}, so the payout and this record point at each other.` : CUSTODY === "manual" ? "Manual custody: no onchain anchor." : "Anchored when the payout is handed to the treasury."}
+              {c ? `Evidence hash ${c.evidenceHash.slice(0, 16)}… is in the ${c.backend === "sputnik" ? "DAO proposal description" : "ft_transfer memo"}, so the payout and this record point at each other.` : cfg().CUSTODY === "manual" ? "Manual custody: no onchain anchor." : "Anchored when the payout is handed to the treasury."}
             </Row>
             {pqc && (
               <Row ok={pqc.status === "verified"} label="Policy check, post-quantum signed (ML-DSA-65 + SLH-DSA)">
@@ -206,3 +207,5 @@ export default async function PaymentDetail({ params }: { params: Promise<{ id: 
     </>
   );
 }
+
+export default tenantPage(PaymentDetail);

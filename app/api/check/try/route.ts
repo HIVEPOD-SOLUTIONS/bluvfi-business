@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { publicCheck } from "@/lib/agent";
+import { bizFromRequest } from "@/lib/business";
 import { route } from "@/lib/http";
 import { clientKey, limited } from "@/lib/ratelimit";
 import type { CheckRequest } from "@/lib/types";
@@ -11,4 +12,4 @@ export const POST = route(async (req) => {
   const b = (await req.json().catch(() => ({}))) as CheckRequest;
   if (!b.payoutAddress) throw new Error("payoutAddress is required");
   return publicCheck(b);
-});
+}, bizFromRequest);

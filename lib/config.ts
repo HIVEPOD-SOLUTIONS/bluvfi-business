@@ -77,6 +77,14 @@ export const RELAYER_ACCOUNT = process.env.RELAYER_ACCOUNT ?? "";
 export const RELAYER_PRIVATE_KEY = process.env.RELAYER_PRIVATE_KEY ?? "";
 /** Privy app ID (https://dashboard.privy.io): lets /setup pay with an email or Google login instead of a NEAR wallet. Public by design. */
 export const PRIVY_APP_ID = process.env.PRIVY_APP_ID ?? "";
+/** Privy app secret (server only, never sent to the browser): lets the server read a signed-in person's verified email. */
+export const PRIVY_APP_SECRET = process.env.PRIVY_APP_SECRET ?? "";
+/** Owners of the operator's own business (the default one). Businesses that sign up make their own owner. */
+export const OWNER_EMAILS = (process.env.BLUVFI_OWNER_EMAIL ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+/** Sign in with Privy, and business signup, need the app ID and the secret. */
+export const PRIVY_LOGIN = !!PRIVY_APP_ID && !!PRIVY_APP_SECRET;
+/** BLUVFI_SIGNUP=closed stops new businesses from signing up (existing ones keep working). */
+export const SIGNUP_OPEN = PRIVY_LOGIN && process.env.BLUVFI_SIGNUP !== "closed";
 export const TREZU_APP_URL = (process.env.TREZU_APP_URL ?? "https://trezu.app").replace(/\/$/, "");
 export const OUTLAYER_BASE = (process.env.OUTLAYER_BASE_URL ?? (NETWORK === "testnet" ? "https://testnet-api.outlayer.ai" : "https://api.outlayer.ai")).replace(/\/$/, "");
 export const OUTLAYER_API_KEY = process.env.OUTLAYER_API_KEY ?? "";
@@ -116,14 +124,28 @@ export const SIGNERS: { name: string; token: string }[] = env("BLUVFI_SIGNERS")
 export const SIGNER_NAMES = SIGNERS.map((s) => s.name);
 export const APPROVAL_THRESHOLD_SIGNERS = Math.max(1, Math.min(Number(process.env.APPROVAL_THRESHOLD_SIGNERS ?? 2), SIGNERS.length || 1));
 
+/**
+ * The settings that belong to one business's treasury. For the operator's own business they come from the environment,
+ * as here; for a business that signed up on the platform they come from its record (lib/business.ts cfg()). Code that
+ * serves a business reads them through cfg(), never from these constants directly.
+ */
+export const ENV_CFG = {
+  CUSTODY, DAO_ACCOUNT, AGENT_ACCOUNT, AGENT_PRIVATE_KEY, OUTLAYER_API_KEY, OUTLAYER_WALLET_ACCOUNT, TREASURY_ACCOUNT, DAO_CUSTODY, POLICY_VIA_DAO,
+  // The business's own channels and what it charges for Check. A business that signed up brings its own bot, phone account and facilitator.
+  TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM, AGENT_MARKET_TOKEN, AGENT_MARKET_CRON_SECRET,
+  PINGPAY_API_KEY, X402_FACILITATOR_URL, COMPANY_NAME,
+};
+export type Cfg = typeof ENV_CFG;
+
 /** What must be set before the app can do its job. Shown on Overview; features refuse to run without it. */
-export function missingConfig(): { key: string; why: string }[] {
+export function missingConfig(c: Cfg = ENV_CFG, tenant = false): { key: string; why: string }[] {
+  const { CUSTODY, DAO_ACCOUNT, AGENT_ACCOUNT, AGENT_PRIVATE_KEY, OUTLAYER_API_KEY, OUTLAYER_WALLET_ACCOUNT, TREASURY_ACCOUNT, DAO_CUSTODY } = c;
   const out: { key: string; why: string }[] = [];
   const need = (ok: boolean, key: string, why: string) => ok || out.push({ key, why });
-  need(/^[0-9a-f]{64}$/i.test(MASTER_KEY), "BLUVFI_MASTER_KEY", "64 hex characters; derives the record encryption and signing keys");
-  need(SIGNERS.length > 0, "BLUVFI_SIGNERS", "name:token pairs (token 16+ characters) for the people who can approve");
+  need(tenant || /^[0-9a-f]{64}$/i.test(MASTER_KEY), "BLUVFI_MASTER_KEY", "64 hex characters; derives the record encryption and signing keys");
+  need(tenant || SIGNERS.length > 0 || PRIVY_LOGIN, "BLUVFI_SIGNERS", "name:token pairs (token 16+ characters) for the people who can approve, or set PRIVY_APP_ID, PRIVY_APP_SECRET and BLUVFI_OWNER_EMAIL to sign in with Privy");
   need(NEAR_ACCOUNT_OR_IMPLICIT.test(TREASURY_ACCOUNT), "TREASURY_ACCOUNT", `your NEAR ${NETWORK} account (name.${NEAR_SUFFIX} or a 64-hex implicit account)`);
-  need(!!NEAR_AI_KEY || DEMO, "NEAR_AI_API_KEY", "private AI review; without it every payment is held for a human");
+  need(tenant || !!NEAR_AI_KEY || DEMO, "NEAR_AI_API_KEY", "private AI review; without it every payment is held for a human");
   if (DAO_CUSTODY && !DEMO) {
     need(NEAR_ACCOUNT.test(DAO_ACCOUNT), "DAO_ACCOUNT", "your Sputnik DAO / Trezu treasury, e.g. acme.sputnik-dao.near");
     need(!!AGENT_ACCOUNT, "AGENT_ACCOUNT", "the NEAR account the agent proposes from");

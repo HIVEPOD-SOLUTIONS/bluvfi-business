@@ -1,9 +1,13 @@
+import { cfg, setTreasury } from "./business";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { Account, JsonRpcProvider, KeyPair, nearToYocto, type KeyPairString } from "near-api-js";
-import { DAO_ACCOUNT, DAO_CUSTODY, NEAR_RPC_URL, NEAR_SUFFIX, NETWORK, SIGNERS } from "./config";
+import { NEAR_RPC_URL, NEAR_SUFFIX, NETWORK, SIGNERS } from "./config";
 import { resetCustodyCache } from "./custody";
+import { decrypt, encrypt } from "./crypto";
+import { dataKey } from "./store";
+import { currentBiz, DEFAULT_BIZ } from "./tenant";
 
 /**
  * Treasury setup from the browser (app/setup). The person's own NEAR wallet signs the two steps that spend their money,
@@ -25,8 +29,10 @@ export const AGENT_FUNDING_NEAR = "0.3";
 export const AGENT_ALLOWANCE_NEAR = "0.25";
 const DIR = process.env.BLUVFI_SETUP_DIR ?? (NETWORK === "testnet" ? join(".testnet", "setup") : ".mainnet");
 const ENV_FILE = process.env.BLUVFI_ENV_FILE ?? join(process.cwd(), ".env.local");
-const KEYS = join(DIR, "agent.json");
-const PLAN = join(DIR, "setup.json");
+/** The operator's own business keeps its setup files in DIR; every other business has its own folder, with the files encrypted. */
+const dirFor = () => (currentBiz() === DEFAULT_BIZ ? DIR : join(DIR, currentBiz()));
+const keysFile = () => join(dirFor(), "agent.json");
+const planFile = () => join(dirFor(), "setup.json");
 const CODE = join(DIR, "setup-code.txt");
 
 export interface WalletTransaction {
@@ -60,10 +66,15 @@ export interface SetupResult {
 
 const provider = () => new JsonRpcProvider({ url: NEAR_RPC_URL });
 const save = (file: string, v: unknown) => {
-  mkdirSync(DIR, { recursive: true });
-  writeFileSync(file, JSON.stringify(v, null, 2));
+  mkdirSync(dirFor(), { recursive: true });
+  const json = JSON.stringify(v, null, 2);
+  writeFileSync(file, currentBiz() === DEFAULT_BIZ ? json : encrypt(json, dataKey()));
 };
-const load = <T,>(file: string): T | undefined => (existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as T) : undefined);
+const load = <T,>(file: string): T | undefined => {
+  if (!existsSync(file)) return undefined;
+  const raw = readFileSync(file, "utf8");
+  return JSON.parse(currentBiz() === DEFAULT_BIZ ? raw : decrypt(raw, dataKey())) as T;
+};
 const pub = (secret: string) => KeyPair.fromString(secret as KeyPairString).getPublicKey().toString();
 
 async function exists(id: string) {
@@ -119,10 +130,10 @@ export function writeEnvFile(set: Record<string, string>, ifMissing: Record<stri
 }
 
 /** Is a treasury already configured? Setup refuses to run over one. */
-export const isConfigured = () => DAO_CUSTODY && !!DAO_ACCOUNT;
+export const isConfigured = () => cfg().DAO_CUSTODY && !!cfg().DAO_ACCOUNT;
 
 export function setupStatus() {
-  return { configured: isConfigured(), dao: DAO_ACCOUNT, network: NETWORK, needsCode: SIGNERS.length === 0, pending: load<SetupPlan>(PLAN) };
+  return { configured: isConfigured(), dao: cfg().DAO_ACCOUNT, network: NETWORK, needsCode: currentBiz() === DEFAULT_BIZ && SIGNERS.length === 0, pending: load<SetupPlan>(planFile()) };
 }
 
 /** The one-time code that guards setup while no signers exist. Made on first use and printed to the server's terminal. */
@@ -137,7 +148,7 @@ export function setupCode(): string {
 }
 
 export function announceSetupCode() {
-  if (SIGNERS.length || isConfigured()) return;
+  if (currentBiz() !== DEFAULT_BIZ || SIGNERS.length || isConfigured()) return;
   console.log(`\n[bluvfi] Treasury setup code: ${setupCode()}  (enter it on /setup; also saved in ${CODE})\n`);
 }
 
@@ -145,7 +156,7 @@ const ACCOUNT = NETWORK === "testnet" ? /^(?:[a-z0-9_-]+\.)+testnet$|^[0-9a-f]{6
 
 /** Checks the request against the chain and returns what the wallet must sign. Saves the plan and the agent's keys. */
 export async function planSetup(input: { funder: string; council: string[]; name: string; agent?: string }): Promise<SetupPlan> {
-  if (isConfigured()) throw new Error(`A treasury is already configured (${DAO_ACCOUNT}). Setup only runs before one exists.`);
+  if (isConfigured()) throw new Error(`A treasury is already configured (${cfg().DAO_ACCOUNT}). Setup only runs before one exists.`);
   const funder = input.funder.trim().toLowerCase();
   const council = [...new Set(input.council.map((c) => c.trim().toLowerCase()).filter(Boolean))];
   const name = input.name.trim().toLowerCase();
@@ -166,11 +177,11 @@ export async function planSetup(input: { funder: string; council: string[]; name
   if (missing.length) throw new Error(`These council accounts do not exist on ${NETWORK}: ${missing.join(", ")}.`);
 
   // The agent's keys: kept if they belong to this agent, otherwise new ones. Saved before the wallet signs anything.
-  let keys = load<{ agent: string; full: string; scoped: string }>(KEYS);
+  let keys = load<{ agent: string; full: string; scoped: string }>(keysFile());
   if (agentThere && keys?.agent !== agent) throw new Error(`${agent} already exists and this server does not hold its key. Pick a new agent name.`);
   if (!keys || keys.agent !== agent) {
     keys = { agent, full: KeyPair.fromRandom("ed25519").toString(), scoped: KeyPair.fromRandom("ed25519").toString() };
-    save(KEYS, keys);
+    save(keysFile(), keys);
   }
   if (daoThere) {
     // An existing DAO is only usable if it is the one this setup describes.
@@ -206,15 +217,15 @@ export async function planSetup(input: { funder: string; council: string[]; name
     costNear: (agentThere ? 0 : Number(AGENT_FUNDING_NEAR)) + (daoThere ? 0 : Number(DAO_DEPOSIT_NEAR)),
     createdAt: new Date().toISOString(),
   };
-  save(PLAN, plan);
+  save(planFile(), plan);
   return plan;
 }
 
 /** After the wallet signed: checks both accounts on the chain, locks the agent down and writes the settings. */
 export async function finishSetup(): Promise<SetupResult> {
-  if (isConfigured()) throw new Error(`A treasury is already configured (${DAO_ACCOUNT}).`);
-  const plan = load<SetupPlan>(PLAN);
-  const keys = load<{ agent: string; full: string; scoped: string }>(KEYS);
+  if (isConfigured()) throw new Error(`A treasury is already configured (${cfg().DAO_ACCOUNT}).`);
+  const plan = load<SetupPlan>(planFile());
+  const keys = load<{ agent: string; full: string; scoped: string }>(keysFile());
   if (!plan || !keys || keys.agent !== plan.agent) throw new Error("No setup in progress. Check the plan first.");
   if (!(await exists(plan.agent))) throw new Error(`${plan.agent} is not on the chain yet. Sign the transactions in your wallet, then finish.`);
   if (!(await exists(plan.dao))) throw new Error(`${plan.dao} is not on the chain yet. Sign the transactions in your wallet, then finish.`);
@@ -235,6 +246,14 @@ export async function finishSetup(): Promise<SetupResult> {
     if (k.public_key !== pub(keys.full)) throw new Error(`${plan.agent} has a full-access key this server did not make (${k.public_key}). Delete it yourself, then finish again.`);
     await agent.deleteKey(k.public_key);
     done.push(`Deleted the agent's full-access key: it can now only propose payments.`);
+  }
+
+  if (currentBiz() !== DEFAULT_BIZ) {
+    // A business that signed up keeps its treasury in its own record, with the agent's key encrypted, not in the operator's env file.
+    setTreasury(currentBiz(), { custody: "sputnik", dao: plan.dao, agent: plan.agent, agentKey: keys.scoped, treasury: plan.dao });
+    done.push("Saved the treasury settings to your business.");
+    resetCustodyCache();
+    return { dao: plan.dao, agent: plan.agent, done };
   }
 
   // A master key and signer tokens are only made if the app has none, in the file or in its real environment.

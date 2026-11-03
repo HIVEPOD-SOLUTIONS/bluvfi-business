@@ -1,6 +1,7 @@
 import { body, route, type Ctx } from "@/lib/http";
 import { services } from "@/lib/services";
 import { state } from "@/lib/store";
+import { bizOfId } from "@/lib/tenant";
 
 /**
  * Payment link for a receivable. The client picks the chain they hold USDC on and gives a refund address
@@ -26,4 +27,4 @@ export const POST = route<Ctx<"id">>(async (req, { params }) => {
   const quote = await services.quoteReceivable(r.amountUsd, fromChain, b.refundTo.trim(), r.payTo);
   r.deposit = { chain: fromChain, address: quote.depositAddress, memo: quote.depositMemo, amountIn: quote.amountIn, deadline: quote.deadline };
   return { receivable: r, quote };
-});
+}, (_req, { params }) => params.then(({ id }) => bizOfId(id)));

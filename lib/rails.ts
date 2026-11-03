@@ -1,10 +1,11 @@
+import { cfg, secretEquals } from "./business";
+import { currentBiz, DEFAULT_BIZ } from "./tenant";
 import { createHmac } from "node:crypto";
 import { ASSET_ID } from "./chains";
-import {
-  COMPANY_NAME, ONECLICK_BASE, ONECLICK_DRY, ONECLICK_JWT, PUBLIC_BASE_URL, TELEGRAM_BOT_TOKEN, TREASURY_ACCOUNT,
-  TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM, X402_PAYER_URL,
-} from "./config";
+import { ONECLICK_BASE, ONECLICK_DRY, ONECLICK_JWT, PUBLIC_BASE_URL, X402_PAYER_URL } from "./config";
 import type { CallbackRecord, Channel, Confidentiality, Invoice, Quote } from "./types";
+
+export const TELEGRAM_API = process.env.TELEGRAM_API_BASE ?? "https://api.telegram.org";
 
 const oneClickHeaders = () => ({ "content-type": "application/json", ...(ONECLICK_JWT ? { authorization: `Bearer ${ONECLICK_JWT}` } : {}) });
 
@@ -63,13 +64,13 @@ const toRaw = (usd: number) => BigInt(Math.round(usd * 1e6)).toString();
 export function quotePayout(inv: Invoice, confidentiality: Confidentiality): Promise<Quote> {
   const dest = ASSET_ID[`${inv.chain}:${inv.asset}`];
   if (!dest) throw new Error(`No NEAR Intents route for ${inv.asset} on ${inv.chain}`);
-  if (!TREASURY_ACCOUNT) throw new Error("TREASURY_ACCOUNT is not set");
+  if (!cfg().TREASURY_ACCOUNT) throw new Error("TREASURY_ACCOUNT is not set");
   return oneClickQuote({
     originAsset: ASSET_ID["near:USDC"],
     destinationAsset: dest,
     amountOut: toRaw(inv.amountUsd),
     recipient: inv.payoutAddress,
-    refundTo: TREASURY_ACCOUNT,
+    refundTo: cfg().TREASURY_ACCOUNT,
     confidentiality,
   });
 }
@@ -101,7 +102,7 @@ export interface CallbackTarget { channel: Channel; handle: string }
  */
 export async function sendCallback(inv: Invoice, target: CallbackTarget | undefined, why: string, paymentId: string): Promise<CallbackRecord> {
   const message =
-    `Hi, this is the finance agent at ${COMPANY_NAME}. Invoice ${inv.invoiceNumber} for $${inv.amountUsd.toLocaleString()} ` +
+    `Hi, this is the finance agent at ${cfg().COMPANY_NAME}. Invoice ${inv.invoiceNumber} for $${inv.amountUsd.toLocaleString()} ` +
     `${why}. Did you send it, and are the new details correct? Reply YES ${inv.invoiceNumber} or NO ${inv.invoiceNumber}.`;
   const base: CallbackRecord = {
     channel: target?.channel ?? "email",
@@ -113,8 +114,8 @@ export async function sendCallback(inv: Invoice, target: CallbackTarget | undefi
   };
   if (!target) return base;
   try {
-    if (target.channel === "telegram" && TELEGRAM_BOT_TOKEN) {
-      const r = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    if (target.channel === "telegram" && cfg().TELEGRAM_BOT_TOKEN) {
+      const r = await fetch(`${TELEGRAM_API}/bot${cfg().TELEGRAM_BOT_TOKEN}/sendMessage`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ chat_id: target.handle, text: message }),
@@ -122,18 +123,19 @@ export async function sendCallback(inv: Invoice, target: CallbackTarget | undefi
       });
       if (r.ok) return { ...base, delivered: "telegram" };
     }
-    if (target.channel === "voice" && TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_FROM && PUBLIC_BASE_URL) {
-      const action = `${PUBLIC_BASE_URL}/api/twilio/voice?pid=${encodeURIComponent(paymentId)}`;
-      const say = `Hello, this is the finance agent at ${esc(COMPANY_NAME)}. Invoice ${esc(inv.invoiceNumber)} for ${Math.round(inv.amountUsd)} dollars has new payment details. Press 1 if you sent it and the details are correct. Press 2 if you did not.`;
+    if (target.channel === "voice" && cfg().TWILIO_ACCOUNT_SID && cfg().TWILIO_AUTH_TOKEN && cfg().TWILIO_FROM && PUBLIC_BASE_URL) {
+      // The business is in the link, so Twilio's reply finds it; the signature covers the whole URL, so it cannot be changed.
+      const action = `${PUBLIC_BASE_URL}/api/twilio/voice?pid=${encodeURIComponent(paymentId)}${currentBiz() === DEFAULT_BIZ ? "" : `&b=${currentBiz()}`}`;
+      const say = `Hello, this is the finance agent at ${esc(cfg().COMPANY_NAME)}. Invoice ${esc(inv.invoiceNumber)} for ${Math.round(inv.amountUsd)} dollars has new payment details. Press 1 if you sent it and the details are correct. Press 2 if you did not.`;
       // No key pressed: record a short spoken answer, transcribed by Whisper on NEAR AI (lib/transcribe.ts).
       const twiml = `<Response><Gather numDigits="1" action="${esc(action)}" method="POST"><Say>${say}</Say></Gather><Say>Or say yes or no after the beep.</Say><Record maxLength="6" playBeep="true" action="${esc(action)}" method="POST"/></Response>`;
-      const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Calls.json`, {
+      const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${cfg().TWILIO_ACCOUNT_SID}/Calls.json`, {
         method: "POST",
         headers: {
-          authorization: `Basic ${Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString("base64")}`,
+          authorization: `Basic ${Buffer.from(`${cfg().TWILIO_ACCOUNT_SID}:${cfg().TWILIO_AUTH_TOKEN}`).toString("base64")}`,
           "content-type": "application/x-www-form-urlencoded",
         },
-        body: new URLSearchParams({ To: target.handle, From: TWILIO_FROM, Twiml: twiml }),
+        body: new URLSearchParams({ To: target.handle, From: cfg().TWILIO_FROM, Twiml: twiml }),
         signal: AbortSignal.timeout(15_000),
       });
       if (r.ok) return { ...base, delivered: "voice" };
@@ -148,9 +150,9 @@ const esc = (s: string) => s.replace(/[<>&"']/g, (c) => ({ "<": "&lt;", ">": "&g
 
 /** Twilio request signature: base64(HMAC-SHA1(authToken, url + sorted key/value pairs)). */
 export function twilioSignatureValid(url: string, params: Record<string, string>, signature: string): boolean {
-  if (!TWILIO_AUTH_TOKEN || !signature) return false;
+  if (!cfg().TWILIO_AUTH_TOKEN || !signature) return false;
   const data = url + Object.keys(params).sort().map((k) => k + params[k]).join("");
-  return createHmac("sha1", TWILIO_AUTH_TOKEN).update(data).digest("base64") === signature;
+  return secretEquals(signature, createHmac("sha1", cfg().TWILIO_AUTH_TOKEN).update(data).digest("base64"));
 }
 
 /**

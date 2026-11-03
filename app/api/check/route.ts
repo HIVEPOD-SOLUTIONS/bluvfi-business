@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { publicCheck } from "@/lib/agent";
+import { bizFromRequest } from "@/lib/business";
 import { route } from "@/lib/http";
 import type { CheckRequest } from "@/lib/types";
 import { facilitator } from "@/lib/x402";
@@ -12,7 +13,7 @@ import { facilitator } from "@/lib/x402";
  */
 export const POST = route(async (req) => {
   const f = facilitator();
-  if (!f) return NextResponse.json({ error: "Bluvfi Business Check is not accepting payments until PINGPAY_API_KEY, or X402_FACILITATOR_URL and TREASURY_ACCOUNT, are set" }, { status: 503 });
+  if (!f) return NextResponse.json({ error: "This business is not accepting paid checks: it has no PingPay key, or facilitator and treasury, set in Settings" }, { status: 503 });
   const requirements = await f.requirements(new URL(req.url).toString());
   const refuse = (error: string) => NextResponse.json({ x402Version: f.version, error, accepts: [requirements] }, { status: 402 });
 
@@ -35,4 +36,4 @@ export const POST = route(async (req) => {
   const settled = await f.settle(paymentPayload, requirements);
   if (!settled.ok) return refuse(`Payment could not be settled${settled.reason ? `: ${settled.reason}` : ""}`);
   return { ...result, payment: { facilitator: f.name, transaction: settled.transaction } };
-});
+}, bizFromRequest);

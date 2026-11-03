@@ -8,6 +8,8 @@ const ITEMS = [
   { href: "/vendors", label: "Vendors", icon: "▤" },
   { href: "/receivables", label: "Receivables", icon: "↧" },
   { href: "/policy", label: "Policy", icon: "☰" },
+  { href: "/team", label: "Team", icon: "☺" },
+  { href: "/settings", label: "Settings", icon: "⚙" },
   { href: "/auditor", label: "Auditor", icon: "✓" },
   { href: "/check", label: "Check", icon: "◎" },
   { href: "/ledger", label: "Ledger", icon: "≡" },
@@ -26,7 +28,7 @@ export function Logo() {
   );
 }
 
-export function Nav({ signer, demo }: { signer: string; demo?: boolean }) {
+export function Nav({ signer, demo, business }: { signer: string; demo?: boolean; business?: string }) {
   const path = usePathname();
   const router = useRouter();
   const active = (h: string) => (h === "/" ? path === "/" : path.startsWith(h));
@@ -35,7 +37,7 @@ export function Nav({ signer, demo }: { signer: string; demo?: boolean }) {
       <aside className="hidden md:flex fixed inset-y-0 left-0 w-60 flex-col gap-1 p-5 border-r" style={{ background: "var(--bg-1)", borderColor: "var(--bd)" }}>
         <Link href="/" className="mb-1"><Logo /></Link>
         <div className="mb-5 flex items-center gap-2">
-          <span className="label">Business</span>
+          <span className="label" title={business}>{business ? (business.length > 14 ? `${business.slice(0, 13)}…` : business) : "Business"}</span>
           <span className="badge badge-gold">{demo ? "Demo" : "Mainnet"}</span>
         </div>
         {ITEMS.map((i) => (

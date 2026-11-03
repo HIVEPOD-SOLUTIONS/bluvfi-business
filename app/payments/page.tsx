@@ -1,10 +1,11 @@
 import { Empty, PageHead, PaymentCard } from "@/components/ui";
+import { tenantPage } from "@/lib/who";
 import { state } from "@/lib/store";
 import { SubmitInvoice } from "./SubmitInvoice";
 
 export const dynamic = "force-dynamic";
 
-export default function Payments() {
+function Payments() {
   const { payments, vendors } = state();
   return (
     <>
@@ -18,3 +19,5 @@ export default function Payments() {
     </>
   );
 }
+
+export default tenantPage(Payments);

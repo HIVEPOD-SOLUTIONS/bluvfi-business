@@ -1,10 +1,11 @@
 import { Badge, Empty, PageHead, usd, when } from "@/components/ui";
+import { tenantPage } from "@/lib/who";
 import { state } from "@/lib/store";
 import { CopyLink, NewReceivable } from "./Forms";
 
 export const dynamic = "force-dynamic";
 
-export default function Receivables() {
+function Receivables() {
   const list = state().receivables;
   return (
     <>
@@ -33,3 +34,5 @@ export default function Receivables() {
     </>
   );
 }
+
+export default tenantPage(Receivables);

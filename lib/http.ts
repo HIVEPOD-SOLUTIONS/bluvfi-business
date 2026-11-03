@@ -1,20 +1,28 @@
 import { NextResponse } from "next/server";
 import { persist } from "./store";
 import { clientKey, limited } from "./ratelimit";
+import { cookieFrom, verifySessionFull } from "./session";
+import { DEFAULT_BIZ, runAs } from "./tenant";
 
 type Handler<C> = (req: Request, ctx: C) => Promise<Response | unknown> | Response | unknown;
 
 const PER_MINUTE = Number(process.env.RATE_LIMIT_PER_MIN ?? 120);
 
-/** Wrap a route handler: rate limit, JSON in, JSON out, errors become 400s with a plain message. */
-export function route<C = unknown>(fn: Handler<C>) {
+/**
+ * Wrap a route handler: rate limit, JSON in, JSON out, errors become 400s with a plain message. The handler runs inside
+ * the business of the signed-in session, or, for a public link, the business `scope` says the link belongs to.
+ */
+export function route<C = unknown>(fn: Handler<C>, scope?: (req: Request, ctx: C) => Promise<string> | string) {
   return async (req: Request, ctx: C) => {
     const wait = limited(`${clientKey(req)}:${new URL(req.url).pathname}`, PER_MINUTE);
     if (wait) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "retry-after": String(wait) } });
     try {
-      const out = await fn(req, ctx);
-      if (req.method !== "GET") persist();
-      return out instanceof Response ? out : NextResponse.json(out ?? { ok: true });
+      const biz = scope ? await scope(req, ctx) : ((await verifySessionFull(cookieFrom(req)))?.biz ?? DEFAULT_BIZ);
+      return await runAs(biz, async () => {
+        const out = await fn(req, ctx);
+        if (req.method !== "GET") persist();
+        return out instanceof Response ? out : NextResponse.json(out ?? { ok: true });
+      });
     } catch (e) {
       return NextResponse.json({ error: (e as Error).message }, { status: 400 });
     }

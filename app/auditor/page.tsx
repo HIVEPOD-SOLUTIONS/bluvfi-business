@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { tenantPage } from "@/lib/who";
 import { Badge, Empty, PageHead, short, when } from "@/components/ui";
 import { controls } from "@/lib/audit";
 import { currentPolicy, state } from "@/lib/store";
@@ -6,7 +7,7 @@ import { GrantForm, GrantRow } from "./Forms";
 
 export const dynamic = "force-dynamic";
 
-export default function Auditor() {
+function Auditor() {
   const s = state();
   const cs = controls();
   const head = s.payments[0]?.recordHash;
@@ -82,3 +83,5 @@ export default function Auditor() {
     </>
   );
 }
+
+export default tenantPage(Auditor);

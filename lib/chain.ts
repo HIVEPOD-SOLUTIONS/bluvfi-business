@@ -1,4 +1,5 @@
-import { EVM_RPC_URL, NEARBLOCKS_BASE, NEARBLOCKS_KEY, NEAR_RPC_URL, OUTLAYER_WALLET_ACCOUNT, TREASURY_ACCOUNT } from "./config";
+import { cfg } from "./business";
+import { EVM_RPC_URL, NEARBLOCKS_BASE, NEARBLOCKS_KEY, NEAR_RPC_URL } from "./config";
 import { NEAR_USDC_CONTRACT } from "./chains";
 import type { CounterpartySignals } from "./fraud";
 
@@ -80,14 +81,14 @@ export interface Balance { chain: string; asset: string; amount: number; usd: bo
 
 /** Live treasury balances on NEAR mainnet: USDC (counted as USD) and NEAR (units, not converted). */
 export async function treasuryBalances(): Promise<Balance[]> {
-  if (!TREASURY_ACCOUNT) throw new Error("TREASURY_ACCOUNT is not set");
-  return accountBalances(TREASURY_ACCOUNT);
+  if (!cfg().TREASURY_ACCOUNT) throw new Error("TREASURY_ACCOUNT is not set");
+  return accountBalances(cfg().TREASURY_ACCOUNT);
 }
 
 /** Hybrid custody: the OutLayer spending wallet's balances, read the same way. */
 export async function spendingWalletBalances(): Promise<Balance[]> {
-  if (!OUTLAYER_WALLET_ACCOUNT) throw new Error("OUTLAYER_WALLET_ACCOUNT is not set");
-  return accountBalances(OUTLAYER_WALLET_ACCOUNT);
+  if (!cfg().OUTLAYER_WALLET_ACCOUNT) throw new Error("OUTLAYER_WALLET_ACCOUNT is not set");
+  return accountBalances(cfg().OUTLAYER_WALLET_ACCOUNT);
 }
 
 async function accountBalances(account: string): Promise<Balance[]> {

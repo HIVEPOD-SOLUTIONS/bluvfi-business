@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { tenantPage } from "@/lib/who";
 import { Logo } from "@/components/Nav";
 import { NEAR_RPC_URL, PRIVY_APP_ID } from "@/lib/config";
 import { AGENT_FUNDING_NEAR, DAO_DEPOSIT_NEAR, FACTORY, announceSetupCode, setupStatus } from "@/lib/setup";
@@ -6,7 +7,7 @@ import { SetupWizard } from "./SetupWizard";
 
 export const dynamic = "force-dynamic";
 
-export default function Setup() {
+function Setup() {
   const s = setupStatus();
   if (s.needsCode) announceSetupCode();
   return (
@@ -34,3 +35,5 @@ export default function Setup() {
     </div>
   );
 }
+
+export default tenantPage(Setup);

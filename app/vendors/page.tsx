@@ -1,11 +1,12 @@
 import { Badge, Empty, PageHead, when } from "@/components/ui";
+import { tenantPage } from "@/lib/who";
 import { CHAIN_LABEL } from "@/lib/chains";
 import { currentPolicy, state } from "@/lib/store";
 import { NewPurchaseOrder, NewVendor } from "./Forms";
 
 export const dynamic = "force-dynamic";
 
-export default function Vendors() {
+function Vendors() {
   const s = state();
   const allow = currentPolicy().vendorAllowlist;
   return (
@@ -54,3 +55,5 @@ export default function Vendors() {
     </>
   );
 }
+
+export default tenantPage(Vendors);

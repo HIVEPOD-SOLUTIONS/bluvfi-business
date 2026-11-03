@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { decrypt, encrypt, newKeyHex, sha256 } from "./crypto";
 import { currentPolicy, dataKey, state } from "./store";
+import { bizOfId, runAs, scopedId } from "./tenant";
 import type { Payment, ViewGrant } from "./types";
 
 export interface Control {
@@ -135,7 +136,8 @@ export function createGrant(grantee: string, days: number): ViewGrant & { plainK
     revoked: false,
   };
   s.grants.unshift(g);
-  return { ...g, plainKey };
+  // The view key a person is given names the business it opens, so a public link finds the right records.
+  return { ...g, plainKey: scopedId(plainKey) };
 }
 
 export function revokeGrant(id: string) {
@@ -143,7 +145,12 @@ export function revokeGrant(id: string) {
   if (g) g.revoked = true;
 }
 
-export function openWithKey(plainKey: string): { ok: true; records: Payment[]; grantee: string } | { ok: false; error: string } {
+export function openWithKey(given: string): { ok: true; records: Payment[]; grantee: string } | { ok: false; error: string } {
+  const plainKey = given.includes("~") ? given.slice(given.indexOf("~") + 1) : given;
+  return runAs(bizOfId(given), () => openIn(plainKey));
+}
+
+function openIn(plainKey: string): { ok: true; records: Payment[]; grantee: string } | { ok: false; error: string } {
   const s = state();
   const g = s.grants.find((x) => x.keyHash === sha256(plainKey));
   if (!g) return { ok: false, error: "That view key was not recognised." };

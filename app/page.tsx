@@ -1,9 +1,12 @@
+import { cfg } from "@/lib/business";
+import { tenantPage } from "@/lib/who";
+import { currentBiz, DEFAULT_BIZ } from "@/lib/tenant";
 import Link from "next/link";
 import { ActionButton, KillSwitch } from "@/components/Actions";
 import { Badge, Empty, PageHead, PaymentCard, Stat, usd, when } from "@/components/ui";
 import { CHAIN_LABEL } from "@/lib/chains";
 import type { Balance } from "@/lib/chain";
-import { CUSTODY, DAO_ACCOUNT, DEMO, missingConfig } from "@/lib/config";
+import { DEMO, missingConfig } from "@/lib/config";
 import { checkCustody, spendingWalletBand } from "@/lib/custody";
 import { services } from "@/lib/services";
 import { currentPolicy, spentTodayUsd, state } from "@/lib/store";
@@ -23,10 +26,11 @@ function BalanceList({ balances }: { balances: Balance[] }) {
   );
 }
 
-export default async function Overview() {
+async function Overview() {
   const s = state();
   const policy = currentPolicy();
-  const missing = missingConfig();
+  const tenant = currentBiz() !== DEFAULT_BIZ;
+  const missing = missingConfig(cfg(), tenant);
   let balances: Balance[] = [];
   let balanceError = "";
   try {
@@ -35,7 +39,7 @@ export default async function Overview() {
     balanceError = (e as Error).message;
   }
   // Hybrid custody: the DAO is the vault and an OutLayer wallet the agent spends from. Both are read from the chain.
-  const hybrid = CUSTODY === "hybrid" && !DEMO;
+  const hybrid = cfg().CUSTODY === "hybrid" && !DEMO;
   let wallet: Balance[] = [];
   let walletError = "";
   if (hybrid) {
@@ -47,7 +51,7 @@ export default async function Overview() {
   }
   const band = hybrid ? spendingWalletBand() : undefined;
   const walletUsdc = wallet.find((b) => b.usd)?.amount;
-  const custody = await checkCustody().catch((e) => ({ mode: CUSTODY, ok: false, facts: [] as string[], problems: [(e as Error).message], killCommand: undefined as string | undefined, councilKill: undefined as string | undefined }));
+  const custody = await checkCustody().catch((e) => ({ mode: cfg().CUSTODY, ok: false, facts: [] as string[], problems: [(e as Error).message], killCommand: undefined as string | undefined, councilKill: undefined as string | undefined }));
   const total = [...balances, ...wallet].filter((b) => b.usd).reduce((a, b) => a + b.amount, 0);
   const attention = s.payments.filter(
     (p) => p.status === "held" || p.status === "awaiting_approval" || p.status === "ready_to_send" || p.status === "proposed" || (p.status === "blocked" && p.callback?.status === "pending")
@@ -71,12 +75,12 @@ export default async function Overview() {
 
       {missing.length > 0 && (
         <section role="alert" className="card mb-4" style={{ borderColor: "rgba(232,168,56,.4)" }}>
-          <h2>Setup needed</h2>
-          <p className="mt-1 text-sm" style={{ color: "var(--tx-1)" }}>Set these environment variables and restart. Until then the affected features refuse to run.</p>
+          <h2>{tenant ? "Finish setting up your business" : "Setup needed"}</h2>
+          <p className="mt-1 text-sm" style={{ color: "var(--tx-1)" }}>{tenant ? "Your treasury is not set up yet, so payments cannot be sent. Setup takes a few minutes and your own wallet signs it." : "Set these environment variables and restart. Until then the affected features refuse to run."}</p>
           <ul className="mt-2 grid gap-1 text-sm">
-            {missing.map((m) => <li key={m.key}><span className="mono">{m.key}</span> <span style={{ color: "var(--tx-2)" }}>— {m.why}</span></li>)}
+            {!tenant && missing.map((m) => <li key={m.key}><span className="mono">{m.key}</span> <span style={{ color: "var(--tx-2)" }}>— {m.why}</span></li>)}
           </ul>
-          {!DAO_ACCOUNT && !DEMO && <p className="mt-3 text-sm"><Link href="/setup" style={{ color: "#8c8cff" }}>Set up a treasury from the browser →</Link> <span style={{ color: "var(--tx-2)" }}>Your wallet creates the DAO and the agent; the settings are written for you.</span></p>}
+          {!cfg().DAO_ACCOUNT && !DEMO && <p className="mt-3 text-sm"><Link href="/setup" style={{ color: "#8c8cff" }}>Set up a treasury from the browser →</Link> <span style={{ color: "var(--tx-2)" }}>Your wallet creates the DAO and the agent; the settings are written for you.</span></p>}
         </section>
       )}
 
@@ -183,3 +187,5 @@ export default async function Overview() {
     </>
   );
 }
+
+export default tenantPage(Overview);
