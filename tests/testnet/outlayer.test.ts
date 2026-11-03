@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { checkCustody, resetCustodyCache } from "../../lib/custody";
 
-/** OutLayer custody against OutLayer's real testnet API. Setting a wallet's policy is the OWNER's act in OutLayer's dashboard. */
+/**
+ * OutLayer custody against OutLayer's real TESTNET API. OutLayer's dashboard only opens mainnet wallets, so a testnet wallet
+ * can never be given a policy; the policy tests are in tests/real/outlayer.test.ts, against a read-only mainnet wallet.
+ */
 const T = { timeout: 120_000 };
 
 const policy = async () => (await (await fetch(`${outlayer.baseUrl}/wallet/v1/policy`, { headers: { authorization: `Bearer ${outlayer.apiKey}` } })).json()) as { policy?: string; frozen?: boolean; rules?: { limits?: Record<string, unknown> } };
@@ -14,14 +17,4 @@ test("a real OutLayer wallet with no policy is unrestricted, so the custody chec
   const c = await checkCustody();
   assert.equal(c.ok, false);
   assert.match(c.problems.join(" "), /no policy, so it is unrestricted/);
-});
-
-test("with an owner-set policy, the app reports what OutLayer enforces and compares it with its own limits", T, async (t) => {
-  const p = await policy();
-  if (p.policy !== "stored") return t.skip(`Not run yet: this testnet wallet has no policy. Its owner sets one in OutLayer's dashboard: ${outlayer.handoffUrl}`);
-  resetCustodyCache();
-  const c = await checkCustody();
-  const facts = c.facts.join("\n");
-  assert.match(facts, /OutLayer wallet controlled by/);
-  assert.match(facts + c.problems.join("\n"), /Limit sync: OutLayer allows|sets no per-payment limit for USDC/);
 });
