@@ -6,7 +6,7 @@ import { ActionButton, KillSwitch } from "@/components/Actions";
 import { Badge, Empty, PageHead, PaymentCard, Stat, usd, when } from "@/components/ui";
 import { CHAIN_LABEL } from "@/lib/chains";
 import type { Balance } from "@/lib/chain";
-import { DEMO, missingConfig } from "@/lib/config";
+import { DEMO, NETWORK, missingConfig } from "@/lib/config";
 import { checkCustody, spendingWalletBand } from "@/lib/custody";
 import { services } from "@/lib/services";
 import { currentPolicy, spentTodayUsd, state } from "@/lib/store";
@@ -96,7 +96,7 @@ async function Overview() {
       )}
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Treasury (USDC)" value={balanceError ? "—" : usd(total)} sub={balanceError ? "balance unavailable" : DEMO ? "demo balance" : hybrid ? "vault + spending wallet, NEAR mainnet" : "NEAR mainnet"} />
+        <Stat label="Treasury (USDC)" value={balanceError ? "—" : usd(total)} sub={balanceError ? "balance unavailable" : DEMO ? "demo balance" : hybrid ? `vault + spending wallet, NEAR ${NETWORK}` : `NEAR ${NETWORK}`} />
         <Stat label="Paid or reserved today" value={usd(spentTodayUsd())} sub={`of ${usd(policy.dailyLimitUsd)} daily limit`} />
         <Stat label="Stopped before paying" value={usd(saved)} sub={`${blocked} payment${blocked === 1 ? "" : "s"} blocked or cancelled`} tone={saved > 0 ? "pos" : undefined} />
         <Stat label="Policy" value={`v${policy.version}`} sub={<span className="mono">{policy.hash.slice(0, 12)}…</span>} />
@@ -132,7 +132,7 @@ async function Overview() {
               <div className="mt-2"><ActionButton url="/api/custody/topup" small>Check and request a top-up</ActionButton></div>
             </>
           )}
-          <p className="mt-3 text-sm" style={{ color: "var(--tx-2)" }}>{DEMO ? "Demo balances, not read from the chain." : "Read live from NEAR mainnet. NEAR is shown in units, not converted."}</p>
+          <p className="mt-3 text-sm" style={{ color: "var(--tx-2)" }}>{DEMO ? "Demo balances, not read from the chain." : `Read live from NEAR ${NETWORK}. NEAR is shown in units, not converted.`}</p>
         </div>
 
         <div className="lg:col-span-2">

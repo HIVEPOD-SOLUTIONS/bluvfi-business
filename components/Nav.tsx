@@ -28,7 +28,7 @@ export function Logo() {
   );
 }
 
-export function Nav({ signer, demo, business }: { signer: string; demo?: boolean; business?: string }) {
+export function Nav({ signer, demo, business, network = "mainnet" }: { signer: string; demo?: boolean; business?: string; network?: string }) {
   const path = usePathname();
   const router = useRouter();
   const active = (h: string) => (h === "/" ? path === "/" : path.startsWith(h));
@@ -38,7 +38,7 @@ export function Nav({ signer, demo, business }: { signer: string; demo?: boolean
         <Link href="/" className="mb-1"><Logo /></Link>
         <div className="mb-5 flex items-center gap-2">
           <span className="label" title={business}>{business ? (business.length > 14 ? `${business.slice(0, 13)}…` : business) : "Business"}</span>
-          <span className="badge badge-gold">{demo ? "Demo" : "Mainnet"}</span>
+          <span className="badge badge-gold">{demo ? "Demo" : network === "testnet" ? "Testnet" : "Mainnet"}</span>
         </div>
         {ITEMS.map((i) => (
           <Link
