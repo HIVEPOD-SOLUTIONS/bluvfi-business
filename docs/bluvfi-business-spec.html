@@ -61,15 +61,15 @@
 <section class="cover">
   <div class="logo"><span class="mark"></span>bluvfi</div>
   <h1>Bluvfi Business</h1>
-  <div class="sub">Build spec (revised: no smart contract)</div>
+  <div class="sub">Build spec (no smart contract, as built)</div>
   <div class="rule"></div>
   <p>The verifiable trust layer for agent payments on NEAR.</p>
   <p class="tag">The AI has judgment, never authority.</p>
-  <span class="stamp">Status update: 2 November 2026</span>
-  <div class="foot">Layers 1 to 6 with what is built, reproducibility modes, screens, demo video, README, what is left, and priorities.</div>
+  <span class="stamp">Status update: 3 November 2026</span>
+  <div class="foot">Layers 1 to 6 and the multi-business platform, with what is built and how it was tested, reproducibility modes, screens, demo video, README, what is left, and priorities.</div>
 </section>
 
-<p class="lead">Updated 2 November 2026 to match the code. Each item now says whether it is built and how far it has been tested. No smart contract is written: wherever the original spec called for one, a deterministic policy gate and existing custodians (a Sputnik DAO run in Trezu, an OutLayer policy wallet, or both) do that job.</p>
+<p class="lead">Updated 3 November 2026 to match the code. Since the last update: Layer 1 has been tested for real on a Sputnik DAO on NEAR testnet and through the web app, and Bluvfi Business is now a platform where any business signs up and runs its own treasury, team and channels. Each item says whether it is built and how far it has been tested. No smart contract is written: wherever the original spec called for one, a deterministic policy gate and existing custodians (a Sputnik DAO run in Trezu, an OutLayer policy wallet, or both) do that job.</p>
 
 <table class="key">
   <tr><td><span class="pill ok">Done</span></td><td>Built and tested, including against real services where noted.</td></tr>
@@ -90,25 +90,27 @@
 <p><strong>The answer to Haseeb, built in:</strong> "Agents run fine on cards, for buying things. But a card can't tell you whether the agent was tricked, whether the payee is a scammer, or prove to your auditor what happened. Bluvfi Business works on every rail: Intents for treasury payments, x402 for APIs, cards later."</p>
 
 <h2 class="break">Layer 1: Policy, set by humans and enforced without a contract</h2>
-<p>A deterministic policy gate in the app, backed by a treasury the agent cannot spend from, enforces every rule below. Policy changes only through a multisig, and every version is hashed. <strong>Layer 1 is complete</strong> as far as it can go without a contract. The table says where each rule is enforced.</p>
+<p>A deterministic policy gate in the app, backed by a treasury the agent cannot spend from, enforces every rule below. Policy changes only through a multisig, and every version is hashed. <strong>Layer 1 is complete</strong> as far as it can go without a contract, and it has been <strong>tested for real</strong>: against a live Sputnik DAO on NEAR testnet (real council votes, the chain refusing the agent's key), and through the web app on 3 November. The table says where each rule is enforced and what was run.</p>
 
 <table>
   <tr><th style="width:24%">Rule</th><th>What enforces it</th><th style="width:15%">Status</th></tr>
   <tr><td>Funds held by a contract</td><td>Sputnik DAO v2, the audited Rust contract Trezu runs, holds the vault. We use it and write none of our own.</td><td><span class="pill ok">Done</span></td></tr>
-  <tr><td>Agent holds only a scoped key</td><td>A function-call key limited to <code>add_proposal</code> on the DAO, and the <strong>only</strong> kind of key on the agent account: every key is read from the chain (<code>view_access_key_list</code>) before every payout. A full-access key or a key for anything else fails the check, and the Overview shows the delete command.</td><td><span class="pill mock">Done, mocked</span></td></tr>
-  <tr><td>Agent cannot approve or change policy</td><td>The DAO roles are read from the chain: the agent may propose but holds no voting rights. The relayer, whose key is also on the server, may not vote either.</td><td><span class="pill mock">Done, mocked</span></td></tr>
-  <tr><td>Approval threshold</td><td>At or over it, a payment needs a signer, then the DAO council's onchain vote executes it. The app reads the threshold the DAO really applies and warns if one member can approve alone.</td><td><span class="pill mock">Done, mocked</span></td></tr>
-  <tr><td>Per-payment and daily limits</td><td>The app's gate, checked again at release. With hybrid custody, OutLayer also enforces them on the spending wallet inside its TEE, and the wallet's balance is a hard ceiling.</td><td><span class="pill mock">Done, mocked</span></td></tr>
+  <tr><td>Agent holds only a scoped key</td><td>A function-call key limited to <code>add_proposal</code> on the DAO, and the <strong>only</strong> kind of key on the agent account: every key is read from the chain (<code>view_access_key_list</code>) before every payout. A full-access key or a key for anything else fails the check, and the Overview shows the delete command. <span class="small">Run for real: the chain rejects the agent's attempts to vote, transfer or file a policy change.</span></td><td><span class="pill ok">Done</span></td></tr>
+  <tr><td>Agent cannot approve or change policy</td><td>The DAO roles are read from the chain: the agent may propose but holds no voting rights. The relayer, whose key is also on the server, may not vote either. <span class="small">Run for real; this caught a bug where the relayer accepted the agent as a council member (fixed).</span></td><td><span class="pill ok">Done</span></td></tr>
+  <tr><td>Approval threshold</td><td>At or over it, a payment needs a signer, then the DAO council's onchain vote executes it. The app reads the threshold the DAO really applies and warns if one member can approve alone. <span class="small">Run for real: one vote leaves a proposal waiting, the second executes it (2 of 3).</span></td><td><span class="pill ok">Done</span></td></tr>
+  <tr><td>Per-payment and daily limits</td><td>The app's gate, checked again at release. With hybrid custody, OutLayer also enforces them on the spending wallet inside its TEE, and the wallet's balance is a hard ceiling. <span class="small">The app's gate ran for real against live 1Click quotes. OutLayer's own limits apply once the wallet's owner sets a policy in OutLayer's dashboard (nobody else can), and the app refuses to pay until they match its own.</span></td><td><span class="pill ok">Done</span></td></tr>
   <tr><td>Permitted chains and assets</td><td>The app's gate, checked again at release.</td><td><span class="pill ok">Done</span></td></tr>
-  <tr><td>Vendor allowlist</td><td>The app's gate (a vendor not on the list is held for a human), plus OutLayer address rules where used.</td><td><span class="pill ok">Done</span></td></tr>
-  <tr><td>Hold window</td><td>Held payments cannot be approved until the window ends; cancelling is always possible. It sits in front of the only onchain action the agent can take.</td><td><span class="pill part">Partial</span> app only</td></tr>
-  <tr><td>Kill switch any signer can flip</td><td>Recorded with who and when. Stops new payments, releases, API spending and top-ups. The Overview lists payouts already waiting onchain with links to reject them, and two onchain hard stops: remove the agent from its DAO role, or delete its key.</td><td><span class="pill ok">Done</span></td></tr>
-  <tr><td>Policy changes only through a multisig</td><td>With a DAO, the council approves each change onchain; the app applies it only once it reads the proposal as Approved. Without a DAO, N distinct app signers.</td><td><span class="pill mock">Done, mocked</span></td></tr>
+  <tr><td>Vendor allowlist</td><td>The app's gate: a vendor not on the list raises a warning and the payment is held for a human, not hard-blocked. Plus OutLayer address rules where used.</td><td><span class="pill ok">Done</span></td></tr>
+  <tr><td>Hold window</td><td>Held payments cannot be approved until the window ends; cancelling is always possible. It sits in front of the only onchain action the agent can take. <span class="small">Enforced in the app by design: with no contract of ours, neither a DAO nor OutLayer has a timelock to enforce it onchain. Run through the web app: early approval is refused with the hold-until time, and cancelling works.</span></td><td><span class="pill ok">Done</span></td></tr>
+  <tr><td>Kill switch any signer can flip</td><td>Recorded with who and when. Stops new payments, releases, API spending and top-ups (run through the web app: new invoices are refused until resumed). The Overview lists payouts already waiting onchain with links to reject them, and two onchain hard stops: remove the agent from its DAO role, or delete its key. <span class="small">The council hard stop was run for real: the agent can no longer propose.</span></td><td><span class="pill ok">Done</span></td></tr>
+  <tr><td>Policy changes only through a multisig</td><td>With a DAO, the council approves each change onchain; the app applies it only once it reads the proposal as Approved. Without a DAO, N distinct app signers. <span class="small">Run for real, through the web app: the agent filed the change as a DAO proposal, two council members approved it, and the policy moved to the next version. A rejected change never applies, and an old approval cannot be replayed.</span></td><td><span class="pill ok">Done</span></td></tr>
   <tr><td>Every policy version hashed</td><td>Each version's hash is checked again on the Policy page; payouts state the policy version and hash they were approved under.</td><td><span class="pill ok">Done</span></td></tr>
   <tr><td>Optional privacy, as policy <span class="small">(new)</span></td><td>A <strong>privacy floor</strong>: every payment is raised to at least that confidentiality, at intake and at release. At "advanced", the DAO's public proposal leaves out the vendor, invoice and payee.</td><td><span class="pill ok">Done</span></td></tr>
-  <tr><td>Post-quantum keys <span class="small">(new)</span></td><td>The custody check reads the keys of the agent, the relayer and every council member, and reports which are ML-DSA (lattice) and which are classical. With <strong>Require post-quantum keys</strong> on, payouts stop until all of them are ML-DSA. Key formats confirmed against nearcore's source (<code>ml-dsa-65:</code>, listed as <code>ml-dsa-65-hash:</code>).</td><td><span class="pill mock">Done, mocked</span></td></tr>
+  <tr><td>Post-quantum keys <span class="small">(new)</span></td><td>The custody check reads the keys of the agent, the relayer and every council member, and reports which are ML-DSA (lattice) and which are classical. With <strong>Require post-quantum keys</strong> on, payouts stop until all of them are ML-DSA. Key formats confirmed against nearcore's source (<code>ml-dsa-65:</code>, listed as <code>ml-dsa-65-hash:</code>). <span class="small">Run for real with the requirement switched on through a DAO vote: the check then failed, naming the agent, relayer and every council member as classical. ML-DSA keys are read in the format nearcore documents; no account on a live network holds one yet, so that path is covered by tests only.</span></td><td><span class="pill ok">Done</span></td></tr>
   <tr><td>Gas-allowance lock-out explained</td><td>With no full-access key left, the agent account cannot add a key itself. The README explains the fix: a new agent account, swapped into the role by the council. The check warns when the allowance runs low.</td><td><span class="pill ok">Done</span></td></tr>
 </table>
+
+<div class="callout"><p><strong>Layer 1, tested for real (nothing mocked):</strong> <code>npm run testnet:setup</code> builds a real Sputnik DAO on NEAR testnet with a three-person council and a locked-down agent. <code>npm run test:testnet</code> then proves, on that chain: the custody check, what the agent's key can and cannot do (the chain rejects it), a policy change approved by the council, a rejected change, a payout proposal with its evidence, the council's hard stop, replay protection, and a gasless NEP-366 vote. <code>npm run test:real</code> runs the gate rules through the real pipeline with live 1Click quotes and no funds. On 3 November the same steps were driven through the web app against that DAO: custody card, policy change by council vote, per-payment limit, chain, asset, injection, changed payout address, privacy floor, hold window, kill switch, evidence panel and the post-quantum requirement. All behaved as designed. <strong>Not yet run on mainnet:</strong> that needs about 6.3 NEAR from your wallet and your own wallet signatures, so it is yours to do.</p></div>
 
 <h4>Custody options (set with <code>CUSTODY</code>)</h4>
 <ul>
@@ -169,6 +171,19 @@
   <li><span class="pill ok">Done</span> <strong>A public ledger page</strong> for DAOs that opt into transparency.</li>
 </ul>
 
+<h2 class="break">The platform: many businesses on one Bluvfi Business</h2>
+<p>New since the last update. Until now one copy of the app served one company. Now any business can sign up, and each one runs its own treasury, team and channels without being able to see or touch another's. The operator's own business still works from the environment file, as before.</p>
+<table>
+  <tr><th style="width:26%">Item</th><th>What is built</th><th style="width:17%">Status</th></tr>
+  <tr><td>Sign in and sign up with Privy</td><td>Email or Google login. The server verifies Privy's signed token (ES256, against the app's key set) and reads the person's verified email with the app secret, which never reaches the browser. A person on no business creates one and becomes its owner; one on several chooses. Closing signup is one setting (<code>BLUVFI_SIGNUP=closed</code>).</td><td><span class="pill ok">Done</span> login confirmed live up to the signup step<br><span class="pill todo">To do</span> a full real signup</td></tr>
+  <tr><td>Separate records</td><td>Every request runs inside the business of its session. Payments, vendors, policy, kill switch, auditor keys and the custody check are per business. Tests prove that one business's records, settings and links cannot be seen or changed from another.</td><td><span class="pill ok">Done</span></td></tr>
+  <tr><td>Team and roles</td><td>Owners add and remove approvers (or other owners) by email. Removing someone ends their session at once, and a business always keeps an owner. A policy change still needs two different signers.</td><td><span class="pill ok">Done</span></td></tr>
+  <tr><td>Own treasury</td><td>After signing up, the owner runs the treasury setup with their own wallet: it makes their DAO and a locked-down agent. The agent's key is stored encrypted and is never shared with another business or taken from the operator's settings.</td><td><span class="pill part">Partial</span> built; not yet run on a real chain for a signed-up business</td></tr>
+  <tr><td>Own channels</td><td>Each business connects its own Telegram bot (the app registers the webhook with a secret made for that business), its own Twilio account, its own Agent Market worker, and its own PingPay key or x402 facilitator, so what its public Check service earns goes to its own treasury. A reply through one business's channel can never touch another's payments. Secrets are encrypted at rest.</td><td><span class="pill mock">Done, mocked</span> tested against local servers speaking those APIs</td></tr>
+  <tr><td>Public links per business</td><td>Pay links and auditor view keys carry their business, and the Check service and the public ledger are reached with the business in the link.</td><td><span class="pill ok">Done</span></td></tr>
+  <tr><td>Still shared by every business</td><td>The relayer that pays gas for gasless votes (so the platform pays it), the AI, 1Click and zero-knowledge services, and the key that signs evidence records. Signup is open and only rate-limited.</td><td><span class="pill part">Known limit</span></td></tr>
+</table>
+
 <h3>Roadmap (pitched in the README, not built)</h3>
 <p>ZK KYB (prove "verified business, not sanctioned" without sharing documents); agent credit lines against treasury assets on Rhea; virtual cards; cross-chain sharing of fraud intelligence; post-quantum keys by default; a post-quantum zero-knowledge proof (Lattice Jolt or a hash-based STARK); an onchain hold window.</p>
 
@@ -179,11 +194,12 @@
   <li><span class="pill part">Partial</span> <strong>Fixtures:</strong> the demo's NEAR AI responses are signed with a public demo key, and hardware attestation is never claimed for them. <code>npm run fixtures:record</code> replaces them with real recordings once you have a NEAR AI key.</li>
   <li><span class="pill ok">Done</span> <strong>Live mode</strong> with your NEAR AI key, a custody option and dry-run quotes.</li>
   <li><span class="pill todo">To do</span> <strong>Hosted demo:</strong> the Docker image runs demo mode, but it is not deployed. Keep it online until at least 18 November, ideally 25 November.</li>
-  <li><span class="pill ok">Done</span> <strong>Tests:</strong> 77 automated tests, plus lint, typecheck and a production build, all passing.</li>
+  <li><span class="pill ok">Done</span> <strong>Testnet mode (real chain, no mocks):</strong> <code>npm run testnet:keys &amp;&amp; npm run testnet:setup</code> builds a real DAO on NEAR testnet, and <code>npm run test:testnet</code> runs 9 tests against it. It costs no real funds.</li>
+  <li><span class="pill ok">Done</span> <strong>Tests:</strong> 84 automated tests (including 8 on separate businesses, 7 on per-business channels and 7 on Privy sign-in), 9 on the real testnet DAO, and 9 gate tests against live 1Click quotes (8 run, 1 waits for an OutLayer policy). Lint, typecheck and a production build pass.</li>
 </ul>
 
 <h2>Screens</h2>
-<p>All seven screens are built, with payments as cards showing status, reason and proof badges, in plain language: <strong>Overview</strong> (balances, holds, Verified badge, kill switch, and who can move the money), <strong>Payments</strong>, <strong>Payment detail</strong> (Verified panel, treasury card, votes), <strong>Receivables</strong>, <strong>Policy</strong> (edits become multisig proposals), <strong>Auditor</strong> and <strong>Check</strong>. A <strong>Vendors</strong> page and a public <strong>Ledger</strong> were added.</p>
+<p>All seven screens are built, with payments as cards showing status, reason and proof badges, in plain language: <strong>Overview</strong> (balances, holds, Verified badge, kill switch, and who can move the money), <strong>Payments</strong>, <strong>Payment detail</strong> (Verified panel, treasury card, votes), <strong>Receivables</strong>, <strong>Policy</strong> (edits become multisig proposals), <strong>Auditor</strong> and <strong>Check</strong>. A <strong>Vendors</strong> page and a public <strong>Ledger</strong> were added, and now a <strong>Team</strong> page, a <strong>Settings</strong> page for each business's channels, and a sign-up flow on the login page.</p>
 <p><span class="pill part">Partial</span> The UI is custom Tailwind with cards, not one of the listed UI libraries.</p>
 
 <h2>Demo video and X post</h2>
@@ -197,12 +213,13 @@
 <h2>What is left (deadline 14 November, 23:59 UTC)</h2>
 <table>
   <tr><th style="width:5%">#</th><th>Step</th><th style="width:22%">Who</th></tr>
-  <tr><td>1</td><td>Create a real Sputnik DAO in Trezu, with the proposal bond at 0.</td><td>You</td></tr>
+  <tr><td>0</td><td>Create a Privy app and put <code>PRIVY_APP_ID</code> and <code>PRIVY_APP_SECRET</code> in <code>.env.local</code>, then sign up a first business.</td><td>You</td></tr>
+  <tr><td>1</td><td>Create a real Sputnik DAO on mainnet: from the app's treasury setup (about 6.3 NEAR, your wallet signs), or in Trezu with the proposal bond at 0.</td><td>You</td></tr>
   <tr><td>2</td><td>Create the agent account with only its <code>add_proposal</code> key, and give it the Requestor role.</td><td>You (steps in <code>.env.example</code>)</td></tr>
-  <tr><td>3</td><td>Run live mode: check the custody card, file a proposal and reject it, and try a policy change.</td><td>You, with me</td></tr>
+  <tr><td>3</td><td>Run the Layer 1 walk-through on mainnet (custody card, a policy change by council vote, the gate rules, the kill switch). The same steps already passed on testnet.</td><td>You, with me</td></tr>
   <tr><td>4</td><td>Record real NEAR AI fixtures with <code>npm run fixtures:record</code>.</td><td>You (needs a NEAR AI key)</td></tr>
   <tr><td>5</td><td>One tiny real payout, about $1 USDC.</td><td>You</td></tr>
-  <tr><td>6</td><td>Optional: an OutLayer wallet for hybrid custody, and PingPay and Aurora keys.</td><td>You</td></tr>
+  <tr><td>6</td><td>Optional: an OutLayer wallet for hybrid custody (its owner sets the limits in OutLayer's dashboard), a Telegram bot, a Twilio number, and PingPay and Aurora keys, connected on the Settings page.</td><td>You</td></tr>
   <tr><td>7</td><td>Deploy the hosted demo.</td><td>You, with me</td></tr>
   <tr><td>8</td><td>Record the video and publish the X post.</td><td>You</td></tr>
   <tr><td>9</td><td>Make the repository public, re-read HACKATHON.md, and submit once.</td><td>You</td></tr>
@@ -214,6 +231,7 @@
   <tr><td><strong>Must</strong></td><td>Policy gate and scoped key, signed NEAR AI decisions plus the Verified panel, 1Click payouts, fraud checks with prompt-injection defense, hold window and kill switch, demo mode</td><td><span class="pill ok">Built</span> live NEAR AI run and a real payout still to do</td></tr>
   <tr><td><strong>Should</strong></td><td>Callback verification, Check as an x402 service plus Agent Market, auditor exports, selective disclosure</td><td><span class="pill ok">Built</span> Agent Market listing is yours</td></tr>
   <tr><td><strong>Could</strong></td><td>Receivables links, PingPay API spending, meta transactions</td><td><span class="pill ok">Built</span> not run with funds</td></tr>
+  <tr><td><strong>Platform</strong></td><td>Sign-up with Privy, separate records, team, treasury and channels for each business</td><td><span class="pill ok">Built</span> a full real signup and treasury setup still to run</td></tr>
   <tr><td><strong>Stretch</strong></td><td>ZK proof, ML-DSA keys, voice callbacks</td><td><span class="pill ok">Built</span> o1js instead of Jolt, plus post-quantum signing</td></tr>
 </table>
 
@@ -224,9 +242,9 @@
 
 <h2>What to verify before relying on it</h2>
 <ul>
-  <li><strong>Confirmed:</strong> PingPay's routes (live on staging), Trezu's proposal format and request links, Aurora's widget rendering and quoting, and NEAR's ML-DSA key formats (from nearcore's source).</li>
-  <li><strong>Not yet confirmed live:</strong> a real NEAR AI signature and attestation, the Sputnik flow on mainnet, the OutLayer API with a real wallet, 1Click with funds, and an ML-DSA key in a live NEAR RPC response.</li>
-  <li><strong>Known limits:</strong> no contract of ours, so the hold window and DAO-side limits are app-enforced; payment records are kept in plain text in the state file; the o1js proof is not post-quantum (the signed policy check is).</li>
+  <li><strong>Confirmed:</strong> PingPay's routes (live on staging), Trezu's proposal format and request links, Aurora's widget rendering and quoting, NEAR's ML-DSA key formats (from nearcore's source), the Sputnik flow on a real testnet DAO (council votes, scoped agent key, policy changes, replay protection, the hard stop and a gasless vote), and Privy login with the email lookup, up to the signup step.</li>
+  <li><strong>Not yet confirmed live:</strong> a real NEAR AI signature and attestation, the Sputnik flow on mainnet, the OutLayer API with a wallet that has a policy, 1Click with funds, an ML-DSA key in a live NEAR RPC response, treasury setup for a signed-up business on a real chain, and a business's own Telegram, Twilio and Agent Market connections against the real services.</li>
+  <li><strong>Known limits:</strong> no contract of ours, so the hold window and DAO-side limits are app-enforced; payment records are kept in plain text in the state file; the o1js proof is not post-quantum (the signed policy check is); the relayer's gas, the AI services and the evidence-signing key are shared by every business.</li>
 </ul>
 
 </body>
