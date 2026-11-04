@@ -121,12 +121,27 @@ async function PaymentDetail({ params }: { params: Promise<{ id: string }> }) {
             <Row ok={v.attestation.nonceBound} label="Fresh attestation (nonce)">
               <span className="mono">{short(v.attestation.nonce, 12)}</span> · {v.attestation.nonce ? aiSource : "AI review did not run"}
             </Row>
-            <Row ok={v.attestation.gpu} label="GPU attestation (NVIDIA)">{v.attestation.gpu ? "Confidential-computing GPU evidence accepted." : "Not verified."}</Row>
+            <Row ok={v.attestation.gpu} label="GPU attestation (NVIDIA)">{v.attestation.gpu ? "NVIDIA's signed verdict checked against its published key, with our nonce." : "Not verified."}</Row>
             <Row ok={v.attestation.cpu} label="CPU attestation (Intel TDX)">{v.attestation.cpu ? "CPU quote accepted." : "Not verified in this run."}</Row>
             <Row ok={v.attestation.binding} label="Key bound to hardware">The signing key and nonce appear in the CPU report.</Row>
+            {v.attestation.nonce && (
+              <Row ok={v.attestation.registered ? true : null} label="Signer vetted at setup">
+                {v.attestation.registered ? "This signing key passed the setup-time model check on the Overview." : "Not among the keys registered at setup (the model may have more instances); its own attestation above was checked either way."}
+              </Row>
+            )}
+            {v.attestation.reportHash && (
+              <Row ok={v.attestation.source === "demo-fixture" ? null : true} label="Attestation kept">
+                Report <span className="mono">{short(v.attestation.reportHash, 12)}</span>{v.attestation.source === "demo-fixture" ? " (demo fixture: hashed, not stored)." : ", stored in .data/attestations so it can be verified again."}
+              </Row>
+            )}
             <Row ok={v.signature.valid} label="Model signature (ed25519)">
               <span className="mono">{short(v.signature.signingAddress, 10)}</span> signed <span className="mono">{short(v.signature.text, 10)}</span>. Request {v.signature.requestBound ? "matches" : "does NOT match"}; response {v.signature.responseBound ? "matches" : "does NOT match"}. Verified off-chain.
             </Row>
+            {v.attestation.nonce && (
+              <Row ok={v.attestation.structured === false ? null : true} label="Structured decision">
+                {v.attestation.structured === false ? "Checked against the decision schema here; NEAR AI did not enforce it for this model." : "The reply had to match the decision schema (pay, hold or block, a 0–100 risk score and reasons), and did."}
+              </Row>
+            )}
             <Row ok label={`Policy v${v.policyVersion}`}><span className="mono">{short(v.policyHash, 12)}</span></Row>
             {p.checks.map((c) => (
               <Row key={c.id} ok={c.verdict === "allow" ? true : c.verdict === "warn" ? null : false} label={c.label}>{c.reason}</Row>

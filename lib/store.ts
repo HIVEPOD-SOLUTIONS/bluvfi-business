@@ -24,6 +24,8 @@ export interface State {
   ledgerPublic: boolean;
   x402Spend: { at: string; url: string; priceUsd: number }[];
   checkLog: { at: string; verdict: string }[];
+  /** The setup-time check of the private AI model: its attested signing keys (lib/aimodel.ts). */
+  aiModel?: import("./nearai").ModelCheck;
   /** Hybrid custody: the latest DAO proposal to refill the spending wallet. */
   topUp?: TopUp;
   /** Demo mode only: the simulated treasury DAO (lib/custody.ts). */

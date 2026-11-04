@@ -83,6 +83,12 @@ export interface Attestation {
   gpuEvidence: { arch: string; nonce: string; verified: boolean; note: string };
   cpuEvidence: { type: "intel-tdx"; reportData: string; verified: boolean; note: string };
   source: AiSource;
+  /** sha256 of the raw attestation report, kept in .data/attestations/ so it can be verified again (lib/nearai.ts). */
+  reportHash?: string;
+  /** NVIDIA NRAS signed verdict (JWT), checked against NVIDIA's published keys. */
+  nrasToken?: string;
+  /** False when NEAR AI did not take the decision schema as structured output; the reply was still held to it. */
+  structured?: boolean;
 }
 
 /** live: fetched now. recorded: a real NEAR AI response replayed. demo-fixture: made locally for demo mode, never attested. */
@@ -120,6 +126,12 @@ export interface VerifiedPanel {
     nonce: string;
     source: AiSource;
     notes: string[];
+    /** The raw report this decision was judged under. */
+    reportHash?: string;
+    /** The signing key passed the setup-time model check (lib/aimodel.ts). */
+    registered?: boolean;
+    /** The decision schema was enforced by NEAR AI as structured output. */
+    structured?: boolean;
   };
   signature: {
     valid: boolean;

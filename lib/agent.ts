@@ -8,6 +8,7 @@ import { signPolicyCheck } from "./pqcheck";
 import { runFraudChecks, runPublicCheck, worst } from "./fraud";
 import type { Judged } from "./nearai";
 import { attestationTrusted, computeFacts, unavailablePanel, verifyDecision } from "./nearai-core";
+import { isRegisteredSigner } from "./aimodel";
 import { evaluatePolicy, needsApproval, withPrivacyFloor } from "./policy";
 import { services } from "./services";
 import { currentPolicy, dataKey, fraudContext, persist, persistenceOn, pqSeed, pqSeeds, prefetchCounterparty, spentTodayUsd, state } from "./store";
@@ -43,6 +44,9 @@ export async function processInvoice(inv: Invoice, confidentiality: Confidential
   const panel = judged
     ? verifyDecision({ decision: judged.decision, requestBody: judged.requestBody, expectedNonce: judged.expectedNonce }, policy)
     : unavailablePanel(policy, NEAR_AI_MODEL, `AI review unavailable: ${aiError}`);
+  // Was this decision signed by a key vetted at setup (lib/aimodel.ts)? Its own attestation was checked either way.
+  if (judged) panel.attestation.registered = isRegisteredSigner(judged.decision.signingAddress);
+  if (judged?.decision.attestation.structured === false) panel.attestation.notes.push("NEAR AI did not take the decision schema as structured output for this model, so the reply was checked against it here instead.");
 
   const policyCtx = { killSwitch: s.killSwitch, spentTodayUsd: spentTodayUsd() };
   const policyChecks = evaluatePolicy(inv, policy, policyCtx);

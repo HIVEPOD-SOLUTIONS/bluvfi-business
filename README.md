@@ -61,13 +61,15 @@ npm run dev
 
 1. **Redact before reasoning.** NEAR AI Cloud's `POST /v1/privacy/redact` (`openai/privacy-filter`, inside its TEE gateway) strips names and bank details, then local patterns strip wallets and handles. If the filter is down, only the patterns run and the record says so. This is Electric Capital's Quest principle.
 2. **Signed judgment.** A private model on NEAR AI Cloud reviews the redacted invoice. The attestation is fetched with our own nonce, then the completion, then the response signature (`lib/nearai.ts`). We verify:
+   - the reply is the **structured decision**: the request carries the decision as a JSON schema (`response_format`, strict), and the reply must be exactly one object matching it (`pay`/`hold`/`block`, an integer risk score 0–100, a summary and reasons; no extra fields). If NEAR AI does not take `response_format` for the model, the review is asked once more without it, the schema is still enforced here, and the record says so;
    - the signed text matches the exact request and response bytes for the `signature_kind`;
    - the ed25519 signature;
    - exactly one attestation report vouches for the signer;
    - the Intel TDX quote, with dcap-qvl (TCB UpToDate), its report_data binding, RTMR3 replay and MRCONFIGID;
-   - the NVIDIA evidence, via NRAS.
+   - the NVIDIA evidence, via NRAS, **and NVIDIA's signed verdict itself** (`lib/nras.ts`): the ES384 signature against NVIDIA's published keys, the issuer, the expiry, our nonce and the overall result.
 
-   If anything fails, the payment is **held for a human**, never paid.
+   The raw attestation report is kept by its hash in `.data/attestations/`, and the record points at it, so an auditor can verify the exact evidence again. If anything fails, the payment is **held for a human**, never paid.
+   - **At setup** (Overview → *Private AI model* → **Verify the model now**, or `npm run ai:verify`): the attestation is fetched with a fresh nonce and every model instance's Intel TDX, NVIDIA and key binding are checked, with no inference spent. The signing keys that pass are registered, and each payment's Verified panel says whether its signer was one of them.
 3. **Deterministic checks.** The policy gate (`lib/policy.ts`) covers the kill switch, limits, chains, assets and allowlist. The fraud engine (`lib/fraud.ts`) covers:
    - changed payout details
    - duplicate invoice
@@ -109,7 +111,7 @@ npm run dev
   - **Attested:** the model, the hardware it runs on, and its signed output.
   - **Not attested:** this app's own server; we do not run it in a TEE.
   - **Not checked:** NEAR AI's gateway attestation and TLS binding, which its docs mark optional.
-  - **Not checked locally:** the NRAS JWT signature.
+  - **NVIDIA's verdict:** its JWT signature is checked locally against NVIDIA's published key set (fetched over TLS). The key's certificate chain to NVIDIA's root is not walked.
 
 ### Layer 1 (policy set by humans) without our own contract
 
@@ -167,7 +169,7 @@ This build deploys **no smart contract**, so there are no contract audit finding
 | Piece | Status |
 |---|---|
 | Fraud checks, policy gate, kill switch, hold window, callbacks, blocklist | Done, unit-tested |
-| NEAR AI signature + TDX + NVIDIA verification | Written to NEAR AI's verification docs and unit-tested against an independent implementation. **Not yet run end to end with a real key.** Record fixtures with one to confirm |
+| NEAR AI signature + TDX + NVIDIA verification | Written to NEAR AI's verification docs and unit-tested against an independent implementation; NVIDIA's signed verdict is checked locally; the decision is structured output, enforced. **Not yet run end to end with a real key:** run `npm run ai:verify -- --review` with one (a few cents of credits), then `npm run fixtures:record` |
 | NEAR AI privacy filter (`/v1/privacy/redact`) | Done to the API reference, tested with a mock; not run against the live endpoint |
 | Sputnik DAO custody (scoped key, proposals, status) | Done, tested against a mocked NEAR RPC. **Not yet run on mainnet** |
 | Gasless council votes (NEP-366 relayer) | Done. Relay guards are tested; browser signing has not been run against mainnet |
@@ -229,7 +231,8 @@ This build deploys **no smart contract**, so there are no contract audit finding
 ## Tests
 
 ```bash
-npm test         # 77 tests; outside services are mocked inside tests/ only
+npm run ai:verify -- --review   # Layer 2 against the live NEAR AI Cloud: attestation, NVIDIA, signature, structured decision (needs NEAR_AI_API_KEY)
+npm test         # 90 tests; outside services are mocked inside tests/ only
 npm run demo     # the end-to-end story; exits non-zero if an outcome or a signature is wrong
 ```
 

@@ -6,7 +6,8 @@ import { ActionButton, KillSwitch } from "@/components/Actions";
 import { Badge, Empty, PageHead, PaymentCard, Stat, usd, when } from "@/components/ui";
 import { CHAIN_LABEL } from "@/lib/chains";
 import type { Balance } from "@/lib/chain";
-import { DEMO, NETWORK, missingConfig } from "@/lib/config";
+import { DEMO, NEAR_AI_KEY, NEAR_AI_MODEL, NETWORK, missingConfig } from "@/lib/config";
+import { modelStatus } from "@/lib/aimodel";
 import { checkCustody, spendingWalletBand } from "@/lib/custody";
 import { services } from "@/lib/services";
 import { currentPolicy, spentTodayUsd, state } from "@/lib/store";
@@ -51,6 +52,7 @@ async function Overview() {
   }
   const band = hybrid ? spendingWalletBand() : undefined;
   const walletUsdc = wallet.find((b) => b.usd)?.amount;
+  const ai = modelStatus();
   const custody = await checkCustody().catch((e) => ({ mode: cfg().CUSTODY, ok: false, facts: [] as string[], problems: [(e as Error).message], killCommand: undefined as string | undefined, councilKill: undefined as string | undefined }));
   const total = [...balances, ...wallet].filter((b) => b.usd).reduce((a, b) => a + b.amount, 0);
   const attention = s.payments.filter(
@@ -176,6 +178,34 @@ async function Overview() {
             <pre className="mono mt-2 overflow-auto whitespace-pre-wrap rounded-lg p-3 text-xs" style={{ background: "var(--bg-2)" }}>{custody.killCommand}</pre>
           </details>
         )}
+      </section>
+
+      <section className="card mt-6" style={{ borderColor: ai.checked && ai.passed > 0 ? "var(--bd-sage)" : "var(--bd)" }}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2>Private AI model</h2>
+          <Badge tone={ai.checked ? (ai.passed > 0 ? "ok" : "bad") : "warn"}>{ai.checked ? `${ai.passed} of ${ai.total} instance${ai.total === 1 ? "" : "s"} attested` : "Not checked yet"}</Badge>
+        </div>
+        <p className="mt-1 text-sm" style={{ color: "var(--tx-1)" }}>
+          {NEAR_AI_MODEL} on NEAR AI Cloud, inside a TEE. Checking it fetches the hardware attestation with a fresh nonce, verifies the Intel TDX quote, NVIDIA&apos;s signed GPU verdict
+          and the binding of each signing key to that hardware, then registers the keys that pass. Every payment still checks its own attestation; this tells you the model is genuine before it reviews anything.
+        </p>
+        {ai.checked && (
+          <ul className="mt-3 grid gap-1 text-sm">
+            <li style={{ color: "var(--tx-2)" }}>Checked {when(ai.checkedAt)} · report <span className="mono">{ai.reportHash.slice(0, 12)}…</span></li>
+            {ai.signers.map((x) => (
+              <li key={x.signingAddress}>
+                <span className={x.cpu && x.gpu && x.binding && x.nonceBound ? "pos mono" : "neg mono"}>{x.cpu && x.gpu && x.binding && x.nonceBound ? "✓" : "✕"}</span>{" "}
+                <span className="mono">{x.signingAddress.slice(0, 16)}…</span> · CPU {x.cpu ? "✓" : "✕"} · GPU {x.gpu ? "✓" : "✕"} · key bound {x.binding ? "✓" : "✕"} · our nonce {x.nonceBound ? "✓" : "✕"}
+                {x.notes.length > 0 && <span style={{ color: "var(--amber)" }}> · {x.notes.join(" ")}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-3">
+          {NEAR_AI_KEY
+            ? <ActionButton url="/api/ai/verify" small>{ai.checked ? "Check the model again" : "Verify the model now"}</ActionButton>
+            : <span className="text-sm" style={{ color: "var(--tx-2)" }}>{DEMO ? "Demo mode replays signed fixtures; set NEAR_AI_API_KEY to check the live model." : "Set NEAR_AI_API_KEY to check the model."}</span>}
+        </div>
       </section>
 
       {s.payments.length > 0 && (

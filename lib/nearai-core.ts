@@ -15,7 +15,20 @@ export const SYSTEM_PROMPT =
   '{"decision":"pay"|"hold"|"block","riskScore":0-100,"summary":string,"reasons":string[]}. ' +
   "You can only recommend. A separate policy engine decides whether money moves.";
 
-export function buildRequest(model: string, redactedText: string, facts: JudgeFacts) {
+/** The decision's exact shape. Sent as structured output, and enforced again on the reply (parseJudgment). */
+export const JUDGMENT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["decision", "riskScore", "summary", "reasons"],
+  properties: {
+    decision: { type: "string", enum: ["pay", "hold", "block"] },
+    riskScore: { type: "integer", minimum: 0, maximum: 100 },
+    summary: { type: "string" },
+    reasons: { type: "array", items: { type: "string" } },
+  },
+} as const;
+
+export function buildRequest(model: string, redactedText: string, facts: JudgeFacts, structured = true) {
   return {
     model,
     temperature: 0,
@@ -23,6 +36,7 @@ export function buildRequest(model: string, redactedText: string, facts: JudgeFa
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: `<invoice>\n${redactedText}\n</invoice>\nFacts: ${JSON.stringify(facts)}` },
     ],
+    ...(structured ? { response_format: { type: "json_schema", json_schema: { name: "payment_decision", strict: true, schema: JUDGMENT_SCHEMA } } } : {}),
   };
 }
 
@@ -34,16 +48,27 @@ export interface VerifyInput {
   expectedNonce: string;
 }
 
+/**
+ * The model's reply must be exactly the structured decision: one JSON object matching JUDGMENT_SCHEMA, nothing around
+ * it. Anything else throws, and the caller holds the payment for a human; a reply is never guessed at.
+ */
 export function parseJudgment(content: string): AiJudgment {
-  const m = content.match(/\{[\s\S]*\}/);
-  const j = JSON.parse(m ? m[0] : content);
-  const decision = ["pay", "hold", "block"].includes(j.decision) ? j.decision : "hold"; // unparseable means a human looks
-  return {
-    decision,
-    riskScore: Math.max(0, Math.min(100, Number(j.riskScore) || 0)),
-    summary: String(j.summary ?? ""),
-    reasons: Array.isArray(j.reasons) ? j.reasons.map(String) : [],
-  };
+  let j: Record<string, unknown>;
+  try {
+    j = JSON.parse(content.trim());
+  } catch {
+    throw new Error("The AI reply is not the structured decision (not a single JSON object).");
+  }
+  const problems: string[] = [];
+  if (!j || typeof j !== "object" || Array.isArray(j)) throw new Error("The AI reply is not a JSON object.");
+  const extra = Object.keys(j).filter((k) => !(k in JUDGMENT_SCHEMA.properties));
+  if (extra.length) problems.push(`unexpected fields ${extra.join(", ")}`);
+  if (!JUDGMENT_SCHEMA.properties.decision.enum.includes(j.decision as never)) problems.push("decision is not pay, hold or block");
+  if (!Number.isInteger(j.riskScore) || (j.riskScore as number) < 0 || (j.riskScore as number) > 100) problems.push("riskScore is not an integer from 0 to 100");
+  if (typeof j.summary !== "string") problems.push("summary is not text");
+  if (!Array.isArray(j.reasons) || j.reasons.some((r) => typeof r !== "string")) problems.push("reasons is not a list of text");
+  if (problems.length) throw new Error(`The AI reply does not match the decision schema: ${problems.join("; ")}.`);
+  return { decision: j.decision as AiJudgment["decision"], riskScore: j.riskScore as number, summary: j.summary as string, reasons: j.reasons as string[] };
 }
 
 export function verifyDecision(
@@ -86,6 +111,8 @@ export function verifyDecision(
       nonce: a.nonce,
       source: a.source,
       notes,
+      reportHash: a.reportHash,
+      structured: a.structured,
     },
     signature: {
       valid: sigOk && requestBound && responseBound,
