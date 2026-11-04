@@ -2,7 +2,7 @@ import { cfg, secretEquals } from "./business";
 import { currentBiz, DEFAULT_BIZ } from "./tenant";
 import { createHmac } from "node:crypto";
 import { ASSET_ID, NEAR_USDC_CONTRACT } from "./chains";
-import { ONECLICK_BASE, ONECLICK_DRY, ONECLICK_JWT, PUBLIC_BASE_URL, X402_PAYER_URL } from "./config";
+import { ONECLICK_BASE, ONECLICK_DRY, ONECLICK_JWT, PUBLIC_BASE_URL, X402_PAYER_TOKEN, X402_PAYER_URL, X402_TESTNET } from "./config";
 import type { CallbackRecord, Channel, Confidentiality, Invoice, Quote } from "./types";
 
 export const TELEGRAM_API = process.env.TELEGRAM_API_BASE ?? "https://api.telegram.org";
@@ -194,27 +194,41 @@ const X402_USDC = new Set([
   "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", // Ethereum
   "0xaf88d065e77c8cc2239327c5edb3a432268e5831", // Arbitrum
   "epjfwdd5aufqsseqm2qn1xzybapc8g4weggkzwytdt1v", // Solana
+  ...(X402_TESTNET ? ["0x036cbd53842c5426634e7929541ec2318f3dcf7e"] : []), // Base Sepolia test USDC, only when X402_TESTNET=1
 ]);
 
 /** The payment requirements a 402 carries: in the JSON body (v1, and ours) or the base64 PAYMENT-REQUIRED header (v2). */
-async function x402Requirements(res: Response): Promise<X402Accept[]> {
-  const fromBody = (await res.json().catch(() => null)) as { accepts?: X402Accept[] } | null;
-  if (fromBody?.accepts?.length) return fromBody.accepts;
+async function x402Requirements(res: Response): Promise<{ accepts: X402Accept[]; resource?: unknown }> {
+  const fromBody = (await res.json().catch(() => null)) as { accepts?: X402Accept[]; resource?: unknown } | null;
+  if (fromBody?.accepts?.length) return { accepts: fromBody.accepts, resource: fromBody.resource };
   const header = res.headers.get("payment-required");
   if (header) {
     try {
-      return ((JSON.parse(Buffer.from(header, "base64").toString("utf8")) as { accepts?: X402Accept[] }).accepts) ?? [];
+      const j = JSON.parse(Buffer.from(header, "base64").toString("utf8")) as { accepts?: X402Accept[]; resource?: unknown };
+      return { accepts: j.accepts ?? [], resource: j.resource };
     } catch {
-      return [];
+      return { accepts: [] };
     }
   }
-  return [];
+  return { accepts: [] };
+}
+
+/** What a paid API returned: its JSON if it is JSON, otherwise its text (a paid page or file is still what was bought). */
+async function bodyOf(res: Response): Promise<unknown> {
+  const text = await res.text().catch(() => "");
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text || null;
+  }
 }
 
 export async function payX402(url: string, maxPriceUsd: number): Promise<X402Result> {
   const first = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-  if (first.status !== 402) return { ok: first.ok, status: first.status, priceUsd: 0, body: await first.json().catch(() => null), note: "No payment required." };
-  const accept = (await x402Requirements(first))[0];
+  if (first.status !== 402) return { ok: first.ok, status: first.status, priceUsd: 0, body: await bodyOf(first), note: "No payment required." };
+  const required = await x402Requirements(first);
+  // An API may offer several ways to pay (a chain each): take the first this agent is willing to pay in.
+  const accept = required.accepts.find((a) => a.asset && X402_USDC.has(a.asset.toLowerCase())) ?? required.accepts[0];
   if (!accept) return { ok: false, status: 402, priceUsd: 0, note: "The API asked for payment but did not say how, so nothing was paid." };
   // Never pay a price that cannot be read, or in an asset whose units are not known: an unreadable price must not slip past the cap.
   if (!accept.asset || !X402_USDC.has(accept.asset.toLowerCase())) return { ok: false, status: 402, priceUsd: 0, note: `The API wants payment in ${accept.asset ?? "an unknown asset"}. The agent pays in USDC only, so nothing was paid.` };
@@ -224,8 +238,8 @@ export async function payX402(url: string, maxPriceUsd: number): Promise<X402Res
   if (!X402_PAYER_URL) throw new Error("X402_PAYER_URL is not set, so the agent cannot sign x402 payments");
   const signed = await fetch(`${X402_PAYER_URL}/pay`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ url, requirements: accept }),
+    headers: { "content-type": "application/json", ...(X402_PAYER_TOKEN ? { authorization: `Bearer ${X402_PAYER_TOKEN}` } : {}) },
+    body: JSON.stringify({ url, requirements: accept, resource: required.resource }),
     signal: AbortSignal.timeout(30_000),
   });
   if (!signed.ok) throw new Error(`x402 payer refused (${signed.status})`);
@@ -233,7 +247,7 @@ export async function payX402(url: string, maxPriceUsd: number): Promise<X402Res
   if (!paymentHeader) throw new Error("x402 payer returned no payment header");
   // v1 servers read X-PAYMENT, v2 servers PAYMENT-SIGNATURE; the same value goes in both.
   const paid = await fetch(url, { headers: { "X-PAYMENT": paymentHeader, "PAYMENT-SIGNATURE": paymentHeader }, signal: AbortSignal.timeout(30_000) });
-  return { ok: paid.ok, status: paid.status, priceUsd, body: await paid.json().catch(() => null), paymentHeader, note: paid.ok ? "Paid and delivered." : "Paid but the API did not deliver." };
+  return { ok: paid.ok, status: paid.status, priceUsd, body: await bodyOf(paid), paymentHeader, note: paid.ok ? "Paid and delivered." : "Paid but the API did not deliver." };
 }
 
 /**

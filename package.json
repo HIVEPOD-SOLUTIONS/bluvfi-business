@@ -17,6 +17,7 @@
     "ai:verify": "tsx scripts/ai-verify.ts",
     "confidential:test": "tsx scripts/confidential-test.ts",
     "confidential:check": "tsx scripts/confidential-check.ts",
+    "x402:payer": "tsx scripts/x402-payer.ts",
     "spec:pdf": "tsx scripts/spec-pdf.ts",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
@@ -47,7 +48,8 @@
     "o1js": "^3.1.0",
     "pdf-lib": "^1.17.1",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "viem": "^2.55.19"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",

@@ -57,6 +57,10 @@ export const PINGPAY_API_KEY = process.env.PINGPAY_API_KEY ?? "";
 export const PINGPAY_BASE = (process.env.PINGPAY_BASE_URL ?? "https://pay.pingpay.io").replace(/\/$/, "");
 export const X402_FACILITATOR_URL = (process.env.X402_FACILITATOR_URL ?? "").replace(/\/$/, "");
 /** A service that signs an x402 payment for the agent, so this app never holds a payment key. */
+/** The payer service's shared secret, sent as a bearer token so only this app can ask it to sign. */
+export const X402_PAYER_TOKEN = process.env.X402_PAYER_TOKEN ?? "";
+/** X402_TESTNET=1: the agent may also pay in USDC on Base Sepolia, so the whole spending path can be run for real with free test tokens. */
+export const X402_TESTNET = process.env.X402_TESTNET === "1";
 export const X402_PAYER_URL = (process.env.X402_PAYER_URL ?? "").replace(/\/$/, "");
 
 /**
