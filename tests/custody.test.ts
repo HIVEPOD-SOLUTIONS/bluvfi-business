@@ -4,13 +4,14 @@ import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import { deserialize } from "borsh";
 import { actions, buildDelegateAction, encodeSignedDelegate, KeyPair, SCHEMA } from "near-api-js";
-import { processInvoice } from "../lib/agent";
-import { checkCustody, isPostQuantumKey, relayVote, resetCustodyCache } from "../lib/custody";
+import { checkSettlement, processInvoice } from "../lib/agent";
+import { checkCustody, isPostQuantumKey, payoutWindowMs, relayVote, resetCustodyCache } from "../lib/custody";
+import { services } from "../lib/services";
 import { validateChanges } from "../lib/governance";
 import { DEFAULT_POLICY_BODY, makePolicy, withPrivacyFloor } from "../lib/policy";
 import { currentPolicy } from "../lib/store";
 import type { PolicyProposal } from "../lib/types";
-import { install, invoice, seed, state } from "./fakes";
+import { install, invoice, quoteWindows, seed, state } from "./fakes";
 
 const DAO = "acme.sputnik-dao.near";
 const POLICY = {
@@ -81,6 +82,12 @@ function nearRpc(opts: { permission: unknown; sent: { method: string; params: un
   };
 }
 
+async function withFetchValue<T>(handler: (url: string, init?: RequestInit) => Promise<Response>, fn: () => Promise<T>): Promise<T> {
+  let out!: T;
+  await withFetch(handler, async () => { out = await fn(); });
+  return out;
+}
+
 async function withFetch(handler: (url: string, init?: RequestInit) => Promise<Response>, body: () => Promise<void>) {
   const real = globalThis.fetch;
   globalThis.fetch = ((url: string | URL | Request, init?: RequestInit) => handler(String(url), init)) as typeof fetch;
@@ -130,6 +137,32 @@ test("custody: with a scoped key the agent proposes storage_deposit + ft_transfe
     assert.equal(transfer.amount, "1240000000");
     assert.equal(kind.FunctionCall.actions[1].deposit, "1");
     assert.equal(sent.length, 1, "exactly one transaction: add_proposal");
+    // The quote must outlast the council's voting period (7 days here, plus one), and the council is told how long it is good for.
+    assert.deepEqual(quoteWindows, [8 * 24 * 3_600_000]);
+    assert.equal(await withFetchValue(nearRpc({ permission: scoped, sent: [] }), payoutWindowMs), 8 * 24 * 3_600_000);
+    const description = JSON.parse(Buffer.from(lastProposalArgs, "base64").toString()).proposal.description as string;
+    assert.match(description, /Deposit Valid Until: \d{4}-\d\d-\d\dT/);
+    assert.equal(p.quote?.timeWhenInactive && description.includes(p.quote.timeWhenInactive), true);
+  });
+});
+
+test("custody: a payout still waiting for votes is cancelled once its deposit address has stopped working", async () => {
+  await withFetch(nearRpc({ permission: scoped, sent: [] }), async () => {
+    const p = await processInvoice(invoice({ invoiceNumber: "INV-STALE" }));
+    assert.equal(p.status, "proposed", p.reason);
+    // Votes are still open, but the address 1Click gave is dead: funds sent now could be lost.
+    p.quote!.timeWhenInactive = new Date(Date.now() - 60_000).toISOString();
+    const open = { ...p.custody!, state: "pending" as const };
+    const real = services.refreshPayout;
+    services.refreshPayout = async () => open;
+    try {
+      const after = await checkSettlement(p.id);
+      assert.equal(after.status, "cancelled");
+      assert.match(after.reason, /Vote Reject or Remove on DAO proposal #43/);
+      assert.deepEqual(state().vendors[0].paidInvoiceNumbers, [], "the invoice number is released for a fresh quote");
+    } finally {
+      services.refreshPayout = real;
+    }
   });
 });
 

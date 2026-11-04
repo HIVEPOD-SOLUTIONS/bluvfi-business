@@ -63,7 +63,7 @@ async function rpc<T>(params: Record<string, unknown>): Promise<T> {
   return j.result;
 }
 
-async function viewFn<T>(account: string, method: string, args: object = {}): Promise<T> {
+export async function viewFn<T>(account: string, method: string, args: object = {}): Promise<T> {
   const res = await rpc<{ result?: number[]; error?: string }>({ request_type: "call_function", account_id: account, method_name: method, args_base64: b64(args) });
   // A view that panics (for example a proposal id the chain has not finalized yet) returns an error and no result.
   if (!res.result) throw new Error(`${method} on ${account} returned no result${res.error ? `: ${res.error}` : ""}`);
@@ -71,6 +71,24 @@ async function viewFn<T>(account: string, method: string, args: object = {}): Pr
 }
 
 export const viewDao = <T,>(method: string, args: object = {}) => viewFn<T>(cfg().DAO_ACCOUNT, method, args);
+
+const HOUR = 3_600_000;
+
+/**
+ * How long a payout's 1Click quote must stay valid. A DAO payout waits for council votes, which can take as long as the
+ * DAO's proposal period, and 1Click's deposit address stops working at the deadline it reports (funds sent after that can be
+ * lost), so the deadline asked for is the DAO's own proposal period plus a day (1Click adds a margin of its own). Anything else may wait on a person or an approver: a day.
+ */
+export async function payoutWindowMs(): Promise<number> {
+  const dao = cfg().CUSTODY === "sputnik" || cfg().CUSTODY === "hybrid";
+  if (!dao || DEMO) return 24 * HOUR;
+  try {
+    const period = Number(BigInt((await viewDao<{ proposal_period: string }>("get_policy")).proposal_period) / BigInt(1_000_000));
+    return Math.min(Math.max(period, 24 * HOUR), 30 * 24 * HOUR) + 24 * HOUR;
+  } catch {
+    return 8 * 24 * HOUR; // the Sputnik default of seven days, plus one
+  }
+}
 
 interface VotePolicy { weight_kind?: string; quorum?: string; threshold: [number, number] | string }
 interface DaoPolicy {
@@ -160,6 +178,13 @@ export async function checkCustody(): Promise<CustodyCheck> {
     : cfg().CUSTODY === "outlayer" ? await checkOutlayer()
     : cfg().CUSTODY === "hybrid" ? await checkHybrid()
     : manualCheck();
+  if (cfg().CONFIDENTIAL && !DEMO) {
+    const { loginStatus } = await import("./confidential-flow");
+    if (cfg().CUSTODY !== "sputnik") c.problems.push("A confidential treasury needs Sputnik custody.");
+    const login = loginStatus();
+    (login.state === "logged_in" ? c.facts : c.problems).push(`Confidential Intents: ${login.detail}${login.loggedInUntil ? ` Until ${login.loggedInUntil}.` : ""}`);
+    c.ok = c.problems.length === 0;
+  }
   if (c.ok) checkCache.set(currentBiz(), { at: Date.now(), c });
   return c;
 }
@@ -458,6 +483,7 @@ export async function submitPayout(p: Payment): Promise<CustodyRecord> {
   const evidence = evidenceHash(p);
   const amount = rawUsdc(p.quote, p.invoice.amountUsd);
   const memo = `bluvfi:${evidence.slice(0, 32)}`;
+  if (cfg().CONFIDENTIAL) return submitConfidential(p, evidence);
   if (cfg().CUSTODY === "hybrid") {
     const route = await hybridRoute(p.invoice.amountUsd);
     const rec = route.backend === "outlayer" ? await submitOutlayer(p, amount, memo, evidence) : await submitSputnik(p, amount, memo, evidence);
@@ -492,6 +518,8 @@ function proposalFor(p: Payment, amount: string, memo: string, evidence: string)
     recipient: priv ? "" : p.invoice.payoutAddress,
     destinationNetwork: priv ? "" : ASSET_ID[`${p.invoice.chain}:${p.invoice.asset}`] ?? "",
     depositAddress: dep,
+    // Funds sent to the deposit address after it stops working can be lost: the council should not approve after this.
+    depositValidUntil: p.quote!.timeWhenInactive ?? p.quote!.deadline ?? "",
     signature: p.quote!.signature ?? "",
     // Ours, beyond what Trezu displays: the record this payout is bound to, and the signed AI review behind it.
     evidence,
@@ -520,6 +548,40 @@ export async function addDaoProposal(kind: unknown, description: string): Promis
   if (DEMO) return demoDao().propose(kind as never, description);
   const agent = new Account(cfg().AGENT_ACCOUNT, new JsonRpcProvider({ url: NEAR_RPC_URL }), cfg().AGENT_PRIVATE_KEY as KeyPairString);
   return Number(await agent.callFunction({ contractId: cfg().DAO_ACCOUNT, methodName: "add_proposal", args: { proposal: { description, kind } }, gas: teraToGas(50), deposit: BigInt(0) }));
+}
+
+/**
+ * A confidential treasury's payout: the agent files a proposal that asks NEAR's MPC signer to sign the transfer intent, and the council
+ * approves it. The public proposal shows a hash and the evidence hash, not who is paid, which chain or how much.
+ */
+async function submitConfidential(p: Payment, evidence: string): Promise<CustodyRecord> {
+  const flow = await import("./confidential-flow");
+  const { intent, hashHex } = await flow.prepareIntent(p.quote!.depositAddress);
+  const kind = (await import("./confidential")).signProposal(cfg().DAO_ACCOUNT, hashHex);
+  const description = trezuDescription({
+    proposal_action: "custom",
+    title: `Confidential payment ${p.id}`,
+    notes: "Proposed by the Bluvfi Business agent. Approving this has NEAR's MPC signer sign a confidential transfer from the treasury's shielded balance, which 1Click then pays out. The payee and amount are not shown here; signers see them in Bluvfi Business, and the evidence hash binds this payment to its encrypted record.",
+    url: PUBLIC_BASE_URL ? `${PUBLIC_BASE_URL}/payments/${p.id}` : "",
+    hash_to_sign: hashHex,
+    deposit_valid_until: p.quote!.timeWhenInactive ?? p.quote!.deadline ?? "",
+    evidence,
+    ai_signer: p.verified.signature.signingAddress,
+    ai_signature: p.verified.signature.signature,
+    policy: `v${p.verified.policyVersion}:${p.verified.policyHash}`,
+  });
+  const id = await addDaoProposal(kind, description);
+  return {
+    backend: "sputnik",
+    ref: String(id),
+    url: `${TREZU_APP_URL}/${cfg().DAO_ACCOUNT}/requests/${id}`,
+    evidenceHash: evidence,
+    submittedAt: new Date().toISOString(),
+    state: "pending",
+    detail: `Proposal #${id} asks the MPC signer to sign this confidential payout, and is waiting for the council's votes.`,
+    kind,
+    confidential: { intent, hashHex, depositAddress: p.quote!.depositAddress },
+  };
 }
 
 async function submitSputnik(p: Payment, amount: string, memo: string, evidence: string): Promise<CustodyRecord> {
@@ -584,6 +646,15 @@ export async function refreshPayout(rec: CustodyRecord): Promise<CustodyRecord> 
   else if (prop.status === "Rejected" || prop.status === "Removed" || prop.status === "Expired") Object.assign(rec, { state: "rejected", detail: `Proposal #${rec.ref} was ${prop.status.toLowerCase()}. Nothing left the treasury.` });
   else if (prop.status === "Failed") Object.assign(rec, { state: "failed", detail: `Proposal #${rec.ref} was approved but the transfer failed; the funds are still in the DAO.` });
   else Object.assign(rec, { state: "pending", detail: `Proposal #${rec.ref} is open, ${n} vote${n === 1 ? "" : "s"} so far.` });
+  if (rec.confidential && rec.state === "executed") {
+    // The council approved: the MPC signer signed. Read the signature from the vote and hand the intent to 1Click.
+    try {
+      await (await import("./confidential-flow")).completeConfidentialPayout(rec);
+      rec.detail = `Proposal #${rec.ref} approved: the MPC signer signed the confidential transfer and 1Click has it (intent ${rec.confidential.intentHash}).`;
+    } catch (e) {
+      Object.assign(rec, { state: "pending", detail: `Proposal #${rec.ref} is approved; collecting the signature and submitting it to 1Click (${(e as Error).message}). This is retried each time the payment is checked.` });
+    }
+  }
   return rec;
 }
 

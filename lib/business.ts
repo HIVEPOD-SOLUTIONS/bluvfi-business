@@ -27,6 +27,8 @@ export interface TreasuryConfig {
   outlayerWallet?: string;
   /** The NEAR account that receives money and is the refund address; the DAO itself when there is one. */
   treasury?: string;
+  /** The DAO's funds are shielded in Confidential Intents and payouts go out through the MPC signer. */
+  confidential?: boolean;
 }
 
 /** A business's own outside channels. Each business brings its own bot, phone account and Agent Market worker, so replies and charges stay with it. */
@@ -144,6 +146,7 @@ function derive(b: Business | undefined): Cfg {
     TREASURY_ACCOUNT: t?.treasury || (daoCustody ? (t?.dao ?? "") : ""),
     DAO_CUSTODY: daoCustody,
     POLICY_VIA_DAO: daoCustody && !DEMO && process.env.POLICY_VIA_DAO !== "0",
+    CONFIDENTIAL: daoCustody && !!t?.confidential,
     TELEGRAM_BOT_TOKEN: open(ch?.telegramBotToken),
     TELEGRAM_WEBHOOK_SECRET: open(ch?.telegramWebhookSecret),
     TWILIO_ACCOUNT_SID: ch?.twilioSid ?? "",
@@ -164,6 +167,15 @@ function derive(b: Business | undefined): Cfg {
 export function cfg(): Cfg {
   const biz = currentBiz();
   return biz === DEFAULT_BIZ ? ENV_CFG : derive(getBusiness(biz));
+}
+
+/** Turn a business's confidential treasury on or off. It needs a DAO: shielded funds are spent by a council-approved MPC signature. */
+export function setConfidential(id: string, on: boolean) {
+  const b = getBusiness(id);
+  if (!b?.treasury) throw new Error("Set up the treasury first");
+  if (on && b.treasury.custody !== "sputnik") throw new Error("A confidential treasury needs a Sputnik DAO");
+  b.treasury.confidential = on;
+  saveRegistry();
 }
 
 /** Save a business's treasury settings. `secrets` are encrypted here; nothing secret is stored in the clear. */

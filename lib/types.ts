@@ -181,9 +181,14 @@ export interface Quote {
   /** amountIn in raw units (USDC: 6 decimals), what the custodian transfers. */
   amountInRaw?: string;
   amountOut: string;
+  /** The deadline 1Click reports. It is the same instant as `timeWhenInactive`: 1Click adds a margin of days to the deadline we ask for. */
   deadline?: string;
+  /** When the deposit address stops working. Funds sent after this can be lost. */
+  timeWhenInactive?: string;
   /** 1Click signature over the quote, shown by Trezu on the payment request. */
   signature?: string;
+  /** A confidential quote: its deposit address is a Confidential Intents account, funded by a signed transfer intent, and its status is read with the treasury's login. */
+  confidential?: boolean;
   source: "1click" | "1click-dry" | "demo-fixture";
 }
 
@@ -207,6 +212,17 @@ export interface CustodyRecord {
   txHash?: string;
   /** Hybrid custody: why the payout went to the spending wallet or to the DAO. */
   route?: string;
+  /**
+   * Confidential treasury: the proposal asks NEAR's MPC signer to sign this transfer intent. Once the council approves, the
+   * signature is read from the vote and the intent is submitted to 1Click, which runs the payout.
+   */
+  confidential?: {
+    intent: { standard: string; payload: { message: string; nonce: string; recipient: string; callbackUrl?: string } };
+    hashHex: string;
+    depositAddress: string;
+    intentHash?: string;
+    submittedAt?: string;
+  };
 }
 
 /** Hybrid custody: the agent's open request for the DAO to refill the spending wallet. */
@@ -269,6 +285,8 @@ export interface Receivable {
   createdAt: string;
   status: "open" | "paid";
   deposit?: { chain: string; address: string; memo?: string; amountIn: string; deadline?: string };
+  /** What 1Click last said about the deposit: a failed or expired one clears `deposit` so the client can start again. */
+  settlement?: { status: string; checkedAt: string; note: string };
 }
 
 export interface ViewGrant {

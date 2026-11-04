@@ -1,6 +1,9 @@
 import { cfg } from "@/lib/business";
-import { tenantPage } from "@/lib/who";
+import { currentSigner, tenantPage } from "@/lib/who";
 import { currentBiz, DEFAULT_BIZ } from "@/lib/tenant";
+import { ConfidentialPanel } from "./ConfidentialPanel";
+import { loginStatus, shieldStatus } from "@/lib/confidential-flow";
+import { isOwner } from "@/lib/team";
 import Link from "next/link";
 import { ActionButton, KillSwitch } from "@/components/Actions";
 import { Badge, Empty, PageHead, PaymentCard, Stat, usd, when } from "@/components/ui";
@@ -179,6 +182,8 @@ async function Overview() {
           </details>
         )}
       </section>
+
+      <ConfidentialPanel on={cfg().CONFIDENTIAL} status={loginStatus()} shield={shieldStatus()} owner={isOwner((await currentSigner()) ?? "")} canEnable={currentBiz() !== DEFAULT_BIZ && cfg().CUSTODY === "sputnik"} />
 
       <section className="card mt-6" style={{ borderColor: ai.checked && ai.passed > 0 ? "var(--bd-sage)" : "var(--bd)" }}>
         <div className="flex flex-wrap items-center justify-between gap-2">

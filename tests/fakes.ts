@@ -13,6 +13,9 @@ const NONCE = sha256("test-nonce");
 
 export const sentCallbacks: { handle: string; channel: string; paymentId: string }[] = [];
 export const quoteCalls: Invoice[] = [];
+/** The deadline window (ms) each payout quote was asked for. */
+export const quoteWindows: number[] = [];
+export const depositsSubmitted: { txHash: string; depositAddress: string }[] = [];
 export const behaviour = {
   ai: "pay" as "pay" | "hold" | "block" | "down",
   swap: "SUCCESS",
@@ -60,15 +63,20 @@ export function install() {
   behaviour.kind = "provider_tee";
   sentCallbacks.length = 0;
   quoteCalls.length = 0;
+  depositsSubmitted.length = 0;
+  quoteWindows.length = 0;
   Object.assign(services, {
     redact: async (text: string) => ({ text, source: "local-regex" as const }),
     judge: fakeJudge,
     lookupSignals: async () => undefined,
-    quotePayout: async (inv: Invoice): Promise<Quote> => {
+    quotePayout: async (inv: Invoice, _confidentiality?: unknown, deadlineMs?: number): Promise<Quote> => {
       quoteCalls.push(inv);
-      return { depositAddress: `dep-${inv.invoiceNumber}`, amountIn: inv.amountUsd.toFixed(2), amountOut: inv.amountUsd.toFixed(2), deadline: new Date(Date.now() + 1800_000).toISOString(), source: "1click" };
+      quoteWindows.push(deadlineMs ?? 0);
+      const deadline = Date.now() + (deadlineMs ?? 1800_000);
+      return { depositAddress: `dep-${inv.invoiceNumber}`, amountIn: inv.amountUsd.toFixed(2), amountOut: inv.amountUsd.toFixed(2), deadline: new Date(deadline).toISOString(), timeWhenInactive: new Date(deadline + 3 * 86_400_000).toISOString(), source: "1click" };
     },
     swapStatus: async () => behaviour.swap,
+    submitDeposit: async (txHash: string, depositAddress: string) => { depositsSubmitted.push({ txHash, depositAddress }); return true; },
     sendCallback: async (inv: Invoice, target: { channel: string; handle: string } | undefined, why: string, paymentId: string): Promise<CallbackRecord> => {
       sentCallbacks.push({ handle: target?.handle ?? "", channel: target?.channel ?? "", paymentId });
       return { channel: target?.channel ?? "email", handle: target?.handle ?? "", sentAt: new Date().toISOString(), message: why, status: "pending", delivered: "telegram" };

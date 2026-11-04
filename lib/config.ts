@@ -48,6 +48,8 @@ export const NEARBLOCKS_KEY = process.env.NEARBLOCKS_API_KEY ?? "";
 /** Agent Market worker: aat_ token from your agent page; the cron secret lets a scheduler trigger polling. */
 export const AGENT_MARKET_BASE = (process.env.AGENT_MARKET_BASE_URL ?? "https://market.near.ai").replace(/\/$/, "");
 export const AGENT_MARKET_TOKEN = process.env.AGENT_MARKET_TOKEN ?? "";
+/** A scheduler that sends this as a bearer token to /api/settlement/poll checks every business's open payments and invoices. */
+export const SETTLEMENT_CRON_SECRET = process.env.SETTLEMENT_CRON_SECRET ?? "";
 export const AGENT_MARKET_CRON_SECRET = process.env.AGENT_MARKET_CRON_SECRET ?? "";
 
 /** PingPay Agent Pay facilitator for selling Check over x402 (buyers pay USDC on Base, we receive USDC on NEAR). */
@@ -129,8 +131,11 @@ export const APPROVAL_THRESHOLD_SIGNERS = Math.max(1, Math.min(Number(process.en
  * as here; for a business that signed up on the platform they come from its record (lib/business.ts cfg()). Code that
  * serves a business reads them through cfg(), never from these constants directly.
  */
+/** CONFIDENTIAL_TREASURY=1: the DAO's funds are shielded in Confidential Intents, and payouts go out through the MPC signer (lib/confidential-flow.ts). Needs Sputnik custody. */
+export const CONFIDENTIAL = process.env.CONFIDENTIAL_TREASURY === "1";
+
 export const ENV_CFG = {
-  CUSTODY, DAO_ACCOUNT, AGENT_ACCOUNT, AGENT_PRIVATE_KEY, OUTLAYER_API_KEY, OUTLAYER_WALLET_ACCOUNT, TREASURY_ACCOUNT, DAO_CUSTODY, POLICY_VIA_DAO,
+  CONFIDENTIAL, CUSTODY, DAO_ACCOUNT, AGENT_ACCOUNT, AGENT_PRIVATE_KEY, OUTLAYER_API_KEY, OUTLAYER_WALLET_ACCOUNT, TREASURY_ACCOUNT, DAO_CUSTODY, POLICY_VIA_DAO,
   // The business's own channels and what it charges for Check. A business that signed up brings its own bot, phone account and facilitator.
   TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM, AGENT_MARKET_TOKEN, AGENT_MARKET_CRON_SECRET,
   PINGPAY_API_KEY, X402_FACILITATOR_URL, COMPANY_NAME,

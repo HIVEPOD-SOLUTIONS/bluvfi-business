@@ -1,4 +1,5 @@
 import { body, route, type Ctx } from "@/lib/http";
+import { refreshReceivable } from "@/lib/receivables";
 import { services } from "@/lib/services";
 import { state } from "@/lib/store";
 import { bizOfId } from "@/lib/tenant";
@@ -17,9 +18,8 @@ export const POST = route<Ctx<"id">>(async (req, { params }) => {
 
   if (b.check) {
     if (!r.deposit) throw new Error("No payment has been started for this invoice");
-    const status = await services.swapStatus(r.deposit.address, r.deposit.memo);
-    if (status === "SUCCESS") r.status = "paid";
-    return { receivable: r, status };
+    const s = await refreshReceivable(r);
+    return { receivable: r, status: s.status, note: s.note };
   }
   if (r.status === "paid") throw new Error("This invoice is already paid");
   const fromChain = b.fromChain ?? "";

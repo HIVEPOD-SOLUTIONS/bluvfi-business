@@ -1,10 +1,11 @@
+import { confidentialPayoutStatus, quoteConfidentialPayout } from "./confidential-flow";
 import { lookupSignals, spendingWalletBalances, treasuryBalances } from "./chain";
 import { DEMO, NEAR_AI_MODEL } from "./config";
 import { refreshPayout, submitPayout } from "./custody";
 import { demoServices } from "./demo";
 import { judgeWithNearAi } from "./nearai";
 import { buildRequest, type JudgeFacts } from "./nearai-core";
-import { payX402, quoteForWidget, quotePayout, quoteReceivable, sendCallback, swapStatus } from "./rails";
+import { payX402, quoteForWidget, quotePayout, quoteReceivable, sendCallback, submitDeposit, swapStatus } from "./rails";
 import { redact } from "./redact";
 
 /**
@@ -16,9 +17,12 @@ export const services = {
   redact,
   judge: (redactedText: string, facts: JudgeFacts) => judgeWithNearAi(buildRequest(NEAR_AI_MODEL, redactedText, facts)),
   quotePayout,
+  quoteConfidential: quoteConfidentialPayout,
+  confidentialStatus: confidentialPayoutStatus,
   quoteReceivable,
   quoteForWidget,
   swapStatus,
+  submitDeposit,
   sendCallback,
   lookupSignals,
   treasuryBalances,

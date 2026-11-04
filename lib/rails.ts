@@ -1,7 +1,7 @@
 import { cfg, secretEquals } from "./business";
 import { currentBiz, DEFAULT_BIZ } from "./tenant";
 import { createHmac } from "node:crypto";
-import { ASSET_ID } from "./chains";
+import { ASSET_ID, NEAR_USDC_CONTRACT } from "./chains";
 import { ONECLICK_BASE, ONECLICK_DRY, ONECLICK_JWT, PUBLIC_BASE_URL, X402_PAYER_URL } from "./config";
 import type { CallbackRecord, Channel, Confidentiality, Invoice, Quote } from "./types";
 
@@ -17,6 +17,8 @@ interface QuoteInput {
   recipient: string;
   refundTo: string;
   confidentiality?: Confidentiality;
+  /** How long the quote's deadline is from now. Default 30 minutes. */
+  deadlineMs?: number;
 }
 
 /** A real (non-dry) NEAR Intents 1Click quote on mainnet. Returns the deposit address to send to. */
@@ -37,13 +39,13 @@ async function oneClickQuote(q: QuoteInput): Promise<Quote> {
       refundType: "ORIGIN_CHAIN",
       recipient: q.recipient,
       recipientType: "DESTINATION_CHAIN",
-      deadline: new Date(Date.now() + 30 * 60_000).toISOString(),
+      deadline: new Date(Date.now() + (q.deadlineMs ?? 30 * 60_000)).toISOString(),
       // Privacy is a per-payment choice. If 1Click rejects the field the request fails and nothing is silently downgraded.
       ...(q.confidentiality && q.confidentiality !== "public" ? { confidentiality: q.confidentiality } : {}),
     }),
   });
   if (!res.ok) throw new Error(`1Click quote failed (${res.status}): ${(await res.text().catch(() => "")).slice(0, 200)}`);
-  const j = (await res.json()) as { signature?: string; quote?: { amountIn?: string; amountInFormatted?: string; amountOutFormatted?: string; depositAddress?: string; depositMemo?: string; deadline?: string } };
+  const j = (await res.json()) as { signature?: string; quote?: { amountIn?: string; amountInFormatted?: string; amountOutFormatted?: string; depositAddress?: string; depositMemo?: string; deadline?: string; timeWhenInactive?: string } };
   if (ONECLICK_DRY && j.quote) return { depositAddress: "(dry run: no deposit address)", amountIn: j.quote.amountInFormatted ?? "", amountInRaw: j.quote.amountIn, amountOut: j.quote.amountOutFormatted ?? "", source: "1click-dry" };
   if (!j.quote?.depositAddress) throw new Error("1Click returned no deposit address");
   return {
@@ -53,6 +55,7 @@ async function oneClickQuote(q: QuoteInput): Promise<Quote> {
     amountInRaw: j.quote.amountIn,
     amountOut: j.quote.amountOutFormatted ?? "",
     deadline: j.quote.deadline,
+    timeWhenInactive: j.quote.timeWhenInactive,
     signature: j.signature,
     source: "1click",
   };
@@ -61,7 +64,7 @@ async function oneClickQuote(q: QuoteInput): Promise<Quote> {
 const toRaw = (usd: number) => BigInt(Math.round(usd * 1e6)).toString();
 
 /** Outgoing payout: the treasury pays USDC on NEAR, the vendor receives the invoice asset on its chain. */
-export function quotePayout(inv: Invoice, confidentiality: Confidentiality): Promise<Quote> {
+export function quotePayout(inv: Invoice, confidentiality: Confidentiality, deadlineMs?: number): Promise<Quote> {
   const dest = ASSET_ID[`${inv.chain}:${inv.asset}`];
   if (!dest) throw new Error(`No NEAR Intents route for ${inv.asset} on ${inv.chain}`);
   if (!cfg().TREASURY_ACCOUNT) throw new Error("TREASURY_ACCOUNT is not set");
@@ -72,6 +75,7 @@ export function quotePayout(inv: Invoice, confidentiality: Confidentiality): Pro
     recipient: inv.payoutAddress,
     refundTo: cfg().TREASURY_ACCOUNT,
     confidentiality,
+    deadlineMs,
   });
 }
 
@@ -80,6 +84,24 @@ export function quoteReceivable(amountUsd: number, fromChain: string, refundTo: 
   const origin = ASSET_ID[`${fromChain}:USDC`];
   if (!origin) throw new Error(`No NEAR Intents route for USDC on ${fromChain}`);
   return oneClickQuote({ originAsset: origin, destinationAsset: ASSET_ID["near:USDC"], amountOut: toRaw(amountUsd), recipient: payTo, refundTo });
+}
+
+/**
+ * Tell 1Click a deposit was sent, with its transaction hash, so it can verify it early instead of waiting to see it.
+ * 1Click treats this as optional, so a failure never blocks anything: the status check still settles the payment.
+ */
+export async function submitDeposit(txHash: string, depositAddress: string, depositMemo?: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${ONECLICK_BASE}/v0/deposit/submit`, {
+      method: "POST",
+      headers: oneClickHeaders(),
+      signal: AbortSignal.timeout(15_000),
+      body: JSON.stringify({ txHash, depositAddress, ...(depositMemo ? { memo: depositMemo } : {}) }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 /** 1Click swap status for a deposit address: PENDING_DEPOSIT, PROCESSING, SUCCESS, REFUNDED, FAILED, ... */
@@ -162,12 +184,42 @@ export function twilioSignatureValid(url: string, params: Record<string, string>
  */
 export interface X402Result { ok: boolean; status: number; priceUsd: number; body?: unknown; paymentHeader?: string; note: string }
 
+/** One entry of a 402's `accepts`: x402 v1 names the price `maxAmountRequired`, v2 names it `amount`. */
+interface X402Accept { scheme?: string; network?: string; asset?: string; payTo?: string; amount?: string; maxAmountRequired?: string }
+
+/** USDC, the only asset the agent pays in: the price is read as 6 decimals, so any other asset is refused. */
+const X402_USDC = new Set([
+  NEAR_USDC_CONTRACT.toLowerCase(),
+  "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // Base
+  "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", // Ethereum
+  "0xaf88d065e77c8cc2239327c5edb3a432268e5831", // Arbitrum
+  "epjfwdd5aufqsseqm2qn1xzybapc8g4weggkzwytdt1v", // Solana
+]);
+
+/** The payment requirements a 402 carries: in the JSON body (v1, and ours) or the base64 PAYMENT-REQUIRED header (v2). */
+async function x402Requirements(res: Response): Promise<X402Accept[]> {
+  const fromBody = (await res.json().catch(() => null)) as { accepts?: X402Accept[] } | null;
+  if (fromBody?.accepts?.length) return fromBody.accepts;
+  const header = res.headers.get("payment-required");
+  if (header) {
+    try {
+      return ((JSON.parse(Buffer.from(header, "base64").toString("utf8")) as { accepts?: X402Accept[] }).accepts) ?? [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export async function payX402(url: string, maxPriceUsd: number): Promise<X402Result> {
   const first = await fetch(url, { signal: AbortSignal.timeout(15_000) });
   if (first.status !== 402) return { ok: first.ok, status: first.status, priceUsd: 0, body: await first.json().catch(() => null), note: "No payment required." };
-  const req = (await first.json()) as { accepts: { maxAmountRequired: string; payTo: string; asset: string; network: string }[] };
-  const accept = req.accepts[0];
-  const priceUsd = Number(accept.maxAmountRequired) / 1e6;
+  const accept = (await x402Requirements(first))[0];
+  if (!accept) return { ok: false, status: 402, priceUsd: 0, note: "The API asked for payment but did not say how, so nothing was paid." };
+  // Never pay a price that cannot be read, or in an asset whose units are not known: an unreadable price must not slip past the cap.
+  if (!accept.asset || !X402_USDC.has(accept.asset.toLowerCase())) return { ok: false, status: 402, priceUsd: 0, note: `The API wants payment in ${accept.asset ?? "an unknown asset"}. The agent pays in USDC only, so nothing was paid.` };
+  const priceUsd = Number(accept.amount ?? accept.maxAmountRequired) / 1e6;
+  if (!Number.isFinite(priceUsd) || priceUsd <= 0) return { ok: false, status: 402, priceUsd: 0, note: "The API's price could not be read, so nothing was paid." };
   if (priceUsd > maxPriceUsd) return { ok: false, status: 402, priceUsd, note: `Price $${priceUsd} exceeds the allowed $${maxPriceUsd}.` };
   if (!X402_PAYER_URL) throw new Error("X402_PAYER_URL is not set, so the agent cannot sign x402 payments");
   const signed = await fetch(`${X402_PAYER_URL}/pay`, {
@@ -179,7 +231,8 @@ export async function payX402(url: string, maxPriceUsd: number): Promise<X402Res
   if (!signed.ok) throw new Error(`x402 payer refused (${signed.status})`);
   const { paymentHeader } = (await signed.json()) as { paymentHeader?: string };
   if (!paymentHeader) throw new Error("x402 payer returned no payment header");
-  const paid = await fetch(url, { headers: { "X-PAYMENT": paymentHeader }, signal: AbortSignal.timeout(30_000) });
+  // v1 servers read X-PAYMENT, v2 servers PAYMENT-SIGNATURE; the same value goes in both.
+  const paid = await fetch(url, { headers: { "X-PAYMENT": paymentHeader, "PAYMENT-SIGNATURE": paymentHeader }, signal: AbortSignal.timeout(30_000) });
   return { ok: paid.ok, status: paid.status, priceUsd, body: await paid.json().catch(() => null), paymentHeader, note: paid.ok ? "Paid and delivered." : "Paid but the API did not deliver." };
 }
 

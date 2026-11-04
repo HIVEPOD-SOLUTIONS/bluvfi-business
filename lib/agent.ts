@@ -2,7 +2,7 @@ import { cfg } from "./business";
 import { canonical, mlDsaSign, mlDsaVerify, sha256, encrypt } from "./crypto";
 import { DEMO, NEAR_AI_MODEL } from "./config";
 import { signerNames } from "./team";
-import { demoDao } from "./custody";
+import { demoDao, payoutWindowMs } from "./custody";
 import { makeJob, proveInBackground, SYSTEM as ZK_SYSTEM, verifyZk, writeJob } from "./zk";
 import { signPolicyCheck } from "./pqcheck";
 import { runFraudChecks, runPublicCheck, worst } from "./fraud";
@@ -178,7 +178,9 @@ export async function release(p: Payment): Promise<void> {
   }
   try {
     p.confidentiality = withPrivacyFloor(p.confidentiality, currentPolicy()); // the floor may have been raised since intake
-    p.quote = await services.quotePayout(p.invoice, p.confidentiality);
+    const window = await payoutWindowMs();
+    // A confidential treasury quotes from its shielded balance; everyone else quotes a public deposit address.
+    p.quote = cfg().CONFIDENTIAL ? await services.quoteConfidential(p.invoice, window) : await services.quotePayout(p.invoice, p.confidentiality, window);
   } catch (e) {
     p.status = "held";
     p.headline = "Held: could not get a payout quote";
@@ -265,6 +267,8 @@ export function recordSent(id: string, signer: string, txRef: string): Payment {
   if (p.status !== "ready_to_send") throw new Error("This payment is not waiting for funds");
   if (!txRef.trim()) throw new Error("Paste the transaction hash you sent");
   p.txRef = txRef.trim();
+  // Let 1Click know, so it verifies the deposit now. Best effort: the status check settles the payment either way.
+  if (p.quote) void services.submitDeposit(p.txRef, p.quote.depositAddress, p.quote.depositMemo).catch(() => false);
   seal(p);
   return p;
 }
@@ -278,12 +282,21 @@ export async function checkSettlement(id: string): Promise<Payment> {
     p.custody = await services.refreshPayout(p.custody);
     applyCustody(p);
     if ((p.status as PaymentStatus) !== "ready_to_send") {
+      // Still waiting on votes. If the deposit address has stopped working, funds sent now could be lost: stop it here.
+      const dead = p.status === "proposed" && p.quote ? p.quote.timeWhenInactive : undefined;
+      if (dead && new Date(dead) < new Date()) {
+        const v = state().vendors.find((x) => x.name === p.invoice.vendorName);
+        if (v) v.paidInvoiceNumbers = v.paidInvoiceNumbers.filter((n) => n !== p.invoice.invoiceNumber);
+        p.status = "cancelled";
+        p.headline = "Cancelled: the payout's deposit address expired before it was approved";
+        p.reason = `The 1Click deposit address stopped working at ${dead}, and funds sent to it now could be lost. ${p.custody!.backend === "sputnik" ? `Vote Reject or Remove on DAO proposal #${p.custody!.ref}` : "Reject the pending request in OutLayer"} so it can never execute, then submit the invoice again for a fresh quote.`;
+      }
       seal(p);
       return p;
     }
   }
   if (p.status !== "ready_to_send" || !p.quote) throw new Error("This payment is not waiting for funds");
-  const status = await services.swapStatus(p.quote.depositAddress, p.quote.depositMemo);
+  const status = p.quote.confidential ? await services.confidentialStatus(p.quote.depositAddress) : await services.swapStatus(p.quote.depositAddress, p.quote.depositMemo);
   p.settlement = { status, checkedAt: new Date().toISOString() };
   const v = state().vendors.find((x) => x.name === p.invoice.vendorName);
   if (status === "SUCCESS") {

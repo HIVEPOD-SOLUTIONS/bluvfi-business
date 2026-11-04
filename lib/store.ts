@@ -18,6 +18,26 @@ export interface State {
   receivables: Receivable[];
   grants: ViewGrant[];
   sealed: Record<string, string>;
+  /** A confidential treasury's login to 1Click (tokens encrypted), and the login proposal waiting for the council. */
+  confidential?: {
+    access?: string;
+    refresh?: string;
+    accessExp?: number;
+    refreshExp?: number;
+    login?: { message: string; nonce: string; hashHex: string; proposalId: number; startedAt: string };
+    /** Moving the DAO's USDC into its shielded balance: deposit (a council vote), then shield (another, through the MPC signer). */
+    shield?: {
+      stage: "deposit" | "sign" | "submitted" | "done" | "failed";
+      amountRaw: string;
+      depositProposalId: number;
+      signProposalId?: number;
+      intent?: { standard: string; payload: { message: string; nonce: string; recipient: string; callbackUrl?: string } };
+      hashHex?: string;
+      depositAddress?: string;
+      intentHash?: string;
+      detail: string;
+    };
+  };
   killSwitch: boolean;
   /** Who flipped the kill switch, and when. Any signer may. */
   killLog: { at: string; by: string; on: boolean }[];

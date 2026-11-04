@@ -14,6 +14,8 @@ const PUBLIC = [
   /^\/ledger$/,
   /^\/view$/, /^\/api\/audit\/open$/,
   /^\/api\/telegram\/webhook$/, /^\/api\/twilio\/voice$/,
+  // Scheduled polling: these check a bearer secret or a signer session themselves.
+  /^\/api\/agentmarket\/poll$/, /^\/api\/settlement\/poll$/,
   /^\/apple-icon$/, /^\/manifest\.webmanifest$/,
   // Treasury setup: its API checks a signer session, or the one-time setup code before any signer exists.
   /^\/setup$/, /^\/api\/setup$/,

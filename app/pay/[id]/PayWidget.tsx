@@ -3,14 +3,14 @@ import { useState } from "react";
 import { ErrorLine, useAction } from "@/components/Actions";
 import type { Quote, Receivable } from "@/lib/types";
 
-export function PayWidget({ id, paid, deposit }: { id: string; paid: boolean; deposit: Receivable["deposit"] | null }) {
+export function PayWidget({ id, paid, deposit, note }: { id: string; paid: boolean; deposit: Receivable["deposit"] | null; note?: string }) {
   const { run, error, loading } = useAction();
   const [chain, setChain] = useState("eth");
   const [refundTo, setRefundTo] = useState("");
   const [quote, setQuote] = useState<Pick<Quote, "amountIn" | "amountOut" | "depositAddress" | "depositMemo" | "deadline"> | null>(
     deposit ? { amountIn: deposit.amountIn, amountOut: "", depositAddress: deposit.address, depositMemo: deposit.memo, deadline: deposit.deadline } : null
   );
-  const [status, setStatus] = useState<string | null>(null);
+  const [status, setStatus] = useState<{ status: string; note: string } | null>(note ? { status: "", note } : null);
   if (paid) return <p className="mt-4 badge badge-ok">Paid. Thank you ✓</p>;
   return (
     <div className="mt-5">
@@ -41,11 +41,16 @@ export function PayWidget({ id, paid, deposit }: { id: string; paid: boolean; de
           <button
             className="btn btn-secondary btn-sm mt-3"
             disabled={loading}
-            onClick={async () => { const r = await run<{ status: string }>(`/api/pay/${id}`, { check: true }); if (r) setStatus(r.status); }}
+            onClick={async () => {
+              const r = await run<{ status: string; note: string; receivable: Receivable }>(`/api/pay/${id}`, { check: true });
+              if (!r) return;
+              setStatus({ status: r.status, note: r.note });
+              if (!r.receivable.deposit) setQuote(null); // refunded, failed or expired: the client asks for fresh instructions
+            }}
           >I have sent it: check payment</button>
-          {status && <div role="status" className="mono mt-2 text-xs">Status: {status}</div>}
         </div>
       )}
+      {status && <div role="status" className="mt-3 text-sm">{status.status && <span className="mono text-xs">{status.status}: </span>}{status.note}</div>}
       <ErrorLine msg={error} />
     </div>
   );

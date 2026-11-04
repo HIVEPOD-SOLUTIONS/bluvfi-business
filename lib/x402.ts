@@ -30,8 +30,8 @@ const BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 
 /**
  * Is PingPay's facilitator actually served at PINGPAY_BASE? `GET /agentpay/x402/supported` (no key) must list
- * x402 v2 `exact` on Base. Checked 2026-11-01: https://staging.pingpay.io answers it; https://pay.pingpay.io (the
- * documented host) still serves its web app there and 404s the POST routes. A success is cached for 10 minutes.
+ * x402 v2 `exact` on Base. Checked 2026-11-01: only https://staging.pingpay.io answered it. Checked 2026-11-04: both it and
+ * https://pay.pingpay.io (the documented host, now the default) answer it. A success is cached for 10 minutes.
  */
 let supportedCache: { at: number; ok: boolean; note: string } | undefined;
 export async function pingpaySupported(): Promise<{ ok: boolean; note: string }> {

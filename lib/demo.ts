@@ -92,6 +92,7 @@ export const demoServices = (model: string) => ({
       : { amountIn: raw, amountInFormatted: q.amountIn, amountOut: BigInt(Math.round(amountUsd * 1e6)).toString(), amountOutFormatted: q.amountOut, timeEstimate: 20 };
   },
   swapStatus: async () => "SUCCESS",
+  submitDeposit: async () => true,
   sendCallback: async (inv: Invoice, target: { channel: string; handle: string } | undefined, why: string): Promise<CallbackRecord> => ({
     channel: target?.channel ?? "email",
     handle: target?.handle ?? "(no verified contact on file)",

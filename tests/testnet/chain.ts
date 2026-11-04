@@ -18,6 +18,11 @@ export async function vote(member: 1 | 2 | 3, id: number, action: "VoteApprove" 
   await memberAccount(member).callFunction({ contractId: DAO, methodName: "act_proposal", args: { id, action }, gas: teraToGas(150), deposit: BigInt(0) });
 }
 
+/** A vote with room for a proposal that calls another contract (the MPC signer needs 250 Tgas), returning the whole execution outcome. */
+export async function voteWithOutcome(member: 1 | 2 | 3, id: number, action: "VoteApprove" | "VoteReject") {
+  return memberAccount(member).callFunctionRaw({ contractId: DAO, methodName: "act_proposal", args: { id, action }, gas: teraToGas(300), deposit: BigInt(0) });
+}
+
 /** A council member files a proposal (they hold *:AddProposal, and the bond is 0). Returns its id. */
 export async function addProposal(member: 1 | 2 | 3, description: string, kind: unknown): Promise<number> {
   return Number(await memberAccount(member).callFunction({ contractId: DAO, methodName: "add_proposal", args: { proposal: { description, kind } }, gas: teraToGas(50), deposit: BigInt(0) }));

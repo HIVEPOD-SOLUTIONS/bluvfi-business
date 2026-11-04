@@ -15,6 +15,8 @@
     "zk:vk": "tsx scripts/zk-vk.ts",
     "zk:verify": "tsx scripts/zk-verify.ts",
     "ai:verify": "tsx scripts/ai-verify.ts",
+    "confidential:test": "tsx scripts/confidential-test.ts",
+    "confidential:check": "tsx scripts/confidential-check.ts",
     "spec:pdf": "tsx scripts/spec-pdf.ts",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
