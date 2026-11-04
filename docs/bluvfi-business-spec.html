@@ -65,11 +65,11 @@
   <div class="rule"></div>
   <p>The verifiable trust layer for agent payments on NEAR.</p>
   <p class="tag">The AI has judgment, never authority.</p>
-  <span class="stamp">Status update: 3 November 2026</span>
+  <span class="stamp">Status update: 4 November 2026</span>
   <div class="foot">Layers 1 to 6 and the multi-business platform, with what is built and how it was tested, reproducibility modes, screens, demo video, README, what is left, and priorities.</div>
 </section>
 
-<p class="lead">Updated 3 November 2026 to match the code. Since the last update: Layer 1 has been tested for real on a Sputnik DAO on NEAR testnet and through the web app, and Bluvfi Business is now a platform where any business signs up and runs its own treasury, team and channels. Each item says whether it is built and how far it has been tested. No smart contract is written: wherever the original spec called for one, a deterministic policy gate and existing custodians (a Sputnik DAO run in Trezu, an OutLayer policy wallet, or both) do that job.</p>
+<p class="lead">Updated 4 November 2026 to match the code. Since the last update, Layer 2 verifies more of NEAR AI's evidence (NVIDIA's signed verdict is now checked locally, the AI's decision is enforced as structured output, and the model can be attested at setup), and before that: Layer 1 has been tested for real on a Sputnik DAO on NEAR testnet and through the web app, and Bluvfi Business is now a platform where any business signs up and runs its own treasury, team and channels. Each item says whether it is built and how far it has been tested. No smart contract is written: wherever the original spec called for one, a deterministic policy gate and existing custodians (a Sputnik DAO run in Trezu, an OutLayer policy wallet, or both) do that job.</p>
 
 <table class="key">
   <tr><td><span class="pill ok">Done</span></td><td>Built and tested, including against real services where noted.</td></tr>
@@ -125,9 +125,10 @@
 <p>The agent's reasoning runs on a <strong>private model on NEAR AI Cloud</strong>, inside a TEE. NEAR AI attests the model and signs each response; it does not host our code.</p>
 <table>
   <tr><th style="width:30%">Item</th><th>What is built</th><th style="width:15%">Status</th></tr>
-  <tr><td>Attestation with a fresh nonce</td><td>Intel TDX through dcap-qvl, NVIDIA NRAS, the binding between them, and the nonce; stored with the payment record.</td><td><span class="pill mock">Done, mocked</span></td></tr>
-  <tr><td>Signed structured decision</td><td>The decision is returned as structured output and its ed25519 signature is checked against the exact request and response bytes before acting.</td><td><span class="pill mock">Done, mocked</span></td></tr>
-  <tr><td>"Test this on day one"</td><td>Tested against an independent implementation and against demo fixtures in NEAR AI's format. Not yet run end to end with a real NEAR AI key.</td><td><span class="pill todo">To do</span></td></tr>
+  <tr><td>Attestation with a fresh nonce</td><td>Intel TDX through dcap-qvl, NVIDIA NRAS, the binding between them, and the nonce. <strong>NVIDIA's signed verdict is now checked locally</strong>: its ES384 signature against NVIDIA's published keys, the issuer, the expiry, our nonce and the overall result. The raw attestation report is kept by its hash and the payment record points at it, so an auditor can verify the exact evidence again. <span class="small">Not walked: the key's certificate chain up to NVIDIA's root.</span></td><td><span class="pill mock">Done, mocked</span></td></tr>
+  <tr><td>Signed structured decision</td><td>The request carries the decision as a strict JSON schema, and the reply must be exactly one object that matches it (pay, hold or block, a risk score from 0 to 100, a summary and reasons, no extra fields); anything else is refused, never guessed at. If NEAR AI does not take <code>response_format</code> for the model, the review is asked once more without it, the schema is still enforced, and the record says so. The ed25519 signature is checked against the exact request and response bytes before acting.</td><td><span class="pill mock">Done, mocked</span></td></tr>
+  <tr><td>Model attested at setup <span class="small">(new)</span></td><td>On the Overview, <strong>Private AI model → Verify the model now</strong> (or <code>npm run ai:verify</code>) fetches the attestation with a fresh nonce and checks every model instance's Intel TDX, NVIDIA evidence and key binding, spending no inference. The signing keys that pass are registered, and each payment's Verified panel says whether its signer was one of them.</td><td><span class="pill mock">Done, mocked</span></td></tr>
+  <tr><td>"Test this on day one"</td><td>Tested against an independent implementation and against demo fixtures in NEAR AI's format. Not yet run end to end with a real NEAR AI key: <code>npm run ai:verify -- --review</code> does it against the live service for a few cents of credits, then <code>npm run fixtures:record</code> saves the real responses.</td><td><span class="pill todo">To do</span></td></tr>
   <tr><td>Judgment, never authority</td><td>A fully tricked model can only recommend; the gate decides. The demo's scam invoice proves it.</td><td><span class="pill ok">Done</span></td></tr>
   <tr><td>Stretch: proof of the policy check</td><td><strong>o1js</strong> (TypeScript) replaced Jolt, which needs Rust and Linux. Every payment's check is proved in the background (~15 s) and verified on the payment page. It is not post-quantum.</td><td><span class="pill ok">Done</span></td></tr>
   <tr><td>Stretch: post-quantum policy check <span class="small">(new)</span></td><td>Every policy check is signed with <strong>ML-DSA-65</strong> (lattice) and <strong>SLH-DSA</strong> (hash-based). The payment page and <code>npm run zk:verify</code> re-run the check from its public inputs and verify both signatures. Not zero-knowledge, which hides nothing here because every input is public.</td><td><span class="pill ok">Done</span></td></tr>
@@ -166,7 +167,7 @@
 
 <h2>Layer 6: Evidence</h2>
 <ul>
-  <li><span class="pill ok">Done</span> <strong>The Verified panel</strong> on every payment: attestation, the model signature, the policy version, each fraud check, the callback, the evidence hash anchored onchain, the post-quantum record signature, the post-quantum policy check and the o1js proof.</li>
+  <li><span class="pill ok">Done</span> <strong>The Verified panel</strong> on every payment: attestation (including NVIDIA's signed verdict, and whether the signer was attested at setup), the model signature, the policy version, each fraud check, the callback, the evidence hash anchored onchain, the post-quantum record signature, the post-quantum policy check and the o1js proof.</li>
   <li><span class="pill ok">Done</span> <strong>The auditor view</strong>, mapping records to controls, with a CSV and a PDF evidence report, and view-key grants.</li>
   <li><span class="pill ok">Done</span> <strong>A public ledger page</strong> for DAOs that opt into transparency.</li>
 </ul>
@@ -192,10 +193,10 @@
   <li><span class="pill ok">Done</span> <strong><code>npm run demo</code></strong>: one command, no keys, no funds, about ten seconds. Three fictional invoices (normal, the scam with a changed address and hidden instructions, and a lookalike vendor), signed NEAR AI fixtures, and a simulated DAO. Signatures are verified for real, and the script fails if any outcome is wrong. <code>-- --zk</code> adds the o1js proof.</li>
   <li><span class="pill ok">Done</span> <strong><code>npm run demo:ui</code></strong>: the same story in the web app.</li>
   <li><span class="pill part">Partial</span> <strong>Fixtures:</strong> the demo's NEAR AI responses are signed with a public demo key, and hardware attestation is never claimed for them. <code>npm run fixtures:record</code> replaces them with real recordings once you have a NEAR AI key.</li>
-  <li><span class="pill ok">Done</span> <strong>Live mode</strong> with your NEAR AI key, a custody option and dry-run quotes.</li>
+  <li><span class="pill ok">Done</span> <strong>Live mode</strong> with your NEAR AI key, a custody option and dry-run quotes. <code>npm run ai:verify -- --review</code> checks Layer 2 against the live NEAR AI Cloud: attestation, NVIDIA, signature and the structured decision.</li>
   <li><span class="pill todo">To do</span> <strong>Hosted demo:</strong> the Docker image runs demo mode, but it is not deployed. Keep it online until at least 18 November, ideally 25 November.</li>
   <li><span class="pill ok">Done</span> <strong>Testnet mode (real chain, no mocks):</strong> <code>npm run testnet:keys &amp;&amp; npm run testnet:setup</code> builds a real DAO on NEAR testnet, and <code>npm run test:testnet</code> runs 9 tests against it. It costs no real funds.</li>
-  <li><span class="pill ok">Done</span> <strong>Tests:</strong> 84 automated tests (including 8 on separate businesses, 7 on per-business channels and 7 on Privy sign-in), 9 on the real testnet DAO, and 9 gate tests against live 1Click quotes (8 run, 1 waits for an OutLayer policy). Lint, typecheck and a production build pass.</li>
+  <li><span class="pill ok">Done</span> <strong>Tests:</strong> 90 automated tests (including 8 on separate businesses, 7 on per-business channels, 7 on Privy sign-in and 6 on Layer 2: NVIDIA's verdict, the structured decision, and the setup check), 9 on the real testnet DAO, and 9 gate tests against live 1Click quotes (8 run, 1 waits for an OutLayer policy). Lint, typecheck and a production build pass.</li>
 </ul>
 
 <h2>Screens</h2>
@@ -244,7 +245,7 @@
 <ul>
   <li><strong>Confirmed:</strong> PingPay's routes (live on staging), Trezu's proposal format and request links, Aurora's widget rendering and quoting, NEAR's ML-DSA key formats (from nearcore's source), the Sputnik flow on a real testnet DAO (council votes, scoped agent key, policy changes, replay protection, the hard stop and a gasless vote), and Privy login with the email lookup, up to the signup step.</li>
   <li><strong>Not yet confirmed live:</strong> a real NEAR AI signature and attestation, the Sputnik flow on mainnet, the OutLayer API with a wallet that has a policy, 1Click with funds, an ML-DSA key in a live NEAR RPC response, treasury setup for a signed-up business on a real chain, and a business's own Telegram, Twilio and Agent Market connections against the real services.</li>
-  <li><strong>Known limits:</strong> no contract of ours, so the hold window and DAO-side limits are app-enforced; payment records are kept in plain text in the state file; the o1js proof is not post-quantum (the signed policy check is); the relayer's gas, the AI services and the evidence-signing key are shared by every business.</li>
+  <li><strong>Known limits:</strong> NVIDIA's verdict signature is checked locally but its key's certificate chain to NVIDIA's root is not walked; no contract of ours, so the hold window and DAO-side limits are app-enforced; payment records are kept in plain text in the state file; the o1js proof is not post-quantum (the signed policy check is); the relayer's gas, the AI services and the evidence-signing key are shared by every business.</li>
 </ul>
 
 </body>
