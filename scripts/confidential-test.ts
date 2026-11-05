@@ -10,9 +10,11 @@
  *   shield <usdc>      move USDC from its public Intents balance into its confidential balance (1:1, no fee)
  *   pay <usd> <chain> <address>   pay out of the confidential balance to an address (chain: near, eth, base, arb, sol), then follow it to the end
  *
- * Needs ONECLICK_JWT (your 1Click partner key) in .env.local.
+ * Needs ONECLICK_JWT (your 1Click partner key) in .env.local, and BLUVFI_KEYFILE_PASSPHRASE in the environment (not in
+ * .env.local): the account's key file is encrypted under it (lib/keyfile.ts), and a plain one from an older run is encrypted
+ * the first time it is opened.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 const FILE = ".mainnet/confidential-test.json";
 
@@ -28,21 +30,23 @@ async function main() {
   const max = maxFlag >= 0 ? Number(rest.splice(maxFlag, 2)[1]) : 5;
   if (!step) return console.log("Steps: setup, status, register, deposit <usdc>, shield <usdc>, pay <usd> <chain> <address>. See the top of this file.");
 
-  const { Account, JsonRpcProvider, KeyPair, keyToImplicitAddress, nearToYocto, teraToGas } = await import("near-api-js");
+  const { Account, JsonRpcProvider, KeyPair, nearToYocto, teraToGas } = await import("near-api-js");
   type KeyPairString = Parameters<typeof KeyPair.fromString>[0];
   const { ASSET_ID, NEAR_USDC_CONTRACT } = await import("../lib/chains");
   const c = await import("../lib/confidential");
   const { viewFn } = await import("../lib/custody");
   const { NEAR_RPC_URL } = await import("../lib/config");
 
+  // The same account the Wallets page manages (lib/wallets.ts): same file, same sealing.
+  const { PASSPHRASE_ENV } = await import("../lib/keyfile");
+  const { createWallet, openConfidential } = await import("../lib/wallets");
+  const passphrase = process.env[PASSPHRASE_ENV];
   if (step === "setup" && !existsSync(FILE)) {
-    mkdirSync(".mainnet", { recursive: true });
-    const key = KeyPair.fromRandom("ed25519");
-    writeFileSync(FILE, JSON.stringify({ accountId: keyToImplicitAddress(key.getPublicKey().toString()), secret: key.toString() }, null, 2));
-    console.log("Made a throwaway account (its key is in .mainnet/confidential-test.json, which git ignores).");
+    createWallet("confidential-mainnet", passphrase);
+    console.log("Made a throwaway account (its key is in .mainnet/confidential-test.json, encrypted under your passphrase; git ignores it).");
   }
-  if (!existsSync(FILE)) throw new Error("Run `npm run confidential:test -- setup` first.");
-  const { accountId, secret } = JSON.parse(readFileSync(FILE, "utf8")) as { accountId: string; secret: string };
+  if (!existsSync(FILE)) throw new Error("Run `npm run confidential:test -- setup` first, or create it on the Wallets page.");
+  const { accountId, secret } = openConfidential(passphrase);
   const key = KeyPair.fromString(secret as KeyPairString);
   const provider = new JsonRpcProvider({ url: NEAR_RPC_URL });
   const account = new Account(accountId, provider, secret as KeyPairString);

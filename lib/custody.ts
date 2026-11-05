@@ -281,6 +281,17 @@ async function checkSputnik(): Promise<CustodyCheck> {
     if (RELAYER_ACCOUNT) {
       const relayerVotes = policy.roles.some((r) => typeof r.kind === "object" && "Group" in r.kind && r.kind.Group.includes(RELAYER_ACCOUNT) && r.permissions.some((p) => VOTING.test(p)));
       if (relayerVotes) problems.push(`The relayer ${RELAYER_ACCOUNT} holds voting rights in the DAO. Its key is on this server, so use an account that is not on the council.`);
+      // Relaying needs a full-access key (it submits Delegate actions to any council member), so the relayer's balance is
+      // exactly what a leaked key could take. Keep only gas money there.
+      try {
+        const acct = await rpc<{ amount: string }>({ request_type: "view_account", account_id: RELAYER_ACCOUNT });
+        const near = Number(BigInt(acct.amount) / BigInt(1e18)) / 1e6;
+        const max = Number(process.env.RELAYER_MAX_NEAR ?? 5);
+        if (near > max) facts.push(`Warning: the relayer ${RELAYER_ACCOUNT} holds ${near.toFixed(2)} NEAR. Its full-access key is on this server, so keep it to gas money (under ${max} NEAR, RELAYER_MAX_NEAR).`);
+        else facts.push(`The relayer ${RELAYER_ACCOUNT} holds ${near.toFixed(2)} NEAR, within its ${max} NEAR gas budget: the most its server-held key could lose.`);
+      } catch {
+        /* balance unknown: the voting-rights check above still ran */
+      }
     }
 
     // The approval threshold the chain applies to a payout (a FunctionCall proposal).

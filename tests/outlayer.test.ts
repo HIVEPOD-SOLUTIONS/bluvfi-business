@@ -3,7 +3,7 @@ import "./setup-outlayer";
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import { checkSettlement, processInvoice } from "../lib/agent";
-import { checkCustody } from "../lib/custody";
+import { checkCustody, resetCustodyCache } from "../lib/custody";
 import { install, invoice, seed, state } from "./fakes";
 
 beforeEach(() => {
@@ -75,5 +75,16 @@ test("outlayer: multisig approval, then execution, then 1Click delivery", async 
     await checkSettlement(p.id);
     assert.equal(p.status, "paid");
     assert.equal(p.custody!.txHash, "OLTX");
+  });
+});
+
+test("outlayer: by default a wallet without its own daily limit is refused, since the API key can spend up to OutLayer's limits", async () => {
+  resetCustodyCache();
+  await withOutlayer({
+    "/wallet/v1/policy": () => json({ wallet_id: "w1", controller: "acme.near", frozen: false, policy: "stored", rules: { limits: { per_transaction: { "*": "5000000000" } } } }),
+  }, async () => {
+    const c = await checkCustody();
+    assert.equal(c.ok, false);
+    assert.match(c.problems.join(" "), /no daily limit .* REQUIRE_CUSTODIAN_LIMITS is on/);
   });
 });

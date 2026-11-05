@@ -47,7 +47,7 @@ async function withWorld(w: World, body: () => Promise<void>) {
     if (u.hostname === "api.outlayer.ai") {
       w.outlayerCalls.push(u.pathname);
       if (u.pathname === "/wallet/v1/policy") {
-        return json({ controller: "acme.near", frozen: false, policy: "stored", rules: { limits: w.perTxRaw ? { per_transaction: { "*": w.perTxRaw } } : {} } });
+        return json({ controller: "acme.near", frozen: false, policy: "stored", rules: { limits: w.perTxRaw ? { per_transaction: { "*": w.perTxRaw }, daily: { "*": "15000000000" } } : { daily: { "*": "15000000000" } } } });
       }
       if (u.pathname === "/wallet/v1/storage-deposit") return json({ status: "success" });
       if (u.pathname === "/wallet/v1/call") return json({ request_id: "req-1", status: "success", tx_hash: "OLTX" });

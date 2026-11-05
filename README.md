@@ -90,6 +90,22 @@ npm run dev
 
 ## Security model
 
+### Who holds which key
+
+The treasury itself has **no private key**: it is a Sputnik DAO contract, and only the council's onchain vote moves it. Every other key the app touches, where it lives, and what it could lose if it leaked:
+
+| Key | Where | What a leak could do |
+|---|---|---|
+| Agent key | `.env.local`, or the business registry encrypted under the master key | Nothing with money: it can only *propose* (checked from the chain before every payout) |
+| Council votes | The council member's own wallet; nothing in the browser | — |
+| OutLayer API key | `.env.local`, or encrypted per business | Spend from the spending wallet **up to OutLayer's own limits**, which the app now **requires** (`REQUIRE_CUSTODIAN_LIMITS`, on by default) |
+| Relayer key | `.env.local` (must be full-access to relay) | Its own NEAR, which the custody check keeps to a gas budget (`RELAYER_MAX_NEAR`, default 5) |
+| Master key | `BLUVFI_MASTER_KEY_FILE` (a mounted secret), or `BLUVFI_MASTER_KEY` | Decrypts every business's stored keys. In production, mount it from a secrets manager, not `.env.local` |
+| x402 payer, confidential-test account | `.mainnet/*.json` (`.testnet/` for the test payer), sealed under a passphrase (lib/keyfile.ts); mainnet refuses plain text. Managed on the **Wallets** page (platform operator only): create, see address, balance and spending, encrypt an old plain file, show the payer's token. The passphrase is typed for each action and never stored | Their own small balances, and only with the passphrase |
+| Agent setup keys | `.mainnet/agent.json` while setup runs, encrypted when a master key exists; **deleted when setup finishes** | Before finishing: the agent account's 0.3 NEAR |
+| Your funding wallet, Privy wallets | Your wallet; Privy's embedded wallet | Never seen by the app |
+
+
 - **The agent cannot move funds.**
   - **Sputnik:** the agent key is a NEAR **function-call access key** limited to `add_proposal` on the DAO. Such a key can attach no deposit, so the DAO's bond must be 0.
   - **The agent holds only that key.** Every key on the agent account must be one that can call `add_proposal` on the DAO and nothing else. A full-access key, or a key for any other contract or method, fails the check, and the Overview shows the `near account delete-keys` command to remove it. So no one, the agent included, can transfer from the agent account, add keys, deploy code or vote with it.
@@ -100,7 +116,7 @@ npm run dev
   - **Post-quantum option:** the agent key may also be ML-DSA-65 (`ml-dsa-65:`), which NEAR and near-api-js support. NEAR lists such keys as `ml-dsa-65-hash:…` (the SHA3-256 of the key), and the custody check reads both forms.
 - **Gas allowance lock-out.** A function-call key whose gas allowance runs out stops working. Because the agent account has no full-access key, it cannot add a new key itself: the account is locked. Nothing is lost, since the agent account holds no treasury funds. The fix is a new agent account with a fresh scoped key, which the council swaps into the agent's DAO role. The custody check warns when the allowance is nearly used. A key added with no allowance limit draws gas from the account's own NEAR balance instead, so keep a little NEAR there.
 - **Kill switch.** It stops this app immediately. For a hard stop onchain, the Overview shows the `near account delete-keys` command that revokes the agent's key. The council can also reject or remove open proposals.
-- **Gasless votes.** A council member's browser holds a key that may only call `act_proposal` on the DAO, and signs a NEP-366 delegate action. Before anything is relayed (`relayVote`), the relayer checks that it is:
+- **Council votes.** A council member votes from the payment page with **their own NEAR wallet**; no key is kept in the browser (`components/GaslessVote.tsx`). If the wallet can sign a NEP-366 delegate action and a relayer is configured, the vote is gasless; otherwise the wallet sends it directly. (An earlier version kept an `act_proposal` key in `localStorage`, where any script on the page could read it and vote; the page now deletes such a key on sight and shows the command to remove it from the account.) Before anything is relayed (`relayVote`), the relayer checks that it is:
   - one `act_proposal` on our DAO;
   - a vote action;
   - zero deposit;
@@ -199,7 +215,7 @@ This build deploys **no smart contract**, so there are no contract audit finding
 | Tool | How Bluvfi Business uses it |
 |---|---|
 | **NEAR AI Cloud** (private models in TEEs) | The invoice reviewer, with attestation and signature checks. It also runs the privacy filter before reasoning and Whisper for voice callbacks |
-| **Function-call access keys** | The agent's only credential: `add_proposal` on the DAO and nothing else. Council browsers hold `act_proposal`-only keys |
+| **Function-call access keys** | The agent's only credential: `add_proposal` on the DAO and nothing else. Council members vote with their own wallets |
 | **Sputnik DAO / Trezu** | Treasury custody and multisig. We don't rebuild the multisig; the agent proposes Payment Requests in Trezu's format and humans vote |
 | **Aurora Intents swap widget** | Clients pay invoices from any wallet and token; amount, asset and recipient are fixed by our server |
 | **Meta transactions (NEP-366)** | Gasless council votes through a relayer that only relays votes |
@@ -234,7 +250,7 @@ This build deploys **no smart contract**, so there are no contract audit finding
 
 ```bash
 npm run ai:verify -- --review   # Layer 2 against the live NEAR AI Cloud: attestation, NVIDIA, signature, structured decision (needs NEAR_AI_API_KEY)
-npm test         # 90 tests; outside services are mocked inside tests/ only
+npm test         # 135 tests; outside services are mocked inside tests/ only
 npm run demo     # the end-to-end story; exits non-zero if an outcome or a signature is wrong
 ```
 

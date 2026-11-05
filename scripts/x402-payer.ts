@@ -4,35 +4,40 @@
  *
  *   setup [--mainnet]   make the wallet (once) and print its address and how to fund it
  *   status [--mainnet]  its address, its USDC balance and what it has spent today
+ *   token [--mainnet]   print the shared secret once, to put in .env.local as X402_PAYER_TOKEN
  *   serve [--mainnet]   run the service on 127.0.0.1:4020 (X402_PAYER_PORT)
  *
  * Testnet by default: it signs only for Base Sepolia, where USDC is free, so nothing real can be spent. --mainnet signs only for Base
  * mainnet. Limits: X402_PAYER_MAX_USD per payment (default 0.05) and X402_PAYER_MAX_DAY_USD per day (default 1).
- * The key and the shared secret are kept in .testnet/ or .mainnet/ (both git-ignored); the secret is never printed.
+ * The key and the shared secret are kept in .testnet/ or .mainnet/ (both git-ignored); the secret is never printed. The file is
+ * encrypted under BLUVFI_KEYFILE_PASSPHRASE (lib/keyfile.ts), which belongs in the environment, not in .env.local. On mainnet
+ * it is required, and a plain file from an older version is encrypted the first time it is opened.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 
 async function main() {
   const args = process.argv.slice(2);
   const step = args[0];
   const mainnet = args.includes("--mainnet");
-  const dir = mainnet ? ".mainnet" : ".testnet";
-  const file = `${dir}/x402-payer.json`;
-  const { generatePrivateKey, privateKeyToAccount } = await import("viem/accounts");
-  const { randomBytes } = await import("node:crypto");
+  const net = mainnet ? "mainnet" : "testnet";
+  const { privateKeyToAccount } = await import("viem/accounts");
   const { createPayer } = await import("../lib/x402-payer");
+  // The same wallet the Wallets page manages (lib/wallets.ts): same file, same sealing.
+  const { createWallet, openPayer, payerFile, payerSpentFile } = await import("../lib/wallets");
+  const { PASSPHRASE_ENV } = await import("../lib/keyfile");
+  const file = payerFile(net);
+  const passphrase = process.env[PASSPHRASE_ENV];
   const rpc = mainnet ? "https://mainnet.base.org" : "https://sepolia.base.org";
   const usdc = mainnet ? "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" : "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 
-  if (!step) return console.log("Steps: setup, status, serve. Add --mainnet for real money. See the top of this file.");
+  if (!step) return console.log("Steps: setup, token, status, serve. Add --mainnet for real money. See the top of this file.");
   if (step === "setup" && !existsSync(file)) {
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(file, JSON.stringify({ privateKey: generatePrivateKey(), token: randomBytes(24).toString("hex") }, null, 2));
-    console.log(`Made the payer's wallet (kept in ${file}, which git ignores).`);
+    createWallet(`payer-${net}`, passphrase);
+    console.log(`Made the payer's wallet (kept in ${file}, encrypted under your passphrase; git ignores it).`);
   }
-  if (!existsSync(file)) throw new Error(`Run \`npm run x402:payer -- setup${mainnet ? " --mainnet" : ""}\` first.`);
-  const { privateKey, token } = JSON.parse(readFileSync(file, "utf8")) as { privateKey: `0x${string}`; token: string };
+  if (!existsSync(file)) throw new Error(`Run \`npm run x402:payer -- setup${mainnet ? " --mainnet" : ""}\` first, or create it on the Wallets page.`);
+  const { privateKey, token } = openPayer(net, passphrase);
   const address = privateKeyToAccount(privateKey).address;
   const port = Number(process.env.X402_PAYER_PORT ?? 4020);
 
@@ -46,7 +51,7 @@ async function main() {
     privateKey, token, testnet: !mainnet,
     maxPaymentUsd: Number(process.env.X402_PAYER_MAX_USD ?? 0.05),
     maxDayUsd: Number(process.env.X402_PAYER_MAX_DAY_USD ?? 1),
-    spentFile: `${dir}/x402-payer-spent.json`,
+    spentFile: payerSpentFile(net),
   });
 
   if (step === "setup") {
@@ -54,7 +59,11 @@ async function main() {
     console.log(mainnet
       ? "Fund it with a few dollars of USDC on Base (no ETH needed: the API's facilitator pays the gas). Keep it small: it is the most this payer can ever lose."
       : "Get free test USDC for it: https://faucet.circle.com, choose Base Sepolia and USDC, paste the address above. No ETH is needed.");
-    console.log(`\nThen put these in .env.local (the secret is in ${file}, under "token"):\n  X402_PAYER_URL=http://127.0.0.1:${port}\n  X402_PAYER_TOKEN=<the token from ${file}>${mainnet ? "" : "\n  X402_TESTNET=1"}\nand run: npm run x402:payer -- serve${mainnet ? " --mainnet" : ""}\n`);
+    console.log(`\nThen put these in .env.local (get the secret with: npm run x402:payer -- token${mainnet ? " --mainnet" : ""}):\n  X402_PAYER_URL=http://127.0.0.1:${port}\n  X402_PAYER_TOKEN=<the secret printed by the token step>${mainnet ? "" : "\n  X402_TESTNET=1"}\nand run: npm run x402:payer -- serve${mainnet ? " --mainnet" : ""}\n`);
+    return;
+  }
+  if (step === "token") {
+    console.log(token);
     return;
   }
   if (step === "status") {
