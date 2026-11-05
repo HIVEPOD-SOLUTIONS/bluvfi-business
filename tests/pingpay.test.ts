@@ -69,3 +69,31 @@ test("pingpay: 402 carries the prepared challenge; verify and settle use x402 v2
     assert.equal(sb.paymentPayload.payload.txHash, "0xBaseTx");
   });
 });
+
+test("pingpay: the payment is verified and settled against the challenge the buyer paid, not a new one made for this request", async () => {
+  let n = 0;
+  await withFetch((url) => {
+    if (url.endsWith("/supported")) return json(SUPPORTED);
+    if (url.endsWith("/prepare")) { n++; return json({ ...PREPARED, payTo: `0xDeposit${n}`, agentPayChallengeId: `chal-${n}` }); }
+    if (url.endsWith("/verify")) return json({ isValid: true });
+    if (url.endsWith("/settle")) return json({ success: true, transaction: "0xBaseTx" });
+    return json({}, 404);
+  }, async (calls) => {
+    const first = await call();
+    const j = (await first.json()) as { accepts: Record<string, unknown>[] };
+    assert.equal(j.accepts[0].payTo, "0xDeposit1");
+    // The buyer pays challenge 1. The paid request makes challenge 2, which is not the one they paid.
+    const payment = Buffer.from(JSON.stringify({ x402Version: 2, accepted: j.accepts[0], payload: { txHash: "0xBaseTx" } })).toString("base64");
+    const paid = await call({ "x-payment": payment });
+    assert.equal(paid.status, 200);
+    const verify = JSON.parse(String(calls.find((c) => c.url.endsWith("/verify"))!.init?.body));
+    assert.equal(verify.paymentRequirements.payTo, "0xDeposit1");
+    assert.equal(JSON.parse(String(calls.find((c) => c.url.endsWith("/settle"))!.init?.body)).paymentRequirements.extra.agentPayChallengeId, "chal-1");
+
+    // A payment that names a cheaper price is not accepted as the buyer's own terms.
+    const cheap = Buffer.from(JSON.stringify({ x402Version: 2, accepted: { ...j.accepts[0], amount: "1" }, payload: {} })).toString("base64");
+    await call({ "x-payment": cheap });
+    const lastVerify = JSON.parse(String([...calls].reverse().find((c) => c.url.endsWith("/verify"))!.init?.body));
+    assert.equal(lastVerify.paymentRequirements.amount, "10021", "verified against our price, not the buyer's");
+  });
+});

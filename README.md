@@ -168,7 +168,7 @@ This build deploys **no smart contract**, so there are no contract audit finding
 
 | Piece | Status |
 |---|---|
-| Fraud checks, policy gate, kill switch, hold window, callbacks, blocklist | Done, unit-tested |
+| Fraud checks, policy gate, kill switch, hold window, callbacks, blocklist | Done, unit-tested. Counterparty signals (including a contract's code changing in the last 30 days, from an archive node) and the voice callback's speech-to-text (real Whisper on NEAR AI) run against the real services in `tests/real/layer4.test.ts`; Telegram and Twilio need your own accounts |
 | NEAR AI signature + TDX + NVIDIA verification | Written to NEAR AI's verification docs and unit-tested against an independent implementation; NVIDIA's signed verdict is checked locally; the decision is structured output, enforced. **Not yet run end to end with a real key:** run `npm run ai:verify -- --review` with one (a few cents of credits), then `npm run fixtures:record` |
 | NEAR AI privacy filter (`/v1/privacy/redact`) | Done to the API reference, tested with a mock; not run against the live endpoint |
 | Sputnik DAO custody (scoped key, proposals, status) | Done, tested against a mocked NEAR RPC. **Not yet run on mainnet** |

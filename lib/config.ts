@@ -25,6 +25,8 @@ export const NEAR_AI_BASE = process.env.NEAR_AI_BASE_URL ?? "https://cloud-api.n
 export const NEAR_AI_MODEL = process.env.NEAR_AI_MODEL ?? "zai-org/GLM-5.1-FP8";
 
 export const NEAR_RPC_URL = process.env.NEAR_RPC_URL ?? (NETWORK === "testnet" ? "https://test.rpc.fastnear.com" : "https://rpc.mainnet.near.org");
+/** Archival NEAR RPC: old blocks, to tell whether a payee's contract code changed recently. */
+export const NEAR_ARCHIVAL_RPC_URL = process.env.NEAR_ARCHIVAL_RPC_URL ?? (NETWORK === "testnet" ? "https://archival-rpc.testnet.fastnear.com" : "https://archival-rpc.mainnet.fastnear.com");
 export const EVM_RPC_URL = process.env.EVM_RPC_URL ?? "https://ethereum-rpc.publicnode.com";
 
 export const ONECLICK_BASE = process.env.ONECLICK_BASE_URL ?? "https://1click.chaindefuser.com";
@@ -61,6 +63,8 @@ export const X402_FACILITATOR_URL = (process.env.X402_FACILITATOR_URL ?? "").rep
 export const X402_PAYER_TOKEN = process.env.X402_PAYER_TOKEN ?? "";
 /** X402_TESTNET=1: the agent may also pay in USDC on Base Sepolia, so the whole spending path can be run for real with free test tokens. */
 export const X402_TESTNET = process.env.X402_TESTNET === "1";
+/** With X402_TESTNET=1 and this EVM address, Check can also be paid in free Base Sepolia test USDC, through the public x402.org facilitator, so selling it can be run for real. */
+export const X402_PAYTO_EVM = process.env.X402_PAYTO_EVM ?? "";
 export const X402_PAYER_URL = (process.env.X402_PAYER_URL ?? "").replace(/\/$/, "");
 
 /**

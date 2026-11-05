@@ -7,15 +7,20 @@ import { NEAR_AI_BASE, NEAR_AI_KEY } from "./config";
  * our account credentials and passed straight through; it is not stored here.
  */
 export async function transcribeTwilioRecording(recordingUrl: string): Promise<string> {
-  if (!NEAR_AI_KEY) throw new Error("NEAR_AI_API_KEY is not set");
   if (!/^https:\/\/api\.twilio\.com\//.test(recordingUrl)) throw new Error("Not a Twilio recording URL");
   const audio = await fetch(`${recordingUrl}.wav`, {
     headers: { authorization: `Basic ${Buffer.from(`${cfg().TWILIO_ACCOUNT_SID}:${cfg().TWILIO_AUTH_TOKEN}`).toString("base64")}` },
     signal: AbortSignal.timeout(20_000),
   });
   if (!audio.ok) throw new Error(`Twilio recording fetch failed (${audio.status})`);
+  return transcribeAudio(await audio.arrayBuffer());
+}
+
+/** WAV audio to text with Whisper on NEAR AI Cloud. Separate from the Twilio fetch so it can be run on any recording. */
+export async function transcribeAudio(wav: ArrayBuffer): Promise<string> {
+  if (!NEAR_AI_KEY) throw new Error("NEAR_AI_API_KEY is not set");
   const form = new FormData();
-  form.append("file", new Blob([await audio.arrayBuffer()], { type: "audio/wav" }), "answer.wav");
+  form.append("file", new Blob([wav], { type: "audio/wav" }), "answer.wav");
   form.append("model", "openai/whisper-large-v3");
   form.append("response_format", "json");
   const res = await fetch(`${NEAR_AI_BASE}/audio/transcriptions`, {

@@ -1,10 +1,12 @@
 import { cfg } from "./business";
-import { EVM_RPC_URL, NEARBLOCKS_BASE, NEARBLOCKS_KEY, NEAR_RPC_URL } from "./config";
+import { EVM_RPC_URL, NEARBLOCKS_BASE, NEARBLOCKS_KEY, NEAR_ARCHIVAL_RPC_URL, NEAR_RPC_URL } from "./config";
 import { NEAR_USDC_CONTRACT } from "./chains";
 import type { CounterpartySignals } from "./fraud";
 
 const EMPTY_CODE_HASH = "11111111111111111111111111111111";
 const TTL_MS = 10 * 60_000;
+/** A contract whose code differs from what it ran this many days ago is "changed recently". */
+export const CODE_CHANGE_DAYS = 30;
 
 const cache = new Map<string, { at: number; s: CounterpartySignals }>();
 
@@ -32,7 +34,31 @@ async function nearSignals(account: string): Promise<CounterpartySignals> {
   if (j.error?.cause?.name === "UNKNOWN_ACCOUNT") return { ageDays: 0, isContract: false, codeChangedRecently: null, priorInteractions: 0, source: "near-rpc" };
   if (!j.result) throw new Error("no result");
   // view_account has no creation time; NearBlocks does (no key needed for light use). Unknown if it fails.
-  return { ageDays: await nearAccountAgeDays(account), isContract: j.result.code_hash !== EMPTY_CODE_HASH, codeChangedRecently: null, priorInteractions: 0, source: "near-rpc" };
+  const isContract = j.result.code_hash !== EMPTY_CODE_HASH;
+  const [ageDays, codeChangedRecently] = await Promise.all([nearAccountAgeDays(account), isContract ? nearCodeChanged(account, j.result.code_hash!) : Promise.resolve(false)]);
+  return { ageDays, isContract, codeChangedRecently, priorInteractions: 0, source: "near-rpc" };
+}
+
+/**
+ * Did this contract's code change in the last CODE_CHANGE_DAYS? Compares its code hash now with its code hash at the block that old,
+ * read from an archival node (the ordinary node forgets old blocks). null when the archive cannot answer: unknown is never reported as "no".
+ */
+async function nearCodeChanged(account: string, nowHash: string): Promise<boolean | null> {
+  try {
+    const call = (method: string, params: unknown) => rpc(NEAR_ARCHIVAL_RPC_URL, { jsonrpc: "2.0", id: "pp", method, params }) as Promise<{
+      result?: { header?: { height?: number }; code_hash?: string };
+      error?: { cause?: { name?: string } };
+    }>;
+    const head = (await call("block", { finality: "final" })).result?.header?.height;
+    if (!head) return null;
+    // NEAR makes about one block a second.
+    const old = await call("query", { request_type: "view_account", block_id: head - CODE_CHANGE_DAYS * 86_400, account_id: account });
+    if (old.error?.cause?.name === "UNKNOWN_ACCOUNT") return true; // it did not exist then and has code now
+    if (!old.result?.code_hash) return null;
+    return old.result.code_hash !== nowHash;
+  } catch {
+    return null;
+  }
 }
 
 /** Days since the account was created, from NearBlocks (data.created.block_timestamp is in nanoseconds). */

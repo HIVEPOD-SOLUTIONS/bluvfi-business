@@ -1,6 +1,6 @@
 import { cfg } from "./business";
 import { NEAR_USDC_CONTRACT } from "./chains";
-import { PINGPAY_BASE } from "./config";
+import { PINGPAY_BASE, X402_PAYTO_EVM, X402_TESTNET } from "./config";
 
 /**
  * Selling Bluvfi Business Check per call over x402. Two facilitators:
@@ -16,6 +16,11 @@ export interface Facilitator {
   name: string;
   version: 1 | 2;
   requirements(resource: string): Promise<Record<string, unknown>>;
+  /**
+   * The requirements a payment is verified and settled against. A facilitator that makes a fresh challenge for each request (PingPay) must
+   * be verified against the challenge the buyer actually paid, which the payment names; one with fixed requirements just returns them.
+   */
+  forPayment?(paymentPayload: unknown, fresh: Record<string, unknown>): Record<string, unknown>;
   verify(paymentPayload: unknown, requirements: Record<string, unknown>): Promise<{ ok: boolean; reason?: string }>;
   settle(paymentPayload: unknown, requirements: Record<string, unknown>): Promise<{ ok: boolean; reason?: string; transaction?: string }>;
 }
@@ -73,12 +78,48 @@ function pingpay(): Facilitator {
         extra: { ...((prep.extra as object | undefined) ?? {}), agentPayChallengeId: prep.agentPayChallengeId, expiresAt: prep.expiresAt, resource },
       };
     },
+    forPayment(payload, fresh) {
+      // Verify against the challenge the buyer paid (it names agentPayChallengeId), not a new one made for this request, and only if it is
+      // still a Bluvfi Check challenge for the right price. PingPay checks the challenge itself against its own records with our key.
+      const a = (payload as { accepted?: Record<string, unknown> } | null)?.accepted;
+      const id = (a?.extra as { agentPayChallengeId?: unknown } | undefined)?.agentPayChallengeId;
+      if (a && id && String(a.network) === String(fresh.network) && String(a.asset).toLowerCase() === String(fresh.asset).toLowerCase() && BigInt(String(a.amount ?? 0)) >= BigInt(String(fresh.amount ?? 0))) return a;
+      return fresh;
+    },
     async verify(paymentPayload, paymentRequirements) {
       const j = await post(url("verify"), { x402Version: 2, paymentPayload, paymentRequirements }, h);
       return { ok: j.isValid === true, reason: String(j.invalidReason ?? j.error ?? "") };
     },
     async settle(paymentPayload, paymentRequirements) {
       const j = await post(url("settle"), { x402Version: 2, paymentPayload, paymentRequirements }, h);
+      return { ok: j.success === true, reason: String(j.errorReason ?? j.error ?? ""), transaction: j.transaction ? String(j.transaction) : undefined };
+    },
+  };
+}
+
+/**
+ * The public x402.org facilitator on Base Sepolia, which settles free test USDC. It lets Check be sold and paid for end to end, for real,
+ * with nothing at stake: X402_TESTNET=1 and X402_PAYTO_EVM (an address that receives the test USDC). Requirements are fixed, so the buyer's
+ * payment verifies against exactly what it was shown.
+ */
+export const X402_ORG = "https://x402.org/facilitator";
+const SEPOLIA_USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
+function x402org(): Facilitator {
+  return {
+    name: "x402.org (Base Sepolia, test USDC)",
+    version: 2,
+    async requirements(resource) {
+      return {
+        scheme: "exact", network: "eip155:84532", asset: SEPOLIA_USDC, amount: PRICE_RAW, payTo: X402_PAYTO_EVM, maxTimeoutSeconds: 60,
+        extra: { name: "USDC", version: "2", resource, description: DESCRIPTION },
+      };
+    },
+    async verify(paymentPayload, paymentRequirements) {
+      const j = await post(`${X402_ORG}/verify`, { x402Version: 2, paymentPayload, paymentRequirements });
+      return { ok: j.isValid === true, reason: String(j.invalidReason ?? j.error ?? "") };
+    },
+    async settle(paymentPayload, paymentRequirements) {
+      const j = await post(`${X402_ORG}/settle`, { x402Version: 2, paymentPayload, paymentRequirements });
       return { ok: j.success === true, reason: String(j.errorReason ?? j.error ?? ""), transaction: j.transaction ? String(j.transaction) : undefined };
     },
   };
@@ -109,5 +150,6 @@ function generic(): Facilitator {
 export function facilitator(): Facilitator | null {
   if (cfg().PINGPAY_API_KEY) return pingpay();
   if (cfg().X402_FACILITATOR_URL && cfg().TREASURY_ACCOUNT) return generic();
+  if (X402_TESTNET && /^0x[0-9a-fA-F]{40}$/.test(X402_PAYTO_EVM)) return x402org();
   return null;
 }

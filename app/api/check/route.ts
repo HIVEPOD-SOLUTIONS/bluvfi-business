@@ -14,8 +14,13 @@ import { facilitator } from "@/lib/x402";
 export const POST = route(async (req) => {
   const f = facilitator();
   if (!f) return NextResponse.json({ error: "This business is not accepting paid checks: it has no PingPay key, or facilitator and treasury, set in Settings" }, { status: 503 });
-  const requirements = await f.requirements(new URL(req.url).toString());
-  const refuse = (error: string) => NextResponse.json({ x402Version: f.version, error, accepts: [requirements] }, { status: 402 });
+  const resource = new URL(req.url).toString();
+  let requirements = await f.requirements(resource);
+  // x402 v2 clients read the requirements from the PAYMENT-REQUIRED header; v1 clients and ours also read the body.
+  const refuse = (error: string) => {
+    const body = { x402Version: f.version, error, accepts: [requirements] };
+    return NextResponse.json(body, { status: 402, headers: f.version === 2 ? { "payment-required": Buffer.from(JSON.stringify({ ...body, resource: { url: resource } })).toString("base64") } : {} });
+  };
 
   const header = req.headers.get("x-payment") ?? req.headers.get("payment-signature");
   if (!header) return refuse("X-PAYMENT header is required");
@@ -26,6 +31,7 @@ export const POST = route(async (req) => {
     return refuse("X-PAYMENT is not base64 JSON");
   }
 
+  if (f.forPayment) requirements = f.forPayment(paymentPayload, requirements);
   const verified = await f.verify(paymentPayload, requirements);
   if (!verified.ok) return refuse(`Payment not valid${verified.reason ? `: ${verified.reason}` : ""}`);
 
