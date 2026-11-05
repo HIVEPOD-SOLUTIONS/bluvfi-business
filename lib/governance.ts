@@ -61,7 +61,7 @@ export const daoPolicyTag = (version: number, changes: PolicyProposal["changes"]
  * kind, so it is a FunctionCall to the DAO itself that only runs a view method: it changes nothing when executed, and
  * its description holds the tag. The agent's scoped key can file it; the council's vote is the approval.
  */
-const carrierKind = () => ({
+export const carrierKind = () => ({
   FunctionCall: { receiver_id: cfg().DAO_ACCOUNT, actions: [{ method_name: "get_last_proposal_id", args: Buffer.from("{}").toString("base64"), deposit: "0", gas: "5000000000000" }] },
 });
 

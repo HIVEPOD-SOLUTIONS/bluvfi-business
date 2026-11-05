@@ -121,6 +121,14 @@ async function fetchStatus(inquiryId: string): Promise<KybStatus> {
   return mapStatus(j.data.attributes.status);
 }
 
+/** The raw status and note of an inquiry, for a party that checks the decision for itself (lib/zk-attester.ts). */
+export async function fetchInquiry(inquiryId: string): Promise<{ status: string; note: string }> {
+  const res = await persona(`/inquiries/${encodeURIComponent(inquiryId)}`);
+  const j = (await res.json().catch(() => ({}))) as { data?: { attributes?: { status?: string; note?: string } } };
+  if (!res.ok || !j.data?.attributes?.status) throw new Error(`Persona did not return the inquiry (${res.status})`);
+  return { status: j.data.attributes.status, note: j.data.attributes.note ?? "" };
+}
+
 /** Pull the current decision from Persona into the record it belongs to. Safe to call any time (it is what the Refresh button does). */
 export async function refreshInquiry(inquiryId: string): Promise<KybRecord | undefined> {
   const e = load()[inquiryId];

@@ -117,7 +117,7 @@ export async function spendingWalletBalances(): Promise<Balance[]> {
   return accountBalances(cfg().OUTLAYER_WALLET_ACCOUNT);
 }
 
-async function accountBalances(account: string): Promise<Balance[]> {
+export async function accountBalances(account: string): Promise<Balance[]> {
   const [acct, usdc] = await Promise.all([
     nearQuery({ request_type: "view_account", account_id: account }),
     nearQuery({

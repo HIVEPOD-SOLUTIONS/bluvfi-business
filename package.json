@@ -26,7 +26,10 @@
     "testnet:setup": "tsx scripts/testnet-setup.ts",
     "mainnet:setup": "tsx scripts/mainnet-setup.ts",
     "test:testnet": "tsx --test --test-concurrency=1 tests/testnet/*.test.ts",
-    "test:real": "tsx --test --test-concurrency=1 tests/real/*.test.ts"
+    "test:real": "tsx --test --test-concurrency=1 tests/real/*.test.ts",
+    "zk:claims:vk": "tsx scripts/zk-claims-vk.ts",
+    "zk:claim:verify": "tsx scripts/zk-claim-verify.ts",
+    "zk:attester": "tsx scripts/zk-attester.ts"
   },
   "dependencies": {
     "@aurora-is-near/intents-swap-widget-standalone": "^7.28.0",

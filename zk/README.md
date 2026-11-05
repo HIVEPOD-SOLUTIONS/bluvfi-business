@@ -29,6 +29,15 @@ npm run zk:vk               # recompile the circuit and rewrite zk/verification-
 
 The first compile takes about 20 s. Its prover keys (about 70 MB) are cached in `.data/zk/cache`.
 
+## Zero-knowledge claims (the Proofs page)
+
+Besides the policy proof, `lib/zk-claims-program.ts` has claims that keep something secret: a payee address or a vendor name is not on the OFAC list, a party passed identity verification, the treasury held at least $X (both attested by k of n issuers), and a secret circuit of up to 2,048 gates stays within a qubit and Toffoli bound (recursive proofs). Their verification keys are in `zk/claims-verification-keys.json`. Independent attesters run with `npm run zk:attester` (see `.env.example`).
+
+```sh
+npm run zk:claims:vk                     # recompile the four circuits and rewrite the keys after changing one
+npm run zk:claim:verify -- proof.json    # verify any claim file on its own (add --issuer <key> and --list-root <root> to pin them)
+```
+
 ## Tests
 
 `tests/zk.test.ts` makes a real proof and checks five things:

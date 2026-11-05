@@ -15,7 +15,7 @@ const BASE = process.env.OFAC_BASE_URL ?? "https://sanctionslistservice.ofac.tre
 const CACHE = process.env.BLUVFI_PERSIST === "0" ? "" : (process.env.OFAC_CACHE_FILE ?? ".data/sanctions.json");
 const MAX_AGE_MS = 24 * 3_600_000;
 
-interface Index {
+export interface SanctionsIndex {
   fetchedAt: number;
   /** When OFAC last changed the file (its Last-Modified header). */
   listDate: string;
@@ -59,10 +59,10 @@ export const normalizeName = (s: string) =>
 const dash = (s: string | undefined) => (!s || s.trim() === "-0-" ? "" : s.trim());
 const ADDRESS = /Digital Currency Address - ([A-Z0-9]+) ([A-Za-z0-9]+)/g;
 /** EVM addresses are case-insensitive; every other chain's addresses are case-sensitive. */
-const addressKey = (a: string) => (/^0x[0-9a-fA-F]{40}$/.test(a) ? a.toLowerCase() : a);
+export const addressKey = (a: string) => (/^0x[0-9a-fA-F]{40}$/.test(a) ? a.toLowerCase() : a);
 
-export function buildIndex(sdnCsv: string, altCsv: string, listDate: string, now = Date.now()): Index {
-  const idx: Index = { fetchedAt: now, listDate, entities: {}, addresses: {}, names: [] };
+export function buildIndex(sdnCsv: string, altCsv: string, listDate: string, now = Date.now()): SanctionsIndex {
+  const idx: SanctionsIndex = { fetchedAt: now, listDate, entities: {}, addresses: {}, names: [] };
   for (const r of parseCsv(sdnCsv)) {
     const [ent, name, type, program, , , , , , , , remarks] = r;
     if (!ent || !name) continue;
@@ -80,19 +80,19 @@ export function buildIndex(sdnCsv: string, altCsv: string, listDate: string, now
   return idx;
 }
 
-let memory: Index | undefined;
-let loading: Promise<Index | undefined> | undefined;
+let memory: SanctionsIndex | undefined;
+let loading: Promise<SanctionsIndex | undefined> | undefined;
 
-function readCache(): Index | undefined {
+function readCache(): SanctionsIndex | undefined {
   try {
-    if (CACHE && existsSync(CACHE)) return JSON.parse(readFileSync(CACHE, "utf8")) as Index;
+    if (CACHE && existsSync(CACHE)) return JSON.parse(readFileSync(CACHE, "utf8")) as SanctionsIndex;
   } catch {
     /* an unreadable cache is just a missing one */
   }
   return undefined;
 }
 
-async function download(): Promise<Index> {
+async function download(): Promise<SanctionsIndex> {
   const get = async (file: string) => {
     const r = await fetch(`${BASE}/${file}`, { signal: AbortSignal.timeout(90_000) });
     if (!r.ok) throw new Error(`OFAC ${file}: HTTP ${r.status}`);
@@ -104,7 +104,7 @@ async function download(): Promise<Index> {
 }
 
 /** The list, from memory, the cache file, or OFAC. A failed refresh keeps the older copy. */
-export async function loadSanctions(force = false): Promise<Index | undefined> {
+export async function loadSanctions(force = false): Promise<SanctionsIndex | undefined> {
   if (!force && memory && Date.now() - memory.fetchedAt < MAX_AGE_MS) return memory;
   memory ??= readCache();
   if (!force && memory && Date.now() - memory.fetchedAt < MAX_AGE_MS) return memory;
@@ -129,7 +129,7 @@ export async function loadSanctions(force = false): Promise<Index | undefined> {
 /** Test helper: forget the in-memory list. */
 export const resetSanctions = () => { memory = undefined; };
 /** Test helper: use this list instead of OFAC's. */
-export const useSanctionsIndex = (idx: Index) => { memory = idx; };
+export const useSanctionsIndex = (idx: SanctionsIndex) => { memory = idx; };
 
 const levenshteinWithin = (a: string, b: string, max: number): boolean => {
   if (Math.abs(a.length - b.length) > max) return false;

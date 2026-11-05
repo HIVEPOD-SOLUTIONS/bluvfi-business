@@ -13,7 +13,7 @@ const PUBLIC = [
   /^\/check$/, /^\/api\/check(\/try)?$/, /^\/api\/openapi$/,
   /^\/ledger$/,
   /^\/view$/, /^\/api\/audit\/open$/,
-  /^\/api\/telegram\/webhook$/, /^\/api\/twilio\/voice$/, /^\/api\/kyb\/webhook$/,
+  /^\/api\/telegram\/webhook$/, /^\/api\/twilio\/voice$/, /^\/api\/kyb\/webhook$/, /^\/api\/claims\/verify$/, /^\/verify-proof$/,
   // Scheduled polling: these check a bearer secret or a signer session themselves.
   /^\/api\/agentmarket\/poll$/, /^\/api\/settlement\/poll$/,
   /^\/apple-icon$/, /^\/manifest\.webmanifest$/,

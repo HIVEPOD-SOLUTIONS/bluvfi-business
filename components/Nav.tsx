@@ -11,6 +11,7 @@ const ITEMS = [
   { href: "/team", label: "Team", icon: "☺" },
   { href: "/settings", label: "Settings", icon: "⚙" },
   { href: "/auditor", label: "Auditor", icon: "✓" },
+  { href: "/proofs", label: "Proofs", icon: "∴" },
   { href: "/check", label: "Check", icon: "◎" },
   { href: "/ledger", label: "Ledger", icon: "≡" },
 ];
