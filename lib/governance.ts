@@ -34,6 +34,17 @@ export function validateChanges(c: PolicyProposal["changes"]) {
   const badAsset = c.allowedAssets.find((x) => !KNOWN_ASSETS.has(x));
   if (badAsset) throw new Error(`Unknown asset "${badAsset}". Supported: ${[...KNOWN_ASSETS].join(", ")}.`);
   if (c.privacyFloor !== undefined && !["public", "basic", "advanced"].includes(c.privacyFloor)) throw new Error("The privacy floor must be public, basic or advanced.");
+  if (c.privacyProfile !== undefined && !["open", "startup", "institution", "holder"].includes(c.privacyProfile)) throw new Error("The privacy profile must be open, startup, institution or holder.");
+  const levels = ["public", "basic", "advanced"];
+  if (c.privacyTiers !== undefined) {
+    if (!Array.isArray(c.privacyTiers) || c.privacyTiers.length > 10) throw new Error("Give at most 10 privacy tiers.");
+    for (const t of c.privacyTiers) if (!(Number.isFinite(t.aboveUsd) && t.aboveUsd > 0) || !levels.includes(t.level)) throw new Error("Each privacy tier needs an amount above zero and a level of public, basic or advanced.");
+  }
+  if (c.privateVendors !== undefined) {
+    const e = Object.entries(c.privateVendors);
+    if (e.length > 200) throw new Error("Name at most 200 private vendors.");
+    for (const [name, level] of e) if (!name.trim() || name.length > 120 || !levels.includes(level)) throw new Error("Each private vendor needs a name and a level of public, basic or advanced.");
+  }
   if (c.requirePostQuantumKeys !== undefined && typeof c.requirePostQuantumKeys !== "boolean") throw new Error("Require post-quantum keys must be true or false.");
 }
 
@@ -71,7 +82,7 @@ function daoPolicyText(version: number, changes: PolicyProposal["changes"]) {
     `Bluvfi Business policy v${version}: per payment ${usd(changes.perPaymentLimitUsd)}, daily ${usd(changes.dailyLimitUsd)}, ` +
     `signer approval from ${usd(changes.approvalThresholdUsd)}, hold ${changes.holdWindowMinutes} min, chains ${changes.allowedChains.join("/")}, ` +
     `assets ${changes.allowedAssets.join("/")}, ${changes.vendorAllowlist.length} allowlisted vendor(s), API spend ${usd(changes.x402DailyLimitUsd)}/day, ` +
-    `privacy floor ${changes.privacyFloor ?? "public"}, post-quantum keys ${changes.requirePostQuantumKeys ? "required" : "optional"}. ${tag}`;
+    `privacy floor ${changes.privacyFloor ?? "public"}${changes.privacyProfile ? ` (${changes.privacyProfile})` : ""}, ${changes.privacyTiers?.length ?? 0} amount tier(s), ${Object.keys(changes.privateVendors ?? {}).length} private vendor(s), post-quantum keys ${changes.requirePostQuantumKeys ? "required" : "optional"}. ${tag}`;
   const kind = carrierKind();
   const args = JSON.stringify({ proposal: { description, kind } });
   return {

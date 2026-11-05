@@ -51,6 +51,12 @@ export interface Policy {
    * Missing on versions made before it existed, which means "public".
    */
   privacyFloor?: Confidentiality;
+  /** What kind of treasury this is (lib/privacy.ts); it fills in the rules below, which are what is enforced. Missing means none. */
+  privacyProfile?: import("./privacy").PrivacyProfile;
+  /** Payments at or above an amount are raised to a level. */
+  privacyTiers?: { aboveUsd: number; level: Confidentiality }[];
+  /** Vendors who need privacy (payroll, investors, legal), by name: their payments are raised to a level. */
+  privateVendors?: Record<string, Confidentiality>;
   /** Refuse payouts unless every key that can move money (agent, relayer, council) is post-quantum (ML-DSA). Missing means off. */
   requirePostQuantumKeys?: boolean;
   hash: string;

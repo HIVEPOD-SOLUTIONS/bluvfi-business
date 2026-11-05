@@ -9,7 +9,7 @@ import { runFraudChecks, runPublicCheck, worst } from "./fraud";
 import type { Judged } from "./nearai";
 import { attestationTrusted, computeFacts, unavailablePanel, verifyDecision } from "./nearai-core";
 import { isRegisteredSigner } from "./aimodel";
-import { evaluatePolicy, needsApproval, withPrivacyFloor } from "./policy";
+import { evaluatePolicy, needsApproval, privacyForPayment } from "./policy";
 import { services } from "./services";
 import { currentPolicy, dataKey, fraudContext, persist, persistenceOn, pqSeed, pqSeeds, prefetchCounterparty, spentTodayUsd, state } from "./store";
 import type { CheckRequest, CheckResponse, CheckResult, Confidentiality, Invoice, Payment, PaymentStatus } from "./types";
@@ -51,9 +51,10 @@ export async function processInvoice(inv: Invoice, confidentiality: Confidential
   const policyCtx = { killSwitch: s.killSwitch, spentTodayUsd: spentTodayUsd() };
   const policyChecks = evaluatePolicy(inv, policy, policyCtx);
   // Privacy is optional, but the policy can set a floor (for investors, institutions and others who need it).
-  const conf = withPrivacyFloor(confidentiality, policy);
+  const priv = privacyForPayment(confidentiality, inv, policy);
+  const conf = priv.level;
   if (conf !== confidentiality) {
-    policyChecks.push({ id: "privacy", label: "Privacy floor", verdict: "allow", reason: `Confidentiality raised from ${confidentiality} to ${conf}: policy v${policy.version} sets a privacy floor.` });
+    policyChecks.push({ id: "privacy", label: "Privacy rules", verdict: "allow", reason: `Confidentiality raised from ${confidentiality} to ${conf} by policy v${policy.version}: ${priv.why.join("; ")}.` });
   }
   await prefetchCounterparty(inv.payoutAddress, inv.chain);
   const fraudChecks = runFraudChecks(inv, fraudContext());
@@ -177,7 +178,7 @@ export async function release(p: Payment): Promise<void> {
     return;
   }
   try {
-    p.confidentiality = withPrivacyFloor(p.confidentiality, currentPolicy()); // the floor may have been raised since intake
+    p.confidentiality = privacyForPayment(p.confidentiality, p.invoice, currentPolicy()).level; // the rules may have been tightened since intake
     const window = await payoutWindowMs();
     // A confidential treasury quotes from its shielded balance; everyone else quotes a public deposit address.
     p.quote = cfg().CONFIDENTIAL ? await services.quoteConfidential(p.invoice, window) : await services.quotePayout(p.invoice, p.confidentiality, window);

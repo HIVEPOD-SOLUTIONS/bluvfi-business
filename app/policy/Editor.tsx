@@ -1,7 +1,14 @@
 "use client";
 import { useState } from "react";
 import { ActionButton, ErrorLine, useAction } from "@/components/Actions";
-import type { Policy } from "@/lib/types";
+import { LEVELS, PRIVACY_PROFILES, type PrivacyProfile } from "@/lib/privacy";
+import type { Confidentiality, Policy } from "@/lib/types";
+
+const tiersToText = (t: Policy["privacyTiers"]) => (t ?? []).map((x) => `${x.aboveUsd}: ${x.level}`).join("\n");
+const vendorsToText = (v: Policy["privateVendors"]) => Object.entries(v ?? {}).map(([n, l]) => `${n}: ${l}`).join("\n");
+const level = (s: string): Confidentiality => { const l = s.trim().toLowerCase() as Confidentiality; if (!LEVELS.includes(l)) throw new Error(`"${s.trim()}" is not a level: use public, basic or advanced.`); return l; };
+const parseTiers = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean).map((x) => { const [a, l] = x.split(":"); return { aboveUsd: Number(a.replace(/[$,]/g, "")), level: level(l ?? "") }; });
+const parseVendors = (s: string) => Object.fromEntries(s.split("\n").map((x) => x.trim()).filter(Boolean).map((x) => { const i = x.lastIndexOf(":"); if (i < 1) throw new Error(`"${x}": write the vendor, a colon, then the level.`); return [x.slice(0, i).trim(), level(x.slice(i + 1))]; }));
 
 export function PolicyEditor({ policy, signer }: { policy: Policy; signer: string }) {
   const { run, error, loading } = useAction();
@@ -11,7 +18,9 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
     x402DailyLimitUsd: String(policy.x402DailyLimitUsd), allowedChains: policy.allowedChains.join(", "),
     allowedAssets: policy.allowedAssets.join(", "), vendorAllowlist: policy.vendorAllowlist.join("\n"),
     privacyFloor: policy.privacyFloor ?? "public", requirePostQuantumKeys: !!policy.requirePostQuantumKeys,
+    privacyProfile: (policy.privacyProfile ?? "") as PrivacyProfile | "", privacyTiers: tiersToText(policy.privacyTiers), privateVendors: vendorsToText(policy.privateVendors),
   });
+  const [formError, setFormError] = useState("");
   const [sent, setSent] = useState(false);
   const list = (s: string, sep: RegExp) => s.split(sep).map((x) => x.trim()).filter(Boolean);
   const num = (k: "perPaymentLimitUsd" | "dailyLimitUsd" | "approvalThresholdUsd" | "holdWindowMinutes" | "x402DailyLimitUsd", label: string, hint?: string) => (
@@ -27,6 +36,9 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
       onSubmit={async (e) => {
         e.preventDefault();
         setSent(false);
+        setFormError("");
+        let privacyTiers: ReturnType<typeof parseTiers>, privateVendors: ReturnType<typeof parseVendors>;
+        try { privacyTiers = parseTiers(f.privacyTiers); privateVendors = parseVendors(f.privateVendors); } catch (err) { setFormError((err as Error).message); return; }
         const ok = await run("/api/policy", {
           changes: {
             perPaymentLimitUsd: Number(f.perPaymentLimitUsd), dailyLimitUsd: Number(f.dailyLimitUsd),
@@ -34,6 +46,7 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
             x402DailyLimitUsd: Number(f.x402DailyLimitUsd), allowedChains: list(f.allowedChains, /[,\s]+/),
             allowedAssets: list(f.allowedAssets, /[,\s]+/).map((a) => a.toUpperCase()), vendorAllowlist: list(f.vendorAllowlist, /\n/),
             privacyFloor: f.privacyFloor, requirePostQuantumKeys: f.requirePostQuantumKeys,
+            ...(f.privacyProfile ? { privacyProfile: f.privacyProfile } : {}), privacyTiers, privateVendors,
           },
         });
         if (ok) setSent(true);
@@ -48,6 +61,15 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
         <input className="input mt-1" value={f.allowedChains} onChange={(e) => setF({ ...f, allowedChains: e.target.value })} /></label>
       <label className="block"><span className="label">Allowed assets</span>
         <input className="input mt-1" value={f.allowedAssets} onChange={(e) => setF({ ...f, allowedAssets: e.target.value })} /></label>
+      <label className="block sm:col-span-2"><span className="label">Who needs privacy: treasury type</span>
+        <select className="input mt-1" value={f.privacyProfile} onChange={(e) => {
+          const p = e.target.value as PrivacyProfile | "";
+          setF(p ? { ...f, privacyProfile: p, privacyFloor: PRIVACY_PROFILES[p].floor, privacyTiers: tiersToText(PRIVACY_PROFILES[p].tiers) } : { ...f, privacyProfile: "" });
+        }}>
+          <option value="">Custom (set the rules below)</option>
+          {(Object.keys(PRIVACY_PROFILES) as PrivacyProfile[]).map((k) => <option key={k} value={k}>{PRIVACY_PROFILES[k].label}</option>)}
+        </select>
+        <span className="text-xs" style={{ color: "var(--tx-2)" }}>{f.privacyProfile ? PRIVACY_PROFILES[f.privacyProfile].who : "Privacy is optional and set by your council. Pick a type to fill in the rules, then adjust them."}</span></label>
       <label className="block"><span className="label">Privacy floor</span>
         <select className="input mt-1" value={f.privacyFloor} onChange={(e) => setF({ ...f, privacyFloor: e.target.value as Policy["privacyFloor"] & string })}>
           <option value="public">None: each payment chooses</option>
@@ -60,6 +82,12 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
         <span><span className="label">Require post-quantum keys</span><br />
           <span className="text-xs" style={{ color: "var(--tx-2)" }}>Refuse payouts unless the agent, relayer and every council member sign with ML-DSA keys, which quantum computers are not known to break.</span></span>
       </label>
+      <label className="block"><span className="label">Amount tiers (one per line: amount: level)</span>
+        <textarea className="input mt-1" placeholder={"5000: basic\n25000: advanced"} value={f.privacyTiers} onChange={(e) => setF({ ...f, privacyTiers: e.target.value })} />
+        <span className="text-xs" style={{ color: "var(--tx-2)" }}>Payments at or above an amount go out at least at that level.</span></label>
+      <label className="block"><span className="label">Vendors who need privacy (one per line: vendor: level)</span>
+        <textarea className="input mt-1" placeholder={"Payroll Co: advanced\nSeed Investors LLC: basic"} value={f.privateVendors} onChange={(e) => setF({ ...f, privateVendors: e.target.value })} />
+        <span className="text-xs" style={{ color: "var(--tx-2)" }}>Payroll, contractors, investors, legal: always at least this level, whatever the amount.</span></label>
       <label className="block sm:col-span-2"><span className="label">Vendor allowlist (one per line)</span>
         <textarea className="input mt-1" value={f.vendorAllowlist} onChange={(e) => setF({ ...f, vendorAllowlist: e.target.value })} /></label>
       <div className="flex flex-wrap items-end gap-3 sm:col-span-2">
@@ -67,7 +95,7 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
         <button className="btn btn-primary" disabled={loading}>{loading ? "Proposing…" : "Create proposal"}</button>
         {sent && <span role="status" className="text-sm pos">Proposal created. It needs more signers.</span>}
       </div>
-      <div className="sm:col-span-2"><ErrorLine msg={error} /></div>
+      <div className="sm:col-span-2"><ErrorLine msg={formError || error} /></div>
     </form>
   );
 }

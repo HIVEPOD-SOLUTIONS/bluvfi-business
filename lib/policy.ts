@@ -1,4 +1,5 @@
 import { canonical, sha256 } from "./crypto";
+import { privacyFor, RANK as PRIVACY_RANK } from "./privacy";
 import type { CheckResult, Confidentiality, Invoice, Policy, PolicyProposal } from "./types";
 
 /**
@@ -46,13 +47,14 @@ export const DEFAULT_POLICY_BODY: PolicyProposal["changes"] = {
   requirePostQuantumKeys: false,
 };
 
-const PRIVACY_RANK: Record<Confidentiality, number> = { public: 0, basic: 1, advanced: 2 };
-
 /** The confidentiality a payment actually gets: what was asked for, raised to the policy's privacy floor. */
 export const withPrivacyFloor = (asked: Confidentiality, p: Policy): Confidentiality => {
   const floor = p.privacyFloor ?? "public";
   return PRIVACY_RANK[asked] >= PRIVACY_RANK[floor] ? asked : floor;
 };
+
+/** The confidentiality this payment gets under every privacy rule in the policy (floor, amount tiers, named vendors), and why. */
+export const privacyForPayment = (asked: Confidentiality, inv: Pick<Invoice, "vendorName" | "amountUsd">, p: Policy) => privacyFor(asked, p, inv.vendorName, inv.amountUsd);
 
 export interface PolicyContext {
   killSwitch: boolean;
