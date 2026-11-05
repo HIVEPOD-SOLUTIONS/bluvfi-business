@@ -199,7 +199,7 @@
   <li><span class="pill ok">Done</span> <strong>Live mode</strong> with your NEAR AI key, a custody option and dry-run quotes. <code>npm run ai:verify -- --review</code> checks Layer 2 against the live NEAR AI Cloud: attestation, NVIDIA, signature and the structured decision.</li>
   <li><span class="pill todo">To do</span> <strong>Hosted demo:</strong> the Docker image runs demo mode, but it is not deployed. Keep it online until at least 18 November, ideally 25 November.</li>
   <li><span class="pill ok">Done</span> <strong>Testnet mode (real chain, no mocks):</strong> <code>npm run testnet:keys &amp;&amp; npm run testnet:setup</code> builds a real DAO on NEAR testnet, and <code>npm run test:testnet</code> runs 9 tests against it. It costs no real funds.</li>
-  <li><span class="pill ok">Done</span> <strong>Tests:</strong> 125 automated tests (including 8 on separate businesses, 7 on per-business channels, 7 on Privy sign-in, 6 on Layer 2, 4 on the Layer 3 rails, 7 on the agent's x402 spending, 7 on the x402 payer and signer, 9 on confidential treasuries and 7 on the treasury compatibility check), 10 on the real testnet DAO, and 26 against live services with no funds (25 run, 1 waits for an OutLayer policy). Lint and typecheck pass. The production build last passed before the confidential treasury, x402 and Layer 3 additions and is due a rerun.</li>
+  <li><span class="pill ok">Done</span> <strong>Tests:</strong> 125 automated tests (including 8 on separate businesses, 7 on per-business channels, 7 on Privy sign-in, 6 on Layer 2, 4 on the Layer 3 rails, 7 on the agent's x402 spending, 7 on the x402 payer and signer, 9 on confidential treasuries and 7 on the treasury compatibility check), 10 on the real testnet DAO, and 26 against live services with no funds (25 run, 1 waits for an OutLayer policy). Lint and typecheck pass. The production build passes with all of this in (4 November, after pinning viem to 2.55.19, because 2.57 breaks the Turbopack build).</li>
 </ul>
 
 <h2>Screens</h2>
@@ -227,7 +227,7 @@
   <tr><td>7</td><td>Record real NEAR AI fixtures with <code>npm run fixtures:record</code> if not already done.</td><td>You (needs a NEAR AI key)</td></tr>
   <tr><td>8</td><td>Optional: an OutLayer wallet for hybrid custody (its owner sets the limits in OutLayer's dashboard), a Telegram bot, a Twilio number, and PingPay and Aurora keys, connected on the Settings page.</td><td>You</td></tr>
   <tr><td>9</td><td>Optional: run the x402 payer on mainnet (<code>npm run x402:payer -- setup --mainnet</code>, a few dollars of USDC on Base). On testnet it has already paid for real.</td><td>You</td></tr>
-  <tr><td>10</td><td>Stop the app serving from <code>.next</code>, run <code>npm run build</code>, then commit and push.</td><td>You</td></tr>
+  <tr><td>10</td><td>Commit and push (the production build already passes).</td><td>You</td></tr>
   <tr><td>11</td><td>Deploy the hosted demo.</td><td>You, with me</td></tr>
   <tr><td>12</td><td>Record the video and publish the X post.</td><td>You</td></tr>
   <tr><td>13</td><td>Make the repository public, re-read HACKATHON.md, and submit once.</td><td>You</td></tr>
