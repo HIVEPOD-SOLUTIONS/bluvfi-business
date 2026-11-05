@@ -3,6 +3,9 @@ import { OWNER_EMAILS, PRIVY_LOGIN, SIGNER_NAMES } from "@/lib/config";
 import { currentBiz, DEFAULT_BIZ } from "@/lib/tenant";
 import { approvalThreshold, isOwner, members, signerNames } from "@/lib/team";
 import { currentSigner, tenantPage } from "@/lib/who";
+import { KybControl } from "@/components/Kyb";
+import { getBusiness } from "@/lib/business";
+import { kybEnabled } from "@/lib/kyb";
 import { TeamEditor } from "./TeamEditor";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +28,13 @@ async function TeamPage() {
       )}
       {signerNames().length < 2 && (
         <p role="alert" className="card mb-4 text-sm neg">Only one signer exists, so one person can approve a policy change alone. Add a second approver.</p>
+      )}
+      {kybEnabled() && currentBiz() !== DEFAULT_BIZ && owner && (
+        <div className="card mb-4">
+          <h2>Verify your business</h2>
+          <p className="mt-1 text-sm" style={{ color: "var(--tx-2)" }}>Payments are released only once your business has passed verification.</p>
+          <KybControl kind="business" status={getBusiness(currentBiz())?.kyb?.status} label="Start verification" />
+        </div>
       )}
       <div className="grid gap-2">
         {currentBiz() === DEFAULT_BIZ && SIGNER_NAMES.map((n) => (

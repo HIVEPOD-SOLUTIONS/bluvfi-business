@@ -69,6 +69,7 @@ export function install() {
     redact: async (text: string) => ({ text, source: "local-regex" as const }),
     judge: fakeJudge,
     lookupSignals: async () => undefined,
+    screenSanctions: async () => ({ status: "clear" as const, hits: [], note: "Fake: not on the list." }),
     quotePayout: async (inv: Invoice, _confidentiality?: unknown, deadlineMs?: number): Promise<Quote> => {
       quoteCalls.push(inv);
       quoteWindows.push(deadlineMs ?? 0);

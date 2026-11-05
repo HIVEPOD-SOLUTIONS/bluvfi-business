@@ -9,9 +9,10 @@ import { runFraudChecks, runPublicCheck, worst } from "./fraud";
 import type { Judged } from "./nearai";
 import { attestationTrusted, computeFacts, unavailablePanel, verifyDecision } from "./nearai-core";
 import { isRegisteredSigner } from "./aimodel";
+import { businessGate } from "./kyb";
 import { evaluatePolicy, needsApproval, privacyForPayment } from "./policy";
 import { services } from "./services";
-import { currentPolicy, dataKey, fraudContext, persist, persistenceOn, pqSeed, pqSeeds, prefetchCounterparty, spentTodayUsd, state } from "./store";
+import { currentPolicy, dataKey, fraudContext, persist, persistenceOn, pqSeed, pqSeeds, prefetchCounterparty, prefetchSanctions, spentTodayUsd, state } from "./store";
 import type { CheckRequest, CheckResponse, CheckResult, Confidentiality, Invoice, Payment, PaymentStatus } from "./types";
 
 const uid = (p: string) => `${p}-${sha256(`${p}${Date.now()}${Math.random()}`).slice(0, 8)}`;
@@ -48,7 +49,7 @@ export async function processInvoice(inv: Invoice, confidentiality: Confidential
   if (judged) panel.attestation.registered = isRegisteredSigner(judged.decision.signingAddress);
   if (judged?.decision.attestation.structured === false) panel.attestation.notes.push("NEAR AI did not take the decision schema as structured output for this model, so the reply was checked against it here instead.");
 
-  const policyCtx = { killSwitch: s.killSwitch, spentTodayUsd: spentTodayUsd() };
+  const policyCtx = { killSwitch: s.killSwitch, spentTodayUsd: spentTodayUsd(), businessGate: businessGate() };
   const policyChecks = evaluatePolicy(inv, policy, policyCtx);
   // Privacy is optional, but the policy can set a floor (for investors, institutions and others who need it).
   const priv = privacyForPayment(confidentiality, inv, policy);
@@ -57,6 +58,7 @@ export async function processInvoice(inv: Invoice, confidentiality: Confidential
     policyChecks.push({ id: "privacy", label: "Privacy rules", verdict: "allow", reason: `Confidentiality raised from ${confidentiality} to ${conf} by policy v${policy.version}: ${priv.why.join("; ")}.` });
   }
   await prefetchCounterparty(inv.payoutAddress, inv.chain);
+  await prefetchSanctions(inv.payoutAddress, inv.vendorName);
   const fraudChecks = runFraudChecks(inv, fraudContext());
   const trusted = attestationTrusted(panel);
   const aiCheck: CheckResult = {
@@ -153,6 +155,9 @@ const shortReason = (c: CheckResult) =>
     blocklist: "payee is on the shared blocklist",
     counterparty: "risky receiver",
     kill: "kill switch is on",
+    business_kyb: "your business is not verified",
+    sanctions: "payee is on a sanctions list",
+    vendor_kyb: "vendor failed verification",
     limit: "over the payment limit",
     daily: "over the daily limit",
     chain: "chain not permitted",
@@ -170,11 +175,21 @@ export async function release(p: Payment): Promise<void> {
   const hard = evaluatePolicy(p.invoice, policy, {
     killSwitch: s.killSwitch,
     spentTodayUsd: spentTodayUsd() - (p.status === "ready_to_send" ? p.invoice.amountUsd : 0),
+    businessGate: businessGate(),
   }).filter((c) => c.verdict === "block");
   if (hard.length) {
     p.status = "blocked";
     p.headline = `Blocked at release: ${hard.map(shortReason).join(" and ")}`;
     p.reason = hard.map((c) => c.reason).join(" ");
+    return;
+  }
+  // The list may have changed since intake: screen the payee again at the moment money would move.
+  await prefetchSanctions(p.invoice.payoutAddress, p.invoice.vendorName);
+  const listed = fraudContext().sanctions?.(p.invoice.payoutAddress, p.invoice.vendorName)?.hits.find((h) => h.kind === "address");
+  if (listed) {
+    p.status = "blocked";
+    p.headline = "Blocked at release: payee is on a sanctions list";
+    p.reason = `The payout address is on the US OFAC sanctions list: ${listed.detail}.`;
     return;
   }
   try {
@@ -395,6 +410,7 @@ export function setKillSwitch(on: boolean, by = "unknown") {
 /** Bluvfi Business Check: fraud engine as a service for any agent. */
 export async function publicCheck(req: CheckRequest): Promise<CheckResponse> {
   await prefetchCounterparty(req.payoutAddress, req.chain);
+  await prefetchSanctions(req.payoutAddress, req.vendorName ?? "");
   const checks = runPublicCheck(req, fraudContext());
   const verdict = worst(checks);
   state().checkLog.unshift({ at: new Date().toISOString(), verdict });

@@ -2,6 +2,8 @@ import { Badge, Empty, PageHead, when } from "@/components/ui";
 import { tenantPage } from "@/lib/who";
 import { CHAIN_LABEL } from "@/lib/chains";
 import { currentPolicy, state } from "@/lib/store";
+import { KybControl } from "@/components/Kyb";
+import { kybEnabled } from "@/lib/kyb";
 import { NewPurchaseOrder, NewVendor } from "./Forms";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +35,7 @@ function Vendors() {
                 <dt style={{ color: "var(--tx-2)" }}>Verified contact</dt><dd className="break-all">{v.verifiedContact.channel}: {v.verifiedContact.handle}</dd>
                 <dt style={{ color: "var(--tx-2)" }}>Last paid</dt><dd>{v.lastPaidAt ? when(v.lastPaidAt) : "Never"}</dd>
               </dl>
+              {kybEnabled() && <KybControl kind="vendor" vendor={v.name} status={v.kyb?.status} label="Verify this vendor" />}
             </div>
           ))}
         </div>

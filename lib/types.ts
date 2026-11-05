@@ -26,8 +26,18 @@ export interface PurchaseOrder {
   amountUsd: number;
 }
 
+/** Where a business or vendor stands with identity verification (KYB) at the verification provider. */
+export type KybStatus = "pending" | "submitted" | "review" | "verified" | "declined" | "expired";
+export interface KybRecord {
+  status: KybStatus;
+  inquiryId: string;
+  updatedAt: string;
+}
+
 export interface Vendor {
   name: string;
+  /** Business verification of this vendor (lib/kyb.ts); missing means never started. */
+  kyb?: KybRecord;
   domain: string;
   verifiedContact: { channel: Channel; handle: string };
   payout: { chain: string; asset: string; address: string };

@@ -194,3 +194,19 @@ export function missingConfig(c: Cfg = ENV_CFG, tenant = false): { key: string; 
   }
   return out;
 }
+
+/**
+ * Identity verification (KYB) through Persona (withpersona.com), the platform's own account. Vendors and businesses are sent a hosted
+ * verification link; Persona's decision (approved or declined) comes back by webhook and is confirmed with a call to Persona's API.
+ *  - PERSONA_API_KEY and the templates: from the Persona dashboard (sandbox is free).
+ *  - PERSONA_WEBHOOK_SECRET: signs the webhooks (wbhsec_...).
+ *  - KYB_REQUIRED=1: a signed-up business cannot release payments until its own verification is approved.
+ */
+export const PERSONA_API_KEY = process.env.PERSONA_API_KEY ?? "";
+export const PERSONA_BASE = (process.env.PERSONA_BASE_URL ?? "https://api.withpersona.com").replace(/\/$/, "");
+export const PERSONA_VERSION = process.env.PERSONA_VERSION ?? "2025-12-08";
+export const PERSONA_WEBHOOK_SECRET = process.env.PERSONA_WEBHOOK_SECRET ?? "";
+export const PERSONA_TEMPLATE_VENDOR = process.env.PERSONA_TEMPLATE_VENDOR ?? "";
+export const PERSONA_TEMPLATE_BUSINESS = process.env.PERSONA_TEMPLATE_BUSINESS ?? "";
+export const KYB_ENABLED = !!PERSONA_API_KEY && !!(PERSONA_TEMPLATE_VENDOR || PERSONA_TEMPLATE_BUSINESS);
+export const KYB_REQUIRED = process.env.KYB_REQUIRED === "1";

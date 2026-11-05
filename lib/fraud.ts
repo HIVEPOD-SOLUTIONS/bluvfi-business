@@ -1,5 +1,22 @@
 import type { BlocklistEntry, CheckRequest, CheckResult, Invoice, PurchaseOrder, Vendor } from "./types";
 
+export interface SanctionsHit {
+  kind: "address" | "name";
+  entity: string;
+  program: string;
+  matched: string;
+  exact?: boolean;
+  detail: string;
+}
+export interface SanctionsResult {
+  status: "clear" | "hit" | "unavailable";
+  hits: SanctionsHit[];
+  /** The date of the OFAC list that was used, and how old our copy is. */
+  listDate?: string;
+  ageHours?: number;
+  note: string;
+}
+
 export interface CounterpartySignals {
   ageDays: number | null;
   isContract: boolean | null;
@@ -13,6 +30,10 @@ export interface FraudContext {
   purchaseOrders: PurchaseOrder[];
   blocklist: BlocklistEntry[];
   counterparty: (address: string) => CounterpartySignals;
+  /** Sanctions screening done ahead of these synchronous checks (lib/sanctions.ts). Missing means it was not run. */
+  sanctions?: (address: string, name: string) => SanctionsResult | undefined;
+  /** True when a verification provider is configured, so vendors are expected to be verified. */
+  kybEnabled?: boolean;
 }
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -140,7 +161,37 @@ export function runFraudChecks(inv: Invoice, ctx: FraudContext): CheckResult[] {
       : "Not on the shared blocklist.",
   });
 
-  // 7. Prompt injection.
+  // 7. Sanctions (OFAC): an address on the list is a certain hit and blocks; a name match may be someone else, so a person decides.
+  const sx = ctx.sanctions?.(inv.payoutAddress, inv.vendorName);
+  if (sx) {
+    const addr = sx.hits.find((h) => h.kind === "address");
+    const named = sx.hits.filter((h) => h.kind === "name");
+    out.push({
+      id: "sanctions",
+      label: "Sanctions (OFAC)",
+      verdict: addr ? "block" : named.length || sx.status === "unavailable" ? "warn" : "allow",
+      reason: addr
+        ? `The payout address is on the US OFAC sanctions list: ${addr.detail}. Paying it is likely illegal.`
+        : named.length
+          ? `${named[0].detail}. This may be a different party with a similar name: a person must confirm before paying.`
+          : sx.status === "unavailable"
+            ? sx.note
+            : `${sx.note}${sx.ageHours && sx.ageHours > 48 ? ` (our copy is ${sx.ageHours} hours old)` : ""}`,
+    });
+  }
+
+  // 8. Is the vendor a verified business? Only when a verification provider is set up.
+  if (ctx.kybEnabled && vendor) {
+    const k = vendor.kyb?.status;
+    out.push({
+      id: "vendor_kyb",
+      label: "Vendor verification",
+      verdict: k === "verified" ? "allow" : k === "declined" ? "block" : "warn",
+      reason: k === "verified" ? "The vendor passed business verification." : k === "declined" ? "The vendor failed business verification." : k ? `The vendor's business verification is ${k}.` : "The vendor has not been verified yet. Send them a verification link from the Vendors page.",
+    });
+  }
+
+  // 9. Prompt injection.
   const inj = detectInjection(inv.text);
   out.push({
     id: "injection",

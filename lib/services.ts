@@ -7,6 +7,7 @@ import { judgeWithNearAi } from "./nearai";
 import { buildRequest, type JudgeFacts } from "./nearai-core";
 import { payX402, quoteForWidget, quotePayout, quoteReceivable, sendCallback, submitDeposit, swapStatus } from "./rails";
 import { redact } from "./redact";
+import { screenSanctions } from "./sanctions";
 
 /**
  * Every outside service the app talks to, in one object. The defaults are the real mainnet
@@ -25,6 +26,7 @@ export const services = {
   submitDeposit,
   sendCallback,
   lookupSignals,
+  screenSanctions,
   treasuryBalances,
   spendingWalletBalances,
   payX402,

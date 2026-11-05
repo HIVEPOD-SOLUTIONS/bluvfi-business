@@ -59,6 +59,8 @@ export const privacyForPayment = (asked: Confidentiality, inv: Pick<Invoice, "ve
 export interface PolicyContext {
   killSwitch: boolean;
   spentTodayUsd: number;
+  /** Why this business may not pay yet (its own verification is not approved); missing means it may. */
+  businessGate?: string;
 }
 
 export function evaluatePolicy(inv: Invoice, policy: Policy, ctx: PolicyContext): CheckResult[] {
@@ -73,6 +75,7 @@ export function evaluatePolicy(inv: Invoice, policy: Policy, ctx: PolicyContext)
   ) => r.push({ id, label, verdict: ok ? "allow" : bad, reason: ok ? okMsg : badMsg });
 
   const usd = (n: number) => `$${n.toLocaleString()}`;
+  if (ctx.businessGate) r.push({ id: "business_kyb", label: "Business verification", verdict: "block", reason: ctx.businessGate });
   add("kill", "Kill switch", !ctx.killSwitch, "Payments are enabled.", "Kill switch is on. All payments are stopped.");
   add(
     "limit",

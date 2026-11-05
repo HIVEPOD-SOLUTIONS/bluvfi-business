@@ -5,6 +5,7 @@ import { COMPANY_NAME, DEMO, ENV_CFG, type Cfg, type CustodyMode } from "./confi
 import { decrypt, encrypt } from "./crypto";
 import { dataKey } from "./store";
 import { openText, sealText } from "./vault";
+import type { KybRecord } from "./types";
 import { BIZ_ID, currentBiz, DEFAULT_BIZ } from "./tenant";
 
 /**
@@ -58,6 +59,8 @@ export interface Business {
   team: Member[];
   treasury?: TreasuryConfig;
   channels?: ChannelConfig;
+  /** This business's own identity verification (lib/kyb.ts). */
+  kyb?: KybRecord;
 }
 
 const FILE = process.env.BLUVFI_PERSIST === "0" ? "" : (process.env.BLUVFI_BUSINESSES_FILE ?? (DEMO ? ".data/demo-businesses.json" : ".data/businesses.json"));
@@ -84,6 +87,14 @@ export function saveRegistry() {
   const tmp = FILE + ".tmp";
   writeFileSync(tmp, sealText(JSON.stringify([...registry().values()])));
   renameSync(tmp, FILE);
+}
+
+export function setBusinessKyb(id: string, kyb: KybRecord): KybRecord {
+  const b = getBusiness(id);
+  if (!b) throw new Error("Unknown business");
+  b.kyb = kyb;
+  saveRegistry();
+  return kyb;
 }
 
 /** Test helper. */

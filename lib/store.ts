@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { DEMO, MASTER_KEY } from "./config";
+import { DEMO, KYB_ENABLED, MASTER_KEY } from "./config";
 import { deriveKey } from "./crypto";
 import { openText, sealText } from "./vault";
 import { DEFAULT_POLICY_BODY, makePolicy } from "./policy";
@@ -154,6 +154,18 @@ export async function prefetchCounterparty(address: string, chain?: string) {
   if (s) live.set(address.toLowerCase(), s);
 }
 
+const screened = new Map<string, import("./fraud").SanctionsResult>();
+const screenKey = (address: string, name: string) => `${address.toLowerCase()}|${name.toLowerCase()}`;
+
+/** Screen a payee against the sanctions list ahead of the (synchronous) fraud checks. A failure is recorded as "unavailable", never as clear. */
+export async function prefetchSanctions(address: string, name: string) {
+  try {
+    screened.set(screenKey(address, name), await services.screenSanctions({ address, name: name || undefined }));
+  } catch (e) {
+    screened.set(screenKey(address, name), { status: "unavailable", hits: [], note: `Sanctions screening failed (${(e as Error).message}), so this payee was NOT screened.` });
+  }
+}
+
 export const counterparty = (address: string): CounterpartySignals => {
   const key = address.toLowerCase();
   const base = live.get(key) ?? { ageDays: null, isContract: null, codeChangedRecently: null, priorInteractions: 0, source: "unknown" as const };
@@ -167,4 +179,6 @@ export const fraudContext = () => ({
   purchaseOrders: state().purchaseOrders,
   blocklist: state().blocklist,
   counterparty,
+  sanctions: (address: string, name: string) => screened.get(screenKey(address, name)),
+  kybEnabled: KYB_ENABLED,
 });
