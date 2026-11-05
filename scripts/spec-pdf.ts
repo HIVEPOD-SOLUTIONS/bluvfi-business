@@ -42,7 +42,9 @@ async function main() {
     if (!existsSync(printed)) throw new Error("The browser did not write the PDF.");
     const doc = await PDFDocument.load(readFileSync(printed));
     doc.setTitle("Bluvfi Business: build spec");
-    doc.setSubject("Status update, 2 November 2026");
+    // The subject follows the cover's stamp, so the two never disagree.
+    const stamp = readFileSync(html, "utf8").match(/Status update: ([^<]+)</)?.[1]?.trim();
+    doc.setSubject(stamp ? `Status update, ${stamp}` : "Build spec");
     // Close the PDF in any viewer first: Windows locks an open file.
     writeFileSync(out, await doc.save());
     console.log(`Wrote ${out} (${doc.getPageCount()} pages)`);

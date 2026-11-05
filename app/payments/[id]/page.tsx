@@ -8,7 +8,7 @@ import { appPqKeys, verifyPolicyCheck, type PqCheckResult } from "@/lib/pqcheck"
 import { pqSeeds, state } from "@/lib/store";
 import { currentSigner, tenantPage } from "@/lib/who";
 import { GaslessVote } from "@/components/GaslessVote";
-import { DEMO, NEAR_RPC_URL } from "@/lib/config";
+import { DEMO, NEAR_RPC_URL, NETWORK } from "@/lib/config";
 import { relayerEnabled, viewDao } from "@/lib/custody";
 import { SendPanel } from "./SendPanel";
 
@@ -103,7 +103,7 @@ async function PaymentDetail({ params }: { params: Promise<{ id: string }> }) {
                 {DEMO && !!signer && <ActionButton url={`/api/payments/${p.id}/vote`} payload={{ approve: true }} variant="primary" small>Vote approve as {signer} (demo DAO)</ActionButton>}
                 {DEMO && !!signer && <ActionButton url={`/api/payments/${p.id}/vote`} payload={{ approve: false }} variant="danger" small>Vote reject</ActionButton>}
               </div>
-              {c.backend === "sputnik" && relayerEnabled() && !!signer && <GaslessVote dao={cfg().DAO_ACCOUNT} proposalId={Number(c.ref)} kind={kind} rpcUrl={NEAR_RPC_URL} paymentId={p.id} />}
+              {c.backend === "sputnik" && !DEMO && !!signer && <GaslessVote dao={cfg().DAO_ACCOUNT} proposalId={Number(c.ref)} kind={kind} rpcUrl={NEAR_RPC_URL} network={NETWORK} relayer={relayerEnabled()} paymentId={p.id} />}
             </div>
           )}
           {p.status === "ready_to_send" && !!signer && <div className="mt-4"><ActionButton url={`/api/payments/${p.id}/settlement`} variant="secondary">Check delivery (1Click)</ActionButton></div>}

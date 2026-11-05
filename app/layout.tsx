@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { DM_Sans, Space_Mono } from "next/font/google";
 import { Nav } from "@/components/Nav";
 import { Logo } from "@/components/Nav";
-import { DEMO, NETWORK } from "@/lib/config";
+import { DEMO, NETWORK, SIGNER_NAMES } from "@/lib/config";
+import { DEFAULT_BIZ } from "@/lib/tenant";
 import { currentSession } from "@/lib/who";
 import Link from "next/link";
 import "./globals.css";
@@ -30,7 +31,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
         )}
         {signer ? (
           <>
-            <Nav signer={signer} demo={DEMO} business={session?.bizName} network={NETWORK} />
+            <Nav signer={signer} demo={DEMO} business={session?.bizName} network={NETWORK} operator={session?.biz === DEFAULT_BIZ && SIGNER_NAMES.includes(signer)} />
             <main className="md:pl-60 pb-24 md:pb-10">
               <div className="mx-auto max-w-5xl px-4 md:px-8 pt-6 md:pt-10">{children}</div>
             </main>

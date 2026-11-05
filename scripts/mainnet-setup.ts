@@ -13,7 +13,7 @@
  * MAINNET_FUNDER_KEY is a full-access key of --funder. It is read from the environment only and never written to disk.
  * Rerunning is safe: each step is skipped if it is already done. Keys are kept in .mainnet/agent.json (git-ignored).
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { Account, JsonRpcProvider, KeyPair, nearToYocto, teraToGas, type KeyPairString } from "near-api-js";
 import { daoPolicy, writeEnvFile } from "../lib/setup";
@@ -52,7 +52,7 @@ function agentKeys(): { full: string; scoped: string } {
   if (existsSync(KEYS)) return JSON.parse(readFileSync(KEYS, "utf8"));
   const k = { full: KeyPair.fromRandom("ed25519").toString(), scoped: KeyPair.fromRandom("ed25519").toString() };
   mkdirSync(".mainnet", { recursive: true });
-  writeFileSync(KEYS, JSON.stringify(k, null, 2));
+  writeFileSync(KEYS, JSON.stringify(k, null, 2), { mode: 0o600 }); // readable by this user only, and deleted once setup is done
   return k;
 }
 const pub = (secret: string) => KeyPair.fromString(secret as KeyPairString).getPublicKey().toString();
@@ -128,6 +128,8 @@ async function main() {
     { CUSTODY: "sputnik", DAO_ACCOUNT: DAO, AGENT_ACCOUNT: agentId, AGENT_PRIVATE_KEY: k.scoped },
     { BLUVFI_MASTER_KEY: randomBytes(32).toString("hex"), BLUVFI_SIGNERS: `maya:${token()},devon:${token()}` },
   );
+  // The full-access key is deleted onchain and the scoped key is in .env.local now, so the key file is not needed.
+  unlinkSync(KEYS);
   console.log(`\nDone. ${ENV} is filled in (signer tokens are in it). Restart npm run dev, then open the Overview.`);
   if (/^ONECLICK_DRY=1/m.test(readFileSync(ENV, "utf8"))) console.log("Note: ONECLICK_DRY=1 is set in .env.local; remove it, or no proposal is ever filed.");
   console.log(`The DAO, in Trezu: https://trezu.app/${DAO}`);

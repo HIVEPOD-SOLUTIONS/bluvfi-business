@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 /**
  * Mainnet by default: every service below is the real one, and anything that is not configured makes the
  * affected feature refuse to run (see `missingConfig`).
@@ -13,7 +15,7 @@ const NEAR_ACCOUNT = new RegExp(`\\.${NEAR_SUFFIX}$`);
 const NEAR_ACCOUNT_OR_IMPLICIT = new RegExp(`\\.${NEAR_SUFFIX}$|^[0-9a-f]{64}$`);
 
 /** Throwaway values for demo mode only; never used when BLUVFI_DEMO is off. */
-const DEMO_DEFAULTS = {
+export const DEMO_DEFAULTS = {
   BLUVFI_MASTER_KEY: "de".repeat(32),
   BLUVFI_SIGNERS: "maya:demo-signer-maya-token,devon:demo-signer-devon-token",
   TREASURY_ACCOUNT: "bluvfi-demo.near",
@@ -113,13 +115,35 @@ export const CUSTODY: CustodyMode =
 /** Sputnik or hybrid custody: the treasury is a DAO, so the council approves payouts and policy changes. */
 export const DAO_CUSTODY = CUSTODY === "sputnik" || CUSTODY === "hybrid";
 /** With Sputnik custody, policy changes are approved by the DAO council (a carrier proposal), not by app signers. POLICY_VIA_DAO=0 opts out. */
-/** REQUIRE_CUSTODIAN_LIMITS=1: with OutLayer custody, refuse payouts while the custodian lacks a limit, or has a looser one, than this app's policy. */
-export const REQUIRE_CUSTODIAN_LIMITS = process.env.REQUIRE_CUSTODIAN_LIMITS === "1";
+/**
+ * With OutLayer custody, refuse payouts while the custodian lacks a per-payment or daily limit, or has a looser one, than
+ * this app's policy. On by default: the OutLayer API key can spend from the wallet up to OutLayer's own limits, so those
+ * limits are what bound a leaked key. REQUIRE_CUSTODIAN_LIMITS=0 turns it off.
+ */
+export const REQUIRE_CUSTODIAN_LIMITS = process.env.REQUIRE_CUSTODIAN_LIMITS !== "0";
 export const POLICY_VIA_DAO = DAO_CUSTODY && !DEMO && process.env.POLICY_VIA_DAO !== "0";
 
 /** NEAR mainnet account that receives money and is the 1Click refund address. With a DAO, the DAO itself. */
 export const TREASURY_ACCOUNT = env("TREASURY_ACCOUNT") || (DAO_CUSTODY ? DAO_ACCOUNT : "");
-export const MASTER_KEY = env("BLUVFI_MASTER_KEY");
+/**
+ * The master key decrypts every business's stored secrets (agent keys, OutLayer and PingPay keys), so it is the one secret
+ * to keep out of ordinary files. BLUVFI_MASTER_KEY_FILE names a file holding it, such as a Docker or Kubernetes secret
+ * mounted read-only, or one a cloud secrets manager writes at boot; it wins over BLUVFI_MASTER_KEY.
+ */
+function masterKey(): string {
+  const file = process.env.BLUVFI_MASTER_KEY_FILE;
+  if (file) {
+    try {
+      return readFileSync(file, "utf8").trim();
+    } catch (e) {
+      throw new Error(`BLUVFI_MASTER_KEY_FILE is set but ${file} cannot be read: ${(e as Error).message}`);
+    }
+  }
+  return env("BLUVFI_MASTER_KEY");
+}
+export const MASTER_KEY = masterKey();
+/** Where the master key came from: a secrets file, the environment (which includes .env.local), or nowhere. */
+export const MASTER_KEY_SOURCE: "file" | "env" | "none" = process.env.BLUVFI_MASTER_KEY_FILE ? "file" : MASTER_KEY ? "env" : "none";
 
 /** `BLUVFI_SIGNERS="maya:token1,devon:token2"`: who may approve, and the secret each signs in with. */
 export const SIGNERS: { name: string; token: string }[] = env("BLUVFI_SIGNERS")

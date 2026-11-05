@@ -1,9 +1,9 @@
 import { cfg, setTreasury } from "./business";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { Account, JsonRpcProvider, KeyPair, nearToYocto, type KeyPairString } from "near-api-js";
-import { NEAR_RPC_URL, NEAR_SUFFIX, NETWORK, SIGNERS } from "./config";
+import { MASTER_KEY, NEAR_RPC_URL, NEAR_SUFFIX, NETWORK, SIGNERS } from "./config";
 import { resetCustodyCache } from "./custody";
 import { decrypt, encrypt } from "./crypto";
 import { dataKey } from "./store";
@@ -65,15 +65,27 @@ export interface SetupResult {
 }
 
 const provider = () => new JsonRpcProvider({ url: NEAR_RPC_URL });
+// Setup files hold the agent's keys until setup finishes (then the key file is deleted). They are encrypted under the
+// master key whenever one exists; only the very first setup of a fresh install, before any master key, writes them in
+// the clear, and then readable by this user only.
+const canEncrypt = () => currentBiz() !== DEFAULT_BIZ || /^[0-9a-f]{64}$/i.test(MASTER_KEY);
 const save = (file: string, v: unknown) => {
   mkdirSync(dirFor(), { recursive: true });
   const json = JSON.stringify(v, null, 2);
-  writeFileSync(file, currentBiz() === DEFAULT_BIZ ? json : encrypt(json, dataKey()));
+  writeFileSync(file, canEncrypt() ? encrypt(json, dataKey()) : json, { mode: 0o600 });
 };
 const load = <T,>(file: string): T | undefined => {
   if (!existsSync(file)) return undefined;
-  const raw = readFileSync(file, "utf8");
-  return JSON.parse(currentBiz() === DEFAULT_BIZ ? raw : decrypt(raw, dataKey())) as T;
+  const raw = readFileSync(file, "utf8").trim();
+  return JSON.parse(raw.startsWith("{") ? raw : decrypt(raw, dataKey())) as T;
+};
+/** After setup: the full-access key is deleted onchain and the scoped key is in the settings, so the key file goes. */
+const dropKeys = () => {
+  try {
+    if (existsSync(keysFile())) unlinkSync(keysFile());
+  } catch {
+    /* best effort: the keys in it are no longer usable to move funds */
+  }
 };
 const pub = (secret: string) => KeyPair.fromString(secret as KeyPairString).getPublicKey().toString();
 
@@ -253,13 +265,14 @@ export async function finishSetup(): Promise<SetupResult> {
     setTreasury(currentBiz(), { custody: "sputnik", dao: plan.dao, agent: plan.agent, agentKey: keys.scoped, treasury: plan.dao });
     done.push("Saved the treasury settings to your business.");
     resetCustodyCache();
+    dropKeys();
     return { dao: plan.dao, agent: plan.agent, done };
   }
 
   // A master key and signer tokens are only made if the app has none, in the file or in its real environment.
   const token = () => randomBytes(12).toString("hex");
   const fresh: Record<string, string> = {};
-  if (!process.env.BLUVFI_MASTER_KEY) fresh.BLUVFI_MASTER_KEY = randomBytes(32).toString("hex");
+  if (!process.env.BLUVFI_MASTER_KEY && !process.env.BLUVFI_MASTER_KEY_FILE) fresh.BLUVFI_MASTER_KEY = randomBytes(32).toString("hex");
   if (!process.env.BLUVFI_SIGNERS) fresh.BLUVFI_SIGNERS = `maya:${token()},devon:${token()}`;
   const added = writeEnvFile(
     { CUSTODY: "sputnik", DAO_ACCOUNT: plan.dao, AGENT_ACCOUNT: plan.agent, AGENT_PRIVATE_KEY: keys.scoped, ...(NETWORK === "testnet" ? { BLUVFI_NETWORK: "testnet" } : {}) },
@@ -268,5 +281,6 @@ export async function finishSetup(): Promise<SetupResult> {
   done.push(`Wrote the custody settings to ${ENV_FILE}.`);
   resetCustodyCache();
   const signers = added.BLUVFI_SIGNERS ? added.BLUVFI_SIGNERS.split(",").map((s) => ({ name: s.split(":")[0], token: s.split(":")[1] })) : undefined;
+  dropKeys();
   return { dao: plan.dao, agent: plan.agent, done, signers };
 }

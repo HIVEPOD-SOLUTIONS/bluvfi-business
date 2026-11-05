@@ -1,13 +1,27 @@
 import "./setup";
 import { SETUP_DIR as dir } from "./setup-setupflow";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { deserialize } from "borsh";
 import { KeyPair, SCHEMA, type KeyPairString } from "near-api-js";
+import { decrypt, encrypt } from "../lib/crypto";
 import { finishSetup, planSetup, setupCode, writeEnvFile } from "../lib/setup";
+import { dataKey } from "../lib/store";
+
+/** The agent key file, which setup encrypts under the master key. Kept here once read, since finishing deletes it. */
+let savedKeys: { agent: string; full: string; scoped: string } | undefined;
+function agentKeys() {
+  const file = join(dir, "agent.json");
+  if (existsSync(file)) {
+    const raw = readFileSync(file, "utf8");
+    assert.ok(!raw.trim().startsWith("{"), "the key file is encrypted, not plain JSON");
+    savedKeys = JSON.parse(decrypt(raw, dataKey()));
+  }
+  return savedKeys!;
+}
 
 const view = (o: unknown) => ({ result: Array.from(Buffer.from(JSON.stringify(o))), logs: [], block_height: 1, block_hash: "11111111111111111111111111111111" });
 
@@ -92,7 +106,7 @@ test("setup: the plan is two wallet calls, the agent's key is saved first, and t
     assert.equal(plan.votes, 2);
     assert.equal(plan.costNear, 6.3);
 
-    const keys = JSON.parse(readFileSync(join(dir, "agent.json"), "utf8")) as { agent: string; full: string };
+    const keys = agentKeys();
     const [registrar, factory] = plan.transactions;
     assert.equal(registrar.receiverId, "near");
     assert.equal(registrar.actions[0].params.methodName, "create_account");
@@ -110,7 +124,7 @@ test("setup: the plan is two wallet calls, the agent's key is saved first, and t
 });
 
 test("setup: finish locks the agent to one add_proposal key, deletes its full-access key and writes the settings", async () => {
-  const keys = JSON.parse(readFileSync(join(dir, "agent.json"), "utf8")) as { full: string; scoped: string };
+  const keys = agentKeys();
   const full = KeyPair.fromString(keys.full as KeyPairString).getPublicKey().toString();
   const { daoPolicy } = await import("../lib/setup");
   writeFileSync(process.env.BLUVFI_ENV_FILE!, "NEAR_AI_API_KEY=keep-me\n");
@@ -126,6 +140,7 @@ test("setup: finish locks the agent to one add_proposal key, deletes its full-ac
     assert.equal(state.agentKeys.length, 1, "only the scoped key is left");
     assert.equal(state.agentKeys[0].public_key, KeyPair.fromString(keys.scoped as KeyPairString).getPublicKey().toString());
     assert.equal(r.signers?.length, undefined, "signers already configured by the test setup are kept");
+    assert.equal(existsSync(join(dir, "agent.json")), false, "the key file is deleted once setup is done");
   });
   const env = readFileSync(process.env.BLUVFI_ENV_FILE!, "utf8");
   assert.match(env, /^NEAR_AI_API_KEY=keep-me$/m, "other settings are kept");
@@ -157,7 +172,9 @@ test("setup: with no signers anywhere, finish makes signer tokens and a master k
     agentKeys: [] as { public_key: string; access_key: { nonce: number; permission: unknown } }[],
     sent: [] as string[],
   };
-  const keys = JSON.parse(readFileSync(join(dir, "agent.json"), "utf8")) as { scoped: string };
+  const keys = agentKeys();
+  // The earlier finish deleted the key file; put it back (encrypted, as setup writes it) for this second setup.
+  writeFileSync(join(dir, "agent.json"), encrypt(JSON.stringify(keys), dataKey()));
   state.agentKeys.push({ public_key: KeyPair.fromString(keys.scoped as KeyPairString).getPublicKey().toString(), access_key: { nonce: 1, permission: { FunctionCall: {} } } });
   try {
     await withChain(state, async () => {

@@ -28,8 +28,10 @@ export function Logo() {
   );
 }
 
-export function Nav({ signer, demo, business, network = "mainnet" }: { signer: string; demo?: boolean; business?: string; network?: string }) {
+export function Nav({ signer, demo, business, network = "mainnet", operator = false }: { signer: string; demo?: boolean; business?: string; network?: string; operator?: boolean }) {
   const path = usePathname();
+  // The platform operator also manages the platform's own small wallets (the x402 payer, the confidential test account).
+  const items = operator ? [...ITEMS, { href: "/wallets", label: "Wallets", icon: "◈" }] : ITEMS;
   const router = useRouter();
   const active = (h: string) => (h === "/" ? path === "/" : path.startsWith(h));
   return (
@@ -40,7 +42,7 @@ export function Nav({ signer, demo, business, network = "mainnet" }: { signer: s
           <span className="label" title={business}>{business ? (business.length > 14 ? `${business.slice(0, 13)}…` : business) : "Business"}</span>
           <span className="badge badge-gold">{demo ? "Demo" : network === "testnet" ? "Testnet" : "Mainnet"}</span>
         </div>
-        {ITEMS.map((i) => (
+        {items.map((i) => (
           <Link
             key={i.href}
             href={i.href}
@@ -71,7 +73,7 @@ export function Nav({ signer, demo, business, network = "mainnet" }: { signer: s
         style={{ background: "var(--bg-2)", borderColor: "var(--bd)" }}
         aria-label="Primary"
       >
-        {ITEMS.map((i) => (
+        {items.map((i) => (
           <Link
             key={i.href}
             href={i.href}
