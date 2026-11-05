@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { COMPANY_NAME, DEMO, ENV_CFG, type Cfg, type CustodyMode } from "./config";
 import { decrypt, encrypt } from "./crypto";
 import { dataKey } from "./store";
+import { openText, sealText } from "./vault";
 import { BIZ_ID, currentBiz, DEFAULT_BIZ } from "./tenant";
 
 /**
@@ -67,9 +68,11 @@ function registry(): Map<string, Business> {
   const map = new Map<string, Business>();
   if (FILE && existsSync(FILE)) {
     try {
-      for (const b of JSON.parse(readFileSync(FILE, "utf8")) as Business[]) map.set(b.id, b);
+      const { text, legacy } = openText(readFileSync(FILE, "utf8"));
+      for (const b of JSON.parse(text) as Business[]) map.set(b.id, b);
+      if (legacy) { g.__bluvfiRegistry = map; saveRegistry(); }
     } catch {
-      throw new Error(`Business file ${FILE} is unreadable. Fix or move it; refusing to start empty over it.`);
+      throw new Error(`Business file ${FILE} is unreadable (or BLUVFI_MASTER_KEY is not the key it was sealed with). Fix or move it; refusing to start empty over it.`);
     }
   }
   return (g.__bluvfiRegistry = map);
@@ -79,7 +82,7 @@ export function saveRegistry() {
   if (!FILE) return;
   mkdirSync(dirname(FILE), { recursive: true });
   const tmp = FILE + ".tmp";
-  writeFileSync(tmp, JSON.stringify([...registry().values()]));
+  writeFileSync(tmp, sealText(JSON.stringify([...registry().values()])));
   renameSync(tmp, FILE);
 }
 

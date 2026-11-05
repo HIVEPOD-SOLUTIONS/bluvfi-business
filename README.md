@@ -170,7 +170,8 @@ This build deploys **no smart contract**, so there are no contract audit finding
 |---|---|
 | Fraud checks, policy gate, kill switch, hold window, callbacks, blocklist | Done, unit-tested. Counterparty signals (including a contract's code changing in the last 30 days, from an archive node) and the voice callback's speech-to-text (real Whisper on NEAR AI) run against the real services in `tests/real/layer4.test.ts`; Telegram and Twilio need your own accounts |
 | NEAR AI signature + TDX + NVIDIA verification | Written to NEAR AI's verification docs and unit-tested against an independent implementation; NVIDIA's signed verdict is checked locally; the decision is structured output, enforced. **Not yet run end to end with a real key:** run `npm run ai:verify -- --review` with one (a few cents of credits), then `npm run fixtures:record` |
-| NEAR AI privacy filter (`/v1/privacy/redact`) | Done to the API reference, tested with a mock; not run against the live endpoint |
+| NEAR AI privacy filter (`/v1/privacy/redact`) | Done, and run against the live endpoint (`tests/real/layer5.test.ts`): name, email, phone, IBAN, wallets and handle are removed, the amount is kept |
+| Records at rest | Sealed: every business's records and the business list are one AES-256-GCM blob under a key derived from `BLUVFI_MASTER_KEY` (`lib/vault.ts`). Old plain files are sealed on first read; a changed or wrongly keyed file is refused. Keep `BLUVFI_MASTER_KEY` safe: without it the files cannot be read |
 | Sputnik DAO custody (scoped key, proposals, status) | Done, tested against a mocked NEAR RPC. **Not yet run on mainnet** |
 | Gasless council votes (NEP-366 relayer) | Done. Relay guards are tested; browser signing has not been run against mainnet |
 | OutLayer custody | Done to OutLayer's OpenAPI document, tested with mocks. **Not yet run against OutLayer** |

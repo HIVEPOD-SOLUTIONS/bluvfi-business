@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, join } from "node:path";
 import { DEMO, MASTER_KEY } from "./config";
 import { deriveKey } from "./crypto";
+import { openText, sealText } from "./vault";
 import { DEFAULT_POLICY_BODY, makePolicy } from "./policy";
 import { services } from "./services";
 import { currentBiz, DEFAULT_BIZ } from "./tenant";
@@ -92,9 +93,12 @@ function load(biz: string): State {
   const file = fileFor(biz);
   if (file && existsSync(file)) {
     try {
-      return { ...fresh(), ...(JSON.parse(readFileSync(file, "utf8")) as Partial<State>) };
+      const { text, legacy } = openText(readFileSync(file, "utf8"));
+      const s = { ...fresh(), ...(JSON.parse(text) as Partial<State>) };
+      if (legacy) writeSealed(file, s); // an old plain-text file is sealed on first read
+      return s;
     } catch {
-      throw new Error(`State file ${file} is unreadable. Fix or move it; refusing to start empty over it.`);
+      throw new Error(`State file ${file} is unreadable (or BLUVFI_MASTER_KEY is not the key it was sealed with). Fix or move it; refusing to start empty over it.`);
     }
   }
   return fresh();
@@ -122,9 +126,13 @@ export function persist() {
   const file = fileFor(currentBiz());
   const s = all().get(currentBiz());
   if (!file || !s) return;
+  writeSealed(file, s);
+}
+
+function writeSealed(file: string, s: State) {
   mkdirSync(dirname(file), { recursive: true });
   const tmp = file + ".tmp";
-  writeFileSync(tmp, JSON.stringify(s));
+  writeFileSync(tmp, sealText(JSON.stringify(s)));
   renameSync(tmp, file);
 }
 
