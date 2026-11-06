@@ -1,4 +1,5 @@
 import { cfg } from "./business";
+import { describeTiers } from "./verify-tiers";
 import { ASSET_ID } from "./chains";
 import { TREZU_APP_URL } from "./config";
 import { approvalThreshold, signerNames } from "./team";
@@ -46,6 +47,13 @@ export function validateChanges(c: PolicyProposal["changes"]) {
     for (const [name, level] of e) if (!name.trim() || name.length > 120 || !levels.includes(level)) throw new Error("Each private vendor needs a name and a level of public, basic or advanced.");
   }
   if (c.requirePostQuantumKeys !== undefined && typeof c.requirePostQuantumKeys !== "boolean") throw new Error("Require post-quantum keys must be true or false.");
+  for (const [k, label] of [["verifyVendorsFromUsd", "Vendor verified from"], ["verifyBusinessFromUsd", "Business verified from"]] as const) {
+    const v = c[k];
+    if (v !== undefined && v !== null && (!Number.isFinite(v) || v < 0)) throw new Error(`${label} must be zero or more, or left empty.`);
+  }
+  for (const k of ["verifyNewVendors", "verifyForPrivacy", "acceptPassportProof"] as const) {
+    if (c[k] !== undefined && typeof c[k] !== "boolean") throw new Error(`${k} must be true or false.`);
+  }
 }
 
 /** The tag a DAO proposal must carry: the version it becomes and a hash of the exact rules. */
@@ -82,7 +90,7 @@ function daoPolicyText(version: number, changes: PolicyProposal["changes"]) {
     `Bluvfi Business policy v${version}: per payment ${usd(changes.perPaymentLimitUsd)}, daily ${usd(changes.dailyLimitUsd)}, ` +
     `signer approval from ${usd(changes.approvalThresholdUsd)}, hold ${changes.holdWindowMinutes} min, chains ${changes.allowedChains.join("/")}, ` +
     `assets ${changes.allowedAssets.join("/")}, ${changes.vendorAllowlist.length} allowlisted vendor(s), API spend ${usd(changes.x402DailyLimitUsd)}/day, ` +
-    `privacy floor ${changes.privacyFloor ?? "public"}${changes.privacyProfile ? ` (${changes.privacyProfile})` : ""}, ${changes.privacyTiers?.length ?? 0} amount tier(s), ${Object.keys(changes.privateVendors ?? {}).length} private vendor(s), post-quantum keys ${changes.requirePostQuantumKeys ? "required" : "optional"}. ${tag}`;
+    `privacy floor ${changes.privacyFloor ?? "public"}${changes.privacyProfile ? ` (${changes.privacyProfile})` : ""}, ${changes.privacyTiers?.length ?? 0} amount tier(s), ${Object.keys(changes.privateVendors ?? {}).length} private vendor(s), post-quantum keys ${changes.requirePostQuantumKeys ? "required" : "optional"}, verification: ${describeTiers(changes)}. ${tag}`;
   const kind = carrierKind();
   const args = JSON.stringify({ proposal: { description, kind } });
   return {

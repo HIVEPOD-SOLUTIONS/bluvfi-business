@@ -39,6 +39,7 @@
     "@noble/post-quantum": "^0.7.1",
     "@phala/dcap-qvl": "^0.7.0",
     "@privy-io/react-auth": "3.49.1",
+    "@selfxyz/enterprise-sdk": "0.4.1",
     "@stripe/stripe-js": "1.54.2",
     "@walletconnect/sign-client": "2.26.0",
     "borsh": "^2.0.0",

@@ -1,4 +1,5 @@
-import type { BlocklistEntry, CheckRequest, CheckResult, Invoice, PurchaseOrder, Vendor } from "./types";
+import type { BlocklistEntry, CheckRequest, CheckResult, Invoice, PurchaseOrder, Vendor, Verdict } from "./types";
+import { hasVendorTiers, standing, vendorRequirement, type VerificationTiers } from "./verify-tiers";
 
 export interface SanctionsHit {
   kind: "address" | "name";
@@ -34,6 +35,10 @@ export interface FraudContext {
   sanctions?: (address: string, name: string) => SanctionsResult | undefined;
   /** True when a verification provider is configured, so vendors are expected to be verified. */
   kybEnabled?: boolean;
+  /** True when passport proofs (Self) are configured, which also lets vendors verify. */
+  passportEnabled?: boolean;
+  /** The council's tiered-verification rules from the policy in force (lib/verify-tiers.ts). */
+  tiers?: VerificationTiers;
 }
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -180,15 +185,21 @@ export function runFraudChecks(inv: Invoice, ctx: FraudContext): CheckResult[] {
     });
   }
 
-  // 8. Is the vendor a verified business? Only when a verification provider is set up.
-  if (ctx.kybEnabled && vendor) {
-    const k = vendor.kyb?.status;
-    out.push({
-      id: "vendor_kyb",
-      label: "Vendor verification",
-      verdict: k === "verified" ? "allow" : k === "declined" ? "block" : "warn",
-      reason: k === "verified" ? "The vendor passed business verification." : k === "declined" ? "The vendor failed business verification." : k ? `The vendor's business verification is ${k}.` : "The vendor has not been verified yet. Send them a verification link from the Vendors page.",
-    });
+  // 8. Is the vendor verified? Only when a way to verify is set up. The council's tiers decide when it is required (lib/verify-tiers.ts).
+  if ((ctx.kybEnabled || ctx.passportEnabled) && vendor) {
+    const tiers = ctx.tiers ?? {};
+    const st = standing(vendor.kyb, vendor.passport, tiers);
+    const paidBefore = vendor.paidInvoiceNumbers.some((n) => n !== inv.invoiceNumber) || !!vendor.lastPaidAt;
+    const need = vendorRequirement(inv.amountUsd, paidBefore, tiers);
+    const ask = "Send them a verification link, or a passport check, from the Vendors page.";
+    let verdict: Verdict;
+    let reason: string;
+    if (st.state === "verified") [verdict, reason] = ["allow", `The vendor ${st.how}.`];
+    else if (st.state === "declined") [verdict, reason] = ["block", "The vendor failed verification."];
+    else if (!hasVendorTiers(tiers)) [verdict, reason] = ["warn", `The vendor is ${st.how}. ${ask}`]; // a policy from before tiers: a human decides
+    else if (need.required) [verdict, reason] = ["block", `The vendor is ${st.how}, and ${need.why}. ${ask}`];
+    else [verdict, reason] = ["allow", `The vendor is ${st.how}; ${need.why}.`];
+    out.push({ id: "vendor_kyb", label: "Vendor verification", verdict, reason });
   }
 
   // 9. Prompt injection.

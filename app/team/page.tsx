@@ -6,6 +6,7 @@ import { currentSigner, tenantPage } from "@/lib/who";
 import { KybControl } from "@/components/Kyb";
 import { getBusiness } from "@/lib/business";
 import { kybEnabled } from "@/lib/kyb";
+import { passportEnabled } from "@/lib/passport";
 import { TeamEditor } from "./TeamEditor";
 
 export const dynamic = "force-dynamic";
@@ -29,11 +30,11 @@ async function TeamPage() {
       {signerNames().length < 2 && (
         <p role="alert" className="card mb-4 text-sm neg">Only one signer exists, so one person can approve a policy change alone. Add a second approver.</p>
       )}
-      {kybEnabled() && currentBiz() !== DEFAULT_BIZ && owner && (
+      {(kybEnabled() || passportEnabled()) && currentBiz() !== DEFAULT_BIZ && owner && (
         <div className="card mb-4">
           <h2>Verify your business</h2>
-          <p className="mt-1 text-sm" style={{ color: "var(--tx-2)" }}>Payments are released only once your business has passed verification.</p>
-          <KybControl kind="business" status={getBusiness(currentBiz())?.kyb?.status} label="Start verification" />
+          <p className="mt-1 text-sm" style={{ color: "var(--tx-2)" }}>Your council&apos;s policy says when your business must be verified (for example from an amount, or for confidential payments). Verify with documents through Persona, or, if the policy accepts it, with a passport proof that shares no document.</p>
+          <KybControl kind="business" kyb={getBusiness(currentBiz())?.kyb} passport={getBusiness(currentBiz())?.passport} personaOn={kybEnabled()} passportOn={passportEnabled()} label="Start verification" />
         </div>
       )}
       <div className="grid gap-2">

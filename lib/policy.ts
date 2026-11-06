@@ -45,6 +45,11 @@ export const DEFAULT_POLICY_BODY: PolicyProposal["changes"] = {
   x402DailyLimitUsd: 5,
   privacyFloor: "public",
   requirePostQuantumKeys: false,
+  // Tiered verification: most payments ask nobody for anything; the vendor verifies from the approval threshold up.
+  verifyVendorsFromUsd: 5_000,
+  verifyNewVendors: false,
+  verifyForPrivacy: false,
+  acceptPassportProof: true,
 };
 
 /** The confidentiality a payment actually gets: what was asked for, raised to the policy's privacy floor. */

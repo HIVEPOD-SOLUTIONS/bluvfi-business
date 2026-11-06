@@ -210,3 +210,26 @@ export const PERSONA_TEMPLATE_VENDOR = process.env.PERSONA_TEMPLATE_VENDOR ?? ""
 export const PERSONA_TEMPLATE_BUSINESS = process.env.PERSONA_TEMPLATE_BUSINESS ?? "";
 export const KYB_ENABLED = !!PERSONA_API_KEY && !!(PERSONA_TEMPLATE_VENDOR || PERSONA_TEMPLATE_BUSINESS);
 export const KYB_REQUIRED = process.env.KYB_REQUIRED === "1";
+/**
+ * Short retention: days after Persona's final decision before the app asks Persona to delete the documents (DELETE /inquiries/{id}),
+ * leaving only the decision here. Default 7, so an attester can still re-check the decision for a credential. "off" never deletes.
+ */
+export const PERSONA_REDACT_AFTER_DAYS: number | null =
+  process.env.PERSONA_REDACT_AFTER_DAYS === "off" ? null : Math.max(0, Number(process.env.PERSONA_REDACT_AFTER_DAYS ?? 7) || 0);
+
+/**
+ * Passport proofs through Self (self.xyz, lib/passport.ts), with Self's enterprise API (its open SDK is deprecated). The person opens a
+ * hosted link, the Self app reads their passport chip and makes a zero-knowledge proof; Self tells us by signed webhook and the app
+ * re-verifies the proof itself. What the proof checks is the "flow" you build in Self's dashboard: set it to OFAC screening and a minimum
+ * age, and disclose nothing else, so no name, number or document reaches anyone.
+ *  - SELF_API_KEY (sk_...), SELF_FLOW_ID, SELF_WEBHOOK_SECRET (whsec_...) and SELF_ORG_ID (for re-verifying proofs) turn it on.
+ *  - Point the flow's webhook at PUBLIC_BASE_URL/api/passport/webhook.
+ *  - SELF_ALLOW_TEST=1 also accepts Self's test environment (mock documents), for trying it without a real passport.
+ */
+export const SELF_API_KEY = process.env.SELF_API_KEY ?? "";
+export const SELF_FLOW_ID = process.env.SELF_FLOW_ID ?? "";
+export const SELF_WEBHOOK_SECRET = process.env.SELF_WEBHOOK_SECRET ?? "";
+export const SELF_ORG_ID = process.env.SELF_ORG_ID ?? "";
+export const SELF_BASE_URL = process.env.SELF_BASE_URL || undefined;
+export const SELF_ALLOW_TEST = process.env.SELF_ALLOW_TEST === "1";
+export const PASSPORT_ENABLED = !!(SELF_API_KEY && SELF_FLOW_ID && SELF_WEBHOOK_SECRET && SELF_ORG_ID);

@@ -49,7 +49,7 @@ export async function processInvoice(inv: Invoice, confidentiality: Confidential
   if (judged) panel.attestation.registered = isRegisteredSigner(judged.decision.signingAddress);
   if (judged?.decision.attestation.structured === false) panel.attestation.notes.push("NEAR AI did not take the decision schema as structured output for this model, so the reply was checked against it here instead.");
 
-  const policyCtx = { killSwitch: s.killSwitch, spentTodayUsd: spentTodayUsd(), businessGate: businessGate() };
+  const policyCtx = { killSwitch: s.killSwitch, spentTodayUsd: spentTodayUsd(), businessGate: businessGate(inv.amountUsd, privacyForPayment(confidentiality, inv, policy).level, policy) };
   const policyChecks = evaluatePolicy(inv, policy, policyCtx);
   // Privacy is optional, but the policy can set a floor (for investors, institutions and others who need it).
   const priv = privacyForPayment(confidentiality, inv, policy);
@@ -175,7 +175,7 @@ export async function release(p: Payment): Promise<void> {
   const hard = evaluatePolicy(p.invoice, policy, {
     killSwitch: s.killSwitch,
     spentTodayUsd: spentTodayUsd() - (p.status === "ready_to_send" ? p.invoice.amountUsd : 0),
-    businessGate: businessGate(),
+    businessGate: businessGate(p.invoice.amountUsd, p.confidentiality, policy),
   }).filter((c) => c.verdict === "block");
   if (hard.length) {
     p.status = "blocked";

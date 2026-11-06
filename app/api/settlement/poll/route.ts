@@ -2,6 +2,7 @@ import { secretEquals } from "@/lib/business";
 import { SETTLEMENT_CRON_SECRET } from "@/lib/config";
 import { route } from "@/lib/http";
 import { requireSigner } from "@/lib/session";
+import { redactDue } from "@/lib/kyb";
 import { pollAllBusinesses, pollSettlements } from "@/lib/settlement";
 
 /**
@@ -10,7 +11,8 @@ import { pollAllBusinesses, pollSettlements } from "@/lib/settlement";
  */
 export const POST = route(async (req) => {
   const bearer = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
-  if (bearer && secretEquals(bearer, SETTLEMENT_CRON_SECRET)) return { businesses: await pollAllBusinesses() };
+  // The same schedule also deletes verification documents at Persona once they have been kept long enough (lib/kyb.ts).
+  if (bearer && secretEquals(bearer, SETTLEMENT_CRON_SECRET)) return { businesses: await pollAllBusinesses(), retention: await redactDue() };
   await requireSigner(req);
   return { results: await pollSettlements() };
 });

@@ -19,6 +19,8 @@ const PUBLIC = [
   /^\/apple-icon$/, /^\/manifest\.webmanifest$/,
   // Treasury setup: its API checks a signer session, or the one-time setup code before any signer exists.
   /^\/setup$/, /^\/api\/setup$/,
+  // Passport checks: Self's signed webhook, and the page a person lands on after the Self app.
+  /^\/api\/passport\/webhook$/, /^\/passport\/done$/,
 ];
 
 export async function proxy(req: NextRequest) {

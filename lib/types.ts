@@ -32,12 +32,37 @@ export interface KybRecord {
   status: KybStatus;
   inquiryId: string;
   updatedAt: string;
+  /** When Persona's decision became final (verified or declined): retention counts from here. */
+  decidedAt?: string;
+  /** When the documents were deleted at Persona (redacted), leaving only this decision. */
+  redactedAt?: string;
+}
+
+/**
+ * A passport proof (Self, lib/passport.ts): a zero-knowledge proof from the person's passport chip that a real passport holder, passing
+ * the checks of the Self flow (OFAC screening and a minimum age), is behind it. No name, number or document is disclosed. `nullifier` is
+ * the same for the same passport here, so one passport cannot quietly verify several parties.
+ */
+export interface PassportRecord {
+  provider: "self";
+  status: "pending" | "verified" | "declined";
+  /** Our id for the Self session (its external_uuid). */
+  sessionRef: string;
+  updatedAt: string;
+  nullifier?: string;
+  verifiedAt?: string;
+  environment?: "test" | "live";
+  /** The predicates the proof was checked against (age, OFAC), never personal data. */
+  checks?: Record<string, string | number | boolean>;
+  note?: string;
 }
 
 export interface Vendor {
   name: string;
   /** Business verification of this vendor (lib/kyb.ts); missing means never started. */
   kyb?: KybRecord;
+  /** A passport proof for this vendor (lib/passport.ts), which the council may accept instead. */
+  passport?: PassportRecord;
   domain: string;
   verifiedContact: { channel: Channel; handle: string };
   payout: { chain: string; asset: string; address: string };
@@ -69,6 +94,12 @@ export interface Policy {
   privateVendors?: Record<string, Confidentiality>;
   /** Refuse payouts unless every key that can move money (agent, relayer, council) is post-quantum (ML-DSA). Missing means off. */
   requirePostQuantumKeys?: boolean;
+  /** Tiered verification (lib/verify-tiers.ts): who must verify, and when. Missing on versions made before it existed. */
+  verifyVendorsFromUsd?: number;
+  verifyNewVendors?: boolean;
+  verifyBusinessFromUsd?: number;
+  verifyForPrivacy?: boolean;
+  acceptPassportProof?: boolean;
   hash: string;
   createdAt: string;
 }

@@ -7,9 +7,11 @@ import { POST as kybRoute } from "../app/api/kyb/route";
 import { POST as webhookRoute } from "../app/api/kyb/webhook/route";
 import { processInvoice } from "../lib/agent";
 import { createBusiness, getBusiness, resetRegistry } from "../lib/business";
-import { handlePersonaWebhook, mapStatus, refreshInquiry, resetKybIndex, startBusinessVerification, startVendorVerification, verifyPersonaSignature } from "../lib/kyb";
+import { handlePersonaWebhook, mapStatus, redactDue, refreshInquiry, resetKybIndex, startBusinessVerification, startVendorVerification, verifyPersonaSignature } from "../lib/kyb";
 import { issueSession } from "../lib/session";
 import { runAs } from "../lib/tenant";
+import { makePolicy } from "../lib/policy";
+import { currentPolicy } from "../lib/store";
 import { install, invoice, seed, state } from "./fakes";
 
 // Persona's API, as a local server: inquiries with a status we can set, the one-time link (sometimes only from the second endpoint).
@@ -36,6 +38,7 @@ before(async () => {
       const gen = /^\/api\/v1\/inquiries\/(inq_\d+)\/generate-one-time-link$/.exec(req.url!);
       if (req.method === "POST" && gen) return send(200, { meta: { "one-time-link": `https://persona.example/verify?code=${gen[1]}&second=1` } });
       const get = /^\/api\/v1\/inquiries\/(inq_\d+)$/.exec(req.url!);
+      if (req.method === "DELETE" && get) return inquiries[get[1]] ? send(200, { data: { id: get[1], type: "inquiry", attributes: { status: inquiries[get[1]], "redacted-at": new Date().toISOString() } } }) : send(404, { errors: [{ title: "Not found" }] });
       if (req.method === "GET" && get) return inquiries[get[1]] ? send(200, { data: { id: get[1], type: "inquiry", attributes: { status: inquiries[get[1]] } } }) : send(404, { errors: [{ title: "Not found" }] });
       send(404, {});
     });
@@ -126,10 +129,20 @@ test("an older inquiry cannot overwrite a newer one for the same vendor", async 
   assert.equal(state().vendors[0].kyb?.status, "pending");
 });
 
-test("vendor verification in the fraud checks: unverified warns (a human decides), declined blocks, verified is clear", async () => {
-  const pay = async (no: string) => processInvoice(invoice({ invoiceNumber: no }));
+test("vendor verification in the fraud checks follows the council's tiers: not asked below the threshold, required from it; declined blocks, verified is clear", async () => {
+  const pay = async (no: string, amountUsd = 1240) => processInvoice(invoice({ invoiceNumber: no, amountUsd, poNumber: amountUsd === 1240 ? "PO-1" : "PO-BIG" }));
   const check = (p: Awaited<ReturnType<typeof pay>>) => p.checks.find((c) => c.id === "vendor_kyb")!;
-  assert.equal(check(await pay("INV-A")).verdict, "warn");
+  const small = check(await pay("INV-A"));
+  assert.equal(small.verdict, "allow", "the default policy asks nothing of vendors under $5,000");
+  assert.match(small.reason, /under \$5,000, the policy does not require it/);
+  const big = check(await pay("INV-A2", 7000));
+  assert.equal(big.verdict, "block");
+  assert.match(big.reason, /requires a verified vendor from \$5,000/);
+  // A policy written before tiers existed keeps the old rule: unverified warns, and a human decides.
+  const { version, hash: _h, createdAt: _c, verifyVendorsFromUsd: _v, verifyNewVendors: _n, ...old } = currentPolicy();
+  void _h; void _c; void _v; void _n;
+  state().policies.push(makePolicy(version + 1, old));
+  assert.equal(check(await pay("INV-A3")).verdict, "warn");
   await startVendorVerification("Northwind Cloud Ltd");
   state().vendors[0].kyb!.status = "declined";
   const declined = await pay("INV-B");
@@ -178,4 +191,34 @@ test("the API: a signer starts a vendor's verification; only an owner starts the
   assert.equal(biz.status, 400);
   assert.match(((await biz.json()) as { error: string }).error, /operator's own business/);
   assert.equal((await call({ kind: "other" })).status, 400);
+});
+
+test("short retention: documents are deleted at Persona once the decision has been final for the retention period, and only the verdict stays", async () => {
+  await startVendorVerification("Northwind Cloud Ltd");
+  inquiries.inq_1 = "approved";
+  const body = event("inq_1");
+  await handlePersonaWebhook(body, sign(body));
+  const decided = state().vendors[0].kyb!;
+  assert.equal(decided.status, "verified");
+  assert.ok(decided.decidedAt, "the decision time is recorded");
+  assert.equal(decided.redactedAt, undefined, "too early: kept for the retention period (7 days by default)");
+  assert.ok(!calls.some((x) => x.method === "DELETE"));
+
+  const day = 86_400_000;
+  const early = await redactDue(Date.parse(decided.decidedAt!) + 6 * day);
+  assert.deepEqual([early.redacted, early.waiting], [[], 1]);
+
+  const later = await redactDue(Date.parse(decided.decidedAt!) + 8 * day);
+  assert.deepEqual(later.redacted, ["inq_1"]);
+  assert.ok(calls.some((x) => x.method === "DELETE" && x.url === "/api/v1/inquiries/inq_1"), "Persona was asked to delete it");
+  assert.ok(state().vendors[0].kyb!.redactedAt, "the record says when the documents were deleted");
+  assert.equal(state().vendors[0].kyb!.status, "verified", "the verdict stays");
+
+  // Once done it is not asked again, and a refresh keeps both the decision time and the deletion.
+  const n = calls.filter((x) => x.method === "DELETE").length;
+  await redactDue(Date.parse(decided.decidedAt!) + 30 * day);
+  assert.equal(calls.filter((x) => x.method === "DELETE").length, n);
+  await refreshInquiry("inq_1");
+  assert.equal(state().vendors[0].kyb!.decidedAt, decided.decidedAt);
+  assert.ok(state().vendors[0].kyb!.redactedAt);
 });

@@ -5,7 +5,7 @@ import { COMPANY_NAME, DEMO, ENV_CFG, type Cfg, type CustodyMode } from "./confi
 import { decrypt, encrypt } from "./crypto";
 import { dataKey } from "./store";
 import { openText, sealText } from "./vault";
-import type { KybRecord } from "./types";
+import type { KybRecord, PassportRecord } from "./types";
 import { BIZ_ID, currentBiz, DEFAULT_BIZ } from "./tenant";
 
 /**
@@ -61,6 +61,8 @@ export interface Business {
   channels?: ChannelConfig;
   /** This business's own identity verification (lib/kyb.ts). */
   kyb?: KybRecord;
+  /** An owner's passport proof for this business (lib/passport.ts), which the council may accept instead. */
+  passport?: PassportRecord;
 }
 
 const FILE = process.env.BLUVFI_PERSIST === "0" ? "" : (process.env.BLUVFI_BUSINESSES_FILE ?? (DEMO ? ".data/demo-businesses.json" : ".data/businesses.json"));
@@ -87,6 +89,15 @@ export function saveRegistry() {
   const tmp = FILE + ".tmp";
   writeFileSync(tmp, sealText(JSON.stringify([...registry().values()])));
   renameSync(tmp, FILE);
+}
+
+/** Record an owner's passport proof for this business (lib/passport.ts). */
+export function setBusinessPassport(id: string, passport: PassportRecord): PassportRecord {
+  const b = getBusiness(id);
+  if (!b) throw new Error("Unknown business");
+  b.passport = passport;
+  saveRegistry();
+  return passport;
 }
 
 export function setBusinessKyb(id: string, kyb: KybRecord): KybRecord {

@@ -1,4 +1,5 @@
 import { cfg } from "@/lib/business";
+import { describeTiers } from "@/lib/verify-tiers";
 import { Badge, PageHead, short, when } from "@/components/ui";
 import { verifyPolicyHistory } from "@/lib/policy";
 
@@ -35,7 +36,7 @@ async function PolicyPage() {
                 <Badge tone={pr.status === "applied" ? "ok" : pr.status === "rejected" ? "bad" : "warn"}>{pr.status === "applied" ? "Applied" : pr.status === "rejected" ? "Rejected by the DAO" : pr.dao ? "Waiting for the DAO" : `${pr.approvals.length}/${pr.threshold} approvals`}</Badge>
               </div>
               <p className="mt-1 text-sm" style={{ color: "var(--tx-1)" }}>
-                Per payment ${pr.changes.perPaymentLimitUsd.toLocaleString()} · daily ${pr.changes.dailyLimitUsd.toLocaleString()} · approval at ${pr.changes.approvalThresholdUsd.toLocaleString()} · hold {pr.changes.holdWindowMinutes} min · chains {pr.changes.allowedChains.join(", ")} · privacy floor {pr.changes.privacyFloor ?? "public"}{pr.changes.privacyProfile ? ` (${pr.changes.privacyProfile})` : ""}{pr.changes.privacyTiers?.length ? ` · ${pr.changes.privacyTiers.length} amount tier(s)` : ""}{Object.keys(pr.changes.privateVendors ?? {}).length ? ` · ${Object.keys(pr.changes.privateVendors ?? {}).length} private vendor(s)` : ""} · post-quantum keys {pr.changes.requirePostQuantumKeys ? "required" : "optional"}
+                Per payment ${pr.changes.perPaymentLimitUsd.toLocaleString()} · daily ${pr.changes.dailyLimitUsd.toLocaleString()} · approval at ${pr.changes.approvalThresholdUsd.toLocaleString()} · hold {pr.changes.holdWindowMinutes} min · chains {pr.changes.allowedChains.join(", ")} · privacy floor {pr.changes.privacyFloor ?? "public"}{pr.changes.privacyProfile ? ` (${pr.changes.privacyProfile})` : ""}{pr.changes.privacyTiers?.length ? ` · ${pr.changes.privacyTiers.length} amount tier(s)` : ""}{Object.keys(pr.changes.privateVendors ?? {}).length ? ` · ${Object.keys(pr.changes.privateVendors ?? {}).length} private vendor(s)` : ""} · post-quantum keys {pr.changes.requirePostQuantumKeys ? "required" : "optional"} · verification: {describeTiers(pr.changes)}
               </p>
               {pr.dao ? <p className="mt-1 text-sm" style={{ color: "var(--tx-2)" }}>Drafted by {pr.approvals[0]}.</p> : <p className="mt-1 text-sm" style={{ color: "var(--tx-2)" }}>Approved by: {pr.approvals.join(", ")}</p>}
               {pr.dao && pr.status === "open" && <DaoProposalBox id={pr.id} dao={pr.dao} />}

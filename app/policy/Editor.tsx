@@ -19,7 +19,12 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
     allowedAssets: policy.allowedAssets.join(", "), vendorAllowlist: policy.vendorAllowlist.join("\n"),
     privacyFloor: policy.privacyFloor ?? "public", requirePostQuantumKeys: !!policy.requirePostQuantumKeys,
     privacyProfile: (policy.privacyProfile ?? "") as PrivacyProfile | "", privacyTiers: tiersToText(policy.privacyTiers), privateVendors: vendorsToText(policy.privateVendors),
+    verifyVendorsFromUsd: policy.verifyVendorsFromUsd === undefined ? "" : String(policy.verifyVendorsFromUsd),
+    verifyBusinessFromUsd: policy.verifyBusinessFromUsd === undefined ? "" : String(policy.verifyBusinessFromUsd),
+    verifyNewVendors: !!policy.verifyNewVendors, verifyForPrivacy: !!policy.verifyForPrivacy, acceptPassportProof: policy.acceptPassportProof !== false,
   });
+  // An empty amount means "no rule": nobody is asked to verify because of the amount.
+  const optionalUsd = (v: string) => (v.trim() === "" ? undefined : Number(v));
   const [formError, setFormError] = useState("");
   const [sent, setSent] = useState(false);
   const list = (s: string, sep: RegExp) => s.split(sep).map((x) => x.trim()).filter(Boolean);
@@ -47,6 +52,8 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
             allowedAssets: list(f.allowedAssets, /[,\s]+/).map((a) => a.toUpperCase()), vendorAllowlist: list(f.vendorAllowlist, /\n/),
             privacyFloor: f.privacyFloor, requirePostQuantumKeys: f.requirePostQuantumKeys,
             ...(f.privacyProfile ? { privacyProfile: f.privacyProfile } : {}), privacyTiers, privateVendors,
+            verifyVendorsFromUsd: optionalUsd(f.verifyVendorsFromUsd), verifyBusinessFromUsd: optionalUsd(f.verifyBusinessFromUsd),
+            verifyNewVendors: f.verifyNewVendors, verifyForPrivacy: f.verifyForPrivacy, acceptPassportProof: f.acceptPassportProof,
           },
         });
         if (ok) setSent(true);
@@ -88,6 +95,22 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
       <label className="block"><span className="label">Vendors who need privacy (one per line: vendor: level)</span>
         <textarea className="input mt-1" placeholder={"Payroll Co: advanced\nSeed Investors LLC: basic"} value={f.privateVendors} onChange={(e) => setF({ ...f, privateVendors: e.target.value })} />
         <span className="text-xs" style={{ color: "var(--tx-2)" }}>Payroll, contractors, investors, legal: always at least this level, whatever the amount.</span></label>
+      <div className="sm:col-span-2">
+        <span className="label">Who has to verify, and when</span>
+        <p className="text-xs" style={{ color: "var(--tx-2)" }}>Most payments should ask nobody for anything. Leave an amount empty for no amount rule; 0 means always.</p>
+      </div>
+      <label className="block"><span className="label">Vendor verified from (USD)</span>
+        <input className="input mt-1" type="number" min="0" placeholder="no amount rule" value={f.verifyVendorsFromUsd} onChange={(e) => setF({ ...f, verifyVendorsFromUsd: e.target.value })} />
+        <span className="text-xs" style={{ color: "var(--tx-2)" }}>Payments to an unverified vendor at or above this are blocked until the vendor verifies.</span></label>
+      <label className="block"><span className="label">Your business verified from (USD)</span>
+        <input className="input mt-1" type="number" min="0" placeholder="no amount rule" value={f.verifyBusinessFromUsd} onChange={(e) => setF({ ...f, verifyBusinessFromUsd: e.target.value })} />
+        <span className="text-xs" style={{ color: "var(--tx-2)" }}>Payments at or above this wait until your own business is verified.</span></label>
+      <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" checked={f.verifyNewVendors} onChange={(e) => setF({ ...f, verifyNewVendors: e.target.checked })} />
+        <span><span className="label">New vendors verify first</span><br /><span className="text-xs" style={{ color: "var(--tx-2)" }}>A vendor never paid before must verify, whatever the amount.</span></span></label>
+      <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" checked={f.verifyForPrivacy} onChange={(e) => setF({ ...f, verifyForPrivacy: e.target.checked })} />
+        <span><span className="label">Verify for confidential payments</span><br /><span className="text-xs" style={{ color: "var(--tx-2)" }}>Your business must be verified to pay at the &quot;advanced&quot; privacy level.</span></span></label>
+      <label className="flex items-start gap-2 sm:col-span-2"><input type="checkbox" className="mt-1" checked={f.acceptPassportProof} onChange={(e) => setF({ ...f, acceptPassportProof: e.target.checked })} />
+        <span><span className="label">Accept a passport proof</span><br /><span className="text-xs" style={{ color: "var(--tx-2)" }}>A zero-knowledge proof from a passport chip (Self) counts as verified: a real passport holder, of age, not on OFAC lists. No name or document is shared. Off means Persona only.</span></span></label>
       <label className="block sm:col-span-2"><span className="label">Vendor allowlist (one per line)</span>
         <textarea className="input mt-1" value={f.vendorAllowlist} onChange={(e) => setF({ ...f, vendorAllowlist: e.target.value })} /></label>
       <div className="flex flex-wrap items-end gap-3 sm:col-span-2">

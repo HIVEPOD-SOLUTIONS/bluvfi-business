@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { DEMO, KYB_ENABLED, MASTER_KEY } from "./config";
+import { DEMO, KYB_ENABLED, MASTER_KEY, PASSPORT_ENABLED } from "./config";
 import { deriveKey } from "./crypto";
 import { openText, sealText } from "./vault";
 import { DEFAULT_POLICY_BODY, makePolicy } from "./policy";
@@ -181,4 +181,6 @@ export const fraudContext = () => ({
   counterparty,
   sanctions: (address: string, name: string) => screened.get(screenKey(address, name)),
   kybEnabled: KYB_ENABLED,
+  passportEnabled: PASSPORT_ENABLED,
+  tiers: currentPolicy(),
 });

@@ -2,11 +2,12 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { getBusiness, setBusinessKyb } from "./business";
-import { KYB_ENABLED, KYB_REQUIRED, PERSONA_API_KEY, PERSONA_BASE, PERSONA_TEMPLATE_BUSINESS, PERSONA_TEMPLATE_VENDOR, PERSONA_VERSION, PERSONA_WEBHOOK_SECRET } from "./config";
-import { persist, state } from "./store";
+import { KYB_ENABLED, KYB_REQUIRED, PASSPORT_ENABLED, PERSONA_REDACT_AFTER_DAYS, PERSONA_API_KEY, PERSONA_BASE, PERSONA_TEMPLATE_BUSINESS, PERSONA_TEMPLATE_VENDOR, PERSONA_VERSION, PERSONA_WEBHOOK_SECRET } from "./config";
+import { currentPolicy, persist, state } from "./store";
 import { currentBiz, DEFAULT_BIZ, runAs } from "./tenant";
 import { openText, sealText } from "./vault";
-import type { KybRecord, KybStatus } from "./types";
+import type { Confidentiality, KybRecord, KybStatus } from "./types";
+import { businessRequirement, standing, type VerificationTiers } from "./verify-tiers";
 
 /**
  * Identity verification (KYB) through Persona. A vendor, or a business that signed up, is sent a hosted verification link. Persona decides
@@ -67,7 +68,20 @@ export function mapStatus(personaStatus: string): KybStatus {
   }
 }
 
-const rec = (status: KybStatus, inquiryId: string): KybRecord => ({ status, inquiryId, updatedAt: new Date().toISOString() });
+const FINAL: KybStatus[] = ["verified", "declined"];
+/**
+ * A record for this status. When the decision is final, `decidedAt` is set the first time and kept after, so retention counts from the
+ * decision, not from the last refresh. A record whose documents were deleted keeps saying so.
+ */
+const rec = (status: KybStatus, inquiryId: string, prev?: KybRecord): KybRecord => {
+  const now = new Date().toISOString();
+  const same = prev?.inquiryId === inquiryId && prev.status === status;
+  return {
+    status, inquiryId, updatedAt: now,
+    ...(FINAL.includes(status) ? { decidedAt: same && prev?.decidedAt ? prev.decidedAt : now } : {}),
+    ...(same && prev?.redactedAt ? { redactedAt: prev.redactedAt } : {}),
+  };
+};
 
 // ---------- Starting a verification ----------
 const templateKey = (id: string) => (id.startsWith("itmplv_") ? "inquiry-template-version-id" : id.startsWith("itmpl_") ? "inquiry-template-id" : "template-id");
@@ -139,13 +153,13 @@ export async function refreshInquiry(inquiryId: string): Promise<KybRecord | und
       const v = state().vendors.find((x) => x.name === e.vendor);
       // A newer inquiry for the same vendor replaces this one: an old inquiry must not overwrite it.
       if (!v || (v.kyb && v.kyb.inquiryId !== inquiryId)) return v?.kyb;
-      v.kyb = rec(status, inquiryId);
+      v.kyb = rec(status, inquiryId, v.kyb);
       persist();
       return v.kyb;
     }
     const b = getBusiness(e.biz);
     if (!b || (b.kyb && b.kyb.inquiryId !== inquiryId)) return b?.kyb;
-    return setBusinessKyb(e.biz, rec(status, inquiryId));
+    return setBusinessKyb(e.biz, rec(status, inquiryId, b.kyb));
   });
 }
 
@@ -196,21 +210,70 @@ export async function handlePersonaWebhook(rawBody: string, signature: string): 
   if (!load()[inquiry.id]) return { ok: true, detail: "Not one of ours" };
   // The event only says "look": the decision is what Persona's API says.
   const r = await refreshInquiry(inquiry.id);
+  await redactDue().catch(() => undefined); // best effort: the scheduled poll retries
   return { ok: true, detail: `${name}: ${r?.status ?? "unknown"}` };
 }
 
 // ---------- Gate ----------
 /**
- * Can this business release payments? Only when verification is required and set up, and the business is not the operator's own, is its
- * own approval needed. Returns the reason if not.
+ * Can this business release this payment? Its own verification is needed when the operator requires it of everyone (KYB_REQUIRED) or when
+ * the council's tiers do (lib/verify-tiers.ts: from an amount, or for confidential payments), and a way to verify is set up. The operator's
+ * own business is exempt. Returns the reason if not.
  */
-export function businessGate(): string | undefined {
-  if (!KYB_REQUIRED || !KYB_ENABLED || currentBiz() === DEFAULT_BIZ) return undefined;
-  const s = getBusiness(currentBiz())?.kyb?.status;
-  if (s === "verified") return undefined;
-  return s === "declined"
+export function businessGate(amountUsd = 0, confidentiality: Confidentiality = "basic", tiers: VerificationTiers = currentPolicy()): string | undefined {
+  if ((!KYB_ENABLED && !PASSPORT_ENABLED) || currentBiz() === DEFAULT_BIZ) return undefined;
+  const need = businessRequirement(amountUsd, confidentiality, tiers, KYB_REQUIRED && KYB_ENABLED);
+  if (!need.required) return undefined;
+  const b = getBusiness(currentBiz());
+  const st = standing(b?.kyb, b?.passport, tiers);
+  if (st.state === "verified") return undefined;
+  return st.state === "declined"
     ? "Your business failed verification, so payments are stopped."
-    : s
-      ? `Your business verification is ${s}. Payments are stopped until it is approved.`
-      : "Your business has not been verified yet. Verify it on the Team page before paying.";
+    : st.state === "open"
+      ? `Your business ${st.how}, and ${need.why}. Payments like this wait until it is approved.`
+      : `Your business has not been verified yet, and ${need.why}. Verify it on the Team page before paying.`;
+}
+
+// ---------- Short retention ----------
+/**
+ * Delete the documents at Persona once a decision has been final for PERSONA_REDACT_AFTER_DAYS, so only the verdict is kept anywhere:
+ * Persona's DELETE /inquiries/{id} permanently removes the personal data of the inquiry and everything linked to it (it cannot be undone).
+ * The decision is already recorded here, which is all this app ever uses. Each record says when its documents were deleted.
+ */
+export async function redactInquiry(inquiryId: string): Promise<void> {
+  const r = await persona(`/inquiries/${encodeURIComponent(inquiryId)}`, { method: "DELETE" });
+  // Already gone counts as done: there is nothing left to delete.
+  if (!r.ok && r.status !== 404) throw new Error(`Persona would not delete inquiry ${inquiryId} (${r.status})`);
+}
+
+export interface RetentionPass { redacted: string[]; waiting: number; errors: string[] }
+
+/** Every inquiry whose final decision is older than the retention period, across every business: delete its documents at Persona. */
+export async function redactDue(now = Date.now()): Promise<RetentionPass> {
+  const out: RetentionPass = { redacted: [], waiting: 0, errors: [] };
+  if (PERSONA_REDACT_AFTER_DAYS === null || !KYB_ENABLED) return out;
+  const due = PERSONA_REDACT_AFTER_DAYS * 86_400_000;
+  for (const [inquiryId, e] of Object.entries(load())) {
+    await runAs(e.biz, async () => {
+      const record = e.kind === "vendor" ? state().vendors.find((x) => x.name === e.vendor)?.kyb : getBusiness(e.biz)?.kyb;
+      if (!record || record.inquiryId !== inquiryId || !record.decidedAt || record.redactedAt) return;
+      if (now - Date.parse(record.decidedAt) < due) {
+        out.waiting++;
+        return;
+      }
+      try {
+        await redactInquiry(inquiryId);
+        const done: KybRecord = { ...record, redactedAt: new Date(now).toISOString() };
+        if (e.kind === "vendor") {
+          const v = state().vendors.find((x) => x.name === e.vendor);
+          if (v) v.kyb = done;
+          persist();
+        } else setBusinessKyb(e.biz, done);
+        out.redacted.push(inquiryId);
+      } catch (err) {
+        out.errors.push((err as Error).message);
+      }
+    });
+  }
+  return out;
 }
