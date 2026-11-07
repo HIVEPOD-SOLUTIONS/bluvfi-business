@@ -15,7 +15,7 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
   const [f, setF] = useState({
     perPaymentLimitUsd: String(policy.perPaymentLimitUsd), dailyLimitUsd: String(policy.dailyLimitUsd),
     approvalThresholdUsd: String(policy.approvalThresholdUsd), holdWindowMinutes: String(policy.holdWindowMinutes),
-    x402DailyLimitUsd: String(policy.x402DailyLimitUsd), cardDailyLimitUsd: String(policy.cardDailyLimitUsd ?? 0), allowedChains: policy.allowedChains.join(", "),
+    x402DailyLimitUsd: String(policy.x402DailyLimitUsd), cardDailyLimitUsd: String(policy.cardDailyLimitUsd ?? 0), investAssets: (policy.investAssets ?? []).join(", "), investMaxUsd: String(policy.investMaxUsd ?? 0), allowedChains: policy.allowedChains.join(", "),
     allowedAssets: policy.allowedAssets.join(", "), vendorAllowlist: policy.vendorAllowlist.join("\n"),
     privacyFloor: policy.privacyFloor ?? "public", requirePostQuantumKeys: !!policy.requirePostQuantumKeys,
     privacyProfile: (policy.privacyProfile ?? "") as PrivacyProfile | "", privacyTiers: tiersToText(policy.privacyTiers), privateVendors: vendorsToText(policy.privateVendors),
@@ -48,7 +48,7 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
           changes: {
             perPaymentLimitUsd: Number(f.perPaymentLimitUsd), dailyLimitUsd: Number(f.dailyLimitUsd),
             approvalThresholdUsd: Number(f.approvalThresholdUsd), holdWindowMinutes: Number(f.holdWindowMinutes),
-            x402DailyLimitUsd: Number(f.x402DailyLimitUsd), cardDailyLimitUsd: Number(f.cardDailyLimitUsd), allowedChains: list(f.allowedChains, /[,\s]+/),
+            x402DailyLimitUsd: Number(f.x402DailyLimitUsd), cardDailyLimitUsd: Number(f.cardDailyLimitUsd), investAssets: list(f.investAssets, /[,\s]+/).map((a) => a.toUpperCase()), investMaxUsd: Number(f.investMaxUsd) || 0, allowedChains: list(f.allowedChains, /[,\s]+/),
             allowedAssets: list(f.allowedAssets, /[,\s]+/).map((a) => a.toUpperCase()), vendorAllowlist: list(f.vendorAllowlist, /\n/),
             privacyFloor: f.privacyFloor, requirePostQuantumKeys: f.requirePostQuantumKeys,
             ...(f.privacyProfile ? { privacyProfile: f.privacyProfile } : {}), privacyTiers, privateVendors,
@@ -65,6 +65,11 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
       {num("holdWindowMinutes", "Hold window (minutes)", "How long suspicious payments wait.")}
       {num("x402DailyLimitUsd", "API spend per day (USD)", "For x402 paywalls the agent buys from.")}
       {num("cardDailyLimitUsd", "Card spend per day (USD)", "One-time cards for card checkouts. 0 gives the agent no cards.")}
+      <label className="block"><span className="label">Coins the treasury may invest in</span>
+        <input className="input mt-1" placeholder="ETH, SOL, NEAR" value={f.investAssets} onChange={(e) => setF({ ...f, investAssets: e.target.value })} />
+        <span className="text-xs" style={{ color: "var(--tx-2)" }}>Empty keeps investing off. The coins stay in the treasury&apos;s own account.</span></label>
+      <label className="block"><span className="label">Most for one investment (USD)</span>
+        <input className="input mt-1" type="number" min="0" value={f.investMaxUsd} onChange={(e) => setF({ ...f, investMaxUsd: e.target.value })} /></label>
       <label className="block"><span className="label">Allowed chains</span>
         <input className="input mt-1" value={f.allowedChains} onChange={(e) => setF({ ...f, allowedChains: e.target.value })} /></label>
       <label className="block"><span className="label">Allowed assets</span>

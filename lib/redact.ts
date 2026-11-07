@@ -1,4 +1,5 @@
-import { DEMO, NEAR_AI_BASE, NEAR_AI_KEY } from "./config";
+import { isDemo } from "./tenant";
+import { NEAR_AI_BASE, NEAR_AI_KEY } from "./config";
 
 const RULES: [RegExp, string][] = [
   [/[\w.+-]+@[\w-]+\.[\w.-]+/g, "[EMAIL]"],
@@ -26,7 +27,7 @@ const local = (text: string) => RULES.reduce((t, [re, to]) => t.replace(re, to),
  * the record says so. The deterministic checks run on the original data, which never leaves this process.
  */
 export async function redact(text: string): Promise<Redaction> {
-  if (!NEAR_AI_KEY || DEMO) return { text: local(text), source: "local-regex" };
+  if (!NEAR_AI_KEY || isDemo()) return { text: local(text), source: "local-regex" };
   try {
     const res = await fetch(`${NEAR_AI_BASE}/privacy/redact`, {
       method: "POST",

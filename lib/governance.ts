@@ -24,7 +24,7 @@ const KNOWN_ASSETS = new Set(Object.keys(ASSET_ID).map((k) => k.split(":")[1]));
 export function validateChanges(c: PolicyProposal["changes"]) {
   const nums: [string, number][] = [
     ["Per-payment limit", c.perPaymentLimitUsd], ["Daily limit", c.dailyLimitUsd], ["Approval threshold", c.approvalThresholdUsd],
-    ["Hold window", c.holdWindowMinutes], ["API spend per day", c.x402DailyLimitUsd], ["Card spend per day", c.cardDailyLimitUsd ?? 0],
+    ["Hold window", c.holdWindowMinutes], ["API spend per day", c.x402DailyLimitUsd], ["Card spend per day", c.cardDailyLimitUsd ?? 0], ["Most for one investment", c.investMaxUsd ?? 0],
   ];
   for (const [n, v] of nums) if (!Number.isFinite(v) || v < 0) throw new Error(`${n} must be zero or more.`);
   if (c.perPaymentLimitUsd === 0 || c.dailyLimitUsd === 0) throw new Error("A limit of 0 would stop every payment. Use the kill switch for that.");
@@ -35,6 +35,10 @@ export function validateChanges(c: PolicyProposal["changes"]) {
   const badAsset = c.allowedAssets.find((x) => !KNOWN_ASSETS.has(x));
   if (badAsset) throw new Error(`Unknown asset "${badAsset}". Supported: ${[...KNOWN_ASSETS].join(", ")}.`);
   if (c.privacyFloor !== undefined && !["public", "basic", "advanced"].includes(c.privacyFloor)) throw new Error("The privacy floor must be public, basic or advanced.");
+  if (c.investAssets !== undefined) {
+    if (!Array.isArray(c.investAssets) || c.investAssets.length > 20 || c.investAssets.some((a) => typeof a !== "string" || !/^[A-Z0-9]{2,10}$/.test(a))) throw new Error("Investing coins must be tickers like ETH or SOL, at most 20.");
+    if (c.investAssets.length && !((c.investMaxUsd ?? 0) > 0)) throw new Error("Set the most one investment may be, above zero, or leave the coin list empty to keep investing off.");
+  }
   if (c.privacyProfile !== undefined && !["open", "startup", "institution", "holder"].includes(c.privacyProfile)) throw new Error("The privacy profile must be open, startup, institution or holder.");
   const levels = ["public", "basic", "advanced"];
   if (c.privacyTiers !== undefined) {
@@ -90,6 +94,7 @@ function daoPolicyText(version: number, changes: PolicyProposal["changes"]) {
     `Bluvfi Business policy v${version}: per payment ${usd(changes.perPaymentLimitUsd)}, daily ${usd(changes.dailyLimitUsd)}, ` +
     `signer approval from ${usd(changes.approvalThresholdUsd)}, hold ${changes.holdWindowMinutes} min, chains ${changes.allowedChains.join("/")}, ` +
     `assets ${changes.allowedAssets.join("/")}, ${changes.vendorAllowlist.length} allowlisted vendor(s), API spend ${usd(changes.x402DailyLimitUsd)}/day, cards ${usd(changes.cardDailyLimitUsd ?? 0)}/day, ` +
+    `investing ${changes.investAssets?.length ? `${changes.investAssets.join("/")} up to ${usd(changes.investMaxUsd ?? 0)} each` : "off"}, ` +
     `privacy floor ${changes.privacyFloor ?? "public"}${changes.privacyProfile ? ` (${changes.privacyProfile})` : ""}, ${changes.privacyTiers?.length ?? 0} amount tier(s), ${Object.keys(changes.privateVendors ?? {}).length} private vendor(s), post-quantum keys ${changes.requirePostQuantumKeys ? "required" : "optional"}, verification: ${describeTiers(changes)}. ${tag}`;
   const kind = carrierKind();
   const args = JSON.stringify({ proposal: { description, kind } });

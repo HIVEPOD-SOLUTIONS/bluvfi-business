@@ -1,4 +1,5 @@
 import { checkSettlement } from "./agent";
+import { refreshOpenBills } from "./bills";
 import { businesses, getBusiness } from "./business";
 import { refreshReceivable } from "./receivables";
 import { persist, state } from "./store";
@@ -30,6 +31,11 @@ export async function pollSettlements(): Promise<SettlementPass> {
     } catch (e) {
       out.errors.push(`${r.id}: ${(e as Error).message}`);
     }
+  }
+  try {
+    await refreshOpenBills(); // bills already paid: has the code been delivered?
+  } catch (e) {
+    out.errors.push(`bills: ${(e as Error).message}`);
   }
   return out;
 }

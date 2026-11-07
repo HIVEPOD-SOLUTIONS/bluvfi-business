@@ -5,7 +5,7 @@ import { deriveKey } from "./crypto";
 import { openText, sealText } from "./vault";
 import { DEFAULT_POLICY_BODY, makePolicy } from "./policy";
 import { services } from "./services";
-import { currentBiz, DEFAULT_BIZ } from "./tenant";
+import { currentBiz, DEFAULT_BIZ, isDemo } from "./tenant";
 import type { CounterpartySignals } from "./fraud";
 import type { BlocklistEntry, CardPurchase, Payment, Policy, PolicyProposal, PurchaseOrder, Receivable, TopUp, Vendor, ViewGrant } from "./types";
 
@@ -87,13 +87,26 @@ const fresh = (): State => ({
 // State lives in this process, one State per business, and is snapshotted to a JSON file after every write (set
 // BLUVFI_PERSIST=0 to disable, e.g. in tests). The operator's own business ('default') keeps the original file; every
 // other business has its own file under businesses/. The snapshot holds business data and encrypted records, not keys.
-const BASE_FILE = process.env.BLUVFI_PERSIST === "0" ? "" : (process.env.BLUVFI_DATA_FILE ?? (DEMO ? ".data/demo.json" : ".data/state.json"));
-const fileFor = (biz: string) => (!BASE_FILE ? "" : biz === DEFAULT_BIZ ? BASE_FILE : join(dirname(BASE_FILE), "businesses", `${biz}.json`));
+// A business in demo keeps its records in a space of its own (demo.json, businesses/<id>.demo.json), apart from its live records.
+const PERSIST = process.env.BLUVFI_PERSIST !== "0";
+// BLUVFI_DATA_FILE names the file of whichever kind this copy was started as (demo with BLUVFI_DEMO=1); the other kind sits beside it.
+const DATA = process.env.BLUVFI_DATA_FILE;
+const LIVE_FILE = DATA ? (DEMO ? `${DATA}.live` : DATA) : ".data/state.json";
+const DEMO_FILE = DATA ? (DEMO ? DATA : `${DATA}.demo`) : ".data/demo.json";
+const spaceKey = (biz: string, demo: boolean) => (demo ? `${biz}#demo` : biz);
+const fileFor = (key: string) => {
+  if (!PERSIST) return "";
+  const demo = key.endsWith("#demo");
+  const biz = demo ? key.slice(0, -5) : key;
+  const base = demo ? DEMO_FILE : LIVE_FILE;
+  return biz === DEFAULT_BIZ ? base : join(dirname(base), "businesses", `${biz}${demo ? ".demo" : ""}.json`);
+};
+const thisSpace = () => spaceKey(currentBiz(), isDemo());
 const g = globalThis as unknown as { __bluvfiBusinesses?: Map<string, State> };
 const all = () => (g.__bluvfiBusinesses ??= new Map());
 
-function load(biz: string): State {
-  const file = fileFor(biz);
+function load(key: string): State {
+  const file = fileFor(key);
   if (file && existsSync(file)) {
     try {
       const { text, legacy } = openText(readFileSync(file, "utf8"));
@@ -109,25 +122,25 @@ function load(biz: string): State {
 
 /** The records of the business this request runs in (lib/tenant.ts). */
 export const state = (): State => {
-  const biz = currentBiz();
-  let s = all().get(biz);
-  if (!s) all().set(biz, (s = load(biz)));
+  const key = thisSpace();
+  let s = all().get(key);
+  if (!s) all().set(key, (s = load(key)));
   return s;
 };
 /** Test helper: empty records for the current business. */
 export const resetState = () => {
   const s = fresh();
-  all().set(currentBiz(), s);
+  all().set(thisSpace(), s);
   return s;
 };
 /** Test helper: forget every business's records held in memory. */
 export const resetAllState = () => all().clear();
 /** False in tests and the CLI demo, which keep nothing on disk. */
-export const persistenceOn = () => !!fileFor(currentBiz());
+export const persistenceOn = () => !!fileFor(thisSpace());
 
 export function persist() {
-  const file = fileFor(currentBiz());
-  const s = all().get(currentBiz());
+  const file = fileFor(thisSpace());
+  const s = all().get(thisSpace());
   if (!file || !s) return;
   writeSealed(file, s);
 }

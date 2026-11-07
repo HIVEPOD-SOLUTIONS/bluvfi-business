@@ -112,14 +112,25 @@ export function evaluatePolicy(inv: Invoice, policy: Policy, ctx: PolicyContext)
     `${inv.asset} is permitted.`,
     `${inv.asset} is not permitted by policy v${policy.version}.`
   );
-  add(
-    "allowlist",
-    "Vendor allowlist",
-    policy.vendorAllowlist.includes(inv.vendorName),
-    "Vendor is on the allowlist.",
-    "Vendor is not on the allowlist. A signer must add it first.",
-    "warn"
-  );
+  if (inv.allocation) {
+    // An investment pays no vendor: the money goes back into the treasury as another coin. The council's investing rules decide it.
+    const sym = inv.allocation.symbol;
+    const allowed = policy.investAssets?.includes(sym) && inv.amountUsd <= (policy.investMaxUsd ?? 0);
+    add(
+      "invest", "Investing", !!allowed,
+      `Policy v${policy.version} allows putting up to ${usd(policy.investMaxUsd ?? 0)} into ${sym}.`,
+      !policy.investAssets?.length ? "The council has not allowed investing: no coins are on the list." : !policy.investAssets.includes(sym) ? `The council has not allowed ${sym}. Allowed: ${policy.investAssets.join(", ")}.` : `${usd(inv.amountUsd)} is over the ${usd(policy.investMaxUsd ?? 0)} the council allows for one investment.`
+    );
+  } else {
+    add(
+      "allowlist",
+      "Vendor allowlist",
+      policy.vendorAllowlist.includes(inv.vendorName),
+      "Vendor is on the allowlist.",
+      "Vendor is not on the allowlist. A signer must add it first.",
+      "warn"
+    );
+  }
   return r;
 }
 

@@ -7,7 +7,7 @@ type CardStatus = {
   fromEnv: boolean; provider: string; asked: string; stripe: boolean; stripeCardholder: string; stripeWebhook: boolean; stripeTest: boolean;
   ramp: boolean; rampClientId: string; rampUserId: string; rampSandbox: boolean; rain: boolean; rainUserId: string; rainBaseUrl: string; rainPublicKey: boolean;
 };
-type Status = { cronSecret: string; telegram: boolean; twilio: boolean; twilioSid: string; twilioFrom: string; agentMarket: boolean; pingpay: boolean; x402FacilitatorUrl: string; cards: CardStatus };
+type Status = { cronSecret: string; telegram: boolean; twilio: boolean; twilioSid: string; twilioFrom: string; agentMarket: boolean; pingpay: boolean; x402FacilitatorUrl: string; credible: boolean; backpack: boolean; cards: CardStatus };
 
 function Section({ title, on, hint, children }: { title: string; on: boolean; hint: string; children: React.ReactNode }) {
   return (
@@ -55,6 +55,10 @@ export function ChannelsEditor({ owner, status, urls }: { owner: boolean; status
   const [am, setAm] = useState("");
   const [pp, setPp] = useState("");
   const [fac, setFac] = useState(status.x402FacilitatorUrl);
+  const [crKey, setCrKey] = useState("");
+  const [crSecret, setCrSecret] = useState("");
+  const [bpKey, setBpKey] = useState("");
+  const [bpSecret, setBpSecret] = useState("");
   return (
     <div className="grid gap-4">
       <Section title="Telegram" on={status.telegram} hint="Your own bot (create one with @BotFather). Vendors reply YES or NO to payment-detail callbacks, and the reply reaches only this business. We register the webhook for you.">
@@ -80,6 +84,22 @@ export function ChannelsEditor({ owner, status, urls }: { owner: boolean; status
           <Field label="PingPay API key" type="password" value={pp} set={setPp} ph={status.pingpay ? "Set. Paste a new key to replace it." : ""} />
           <Field label="Or an x402 facilitator URL (https)" value={fac} set={setFac} ph="https://…" />
         </Form>
+      </Section>
+      <Section title="Bank transfers (Credible Finance)" on={status.credible} hint="Your own Credible Finance account, for adding money by UPI and cashing out to an Indian bank account in rupees. Credible only answers from IP addresses you have allowed in its dashboard: allow this server&apos;s. Bank account numbers go straight to Credible and are never kept here.">
+        {status.cards.fromEnv ? <p className="text-sm" style={{ color: "var(--tx-2)" }}>This is the platform operator&apos;s own business: its Credible keys are set in .env.local (CREDIBLE_FINANCE_API_KEY and CREDIBLE_FINANCE_API_SECRET), not here.</p> : (
+          <Form owner={owner} fields={{ credibleKey: crKey, credibleSecret: crSecret }} clear={{ credibleKey: "", credibleSecret: "" }}>
+            <Field label="API key" type="password" value={crKey} set={setCrKey} ph={status.credible ? "Set. Paste a new one to replace it." : ""} />
+            <Field label="API secret" type="password" value={crSecret} set={setCrSecret} ph={status.credible ? "Set. Paste a new one to replace it." : ""} />
+          </Form>
+        )}
+      </Section>
+      <Section title="Stocks (Backpack Exchange)" on={status.backpack} hint="Your own Backpack account, for US stocks and ETFs. Create an API key at backpack.exchange/settings/api-keys. The treasury pays USDC to your account's deposit address as a normal approved payment; trades use this key and are capped by your policy. Withdrawals are not made from here.">
+        {status.cards.fromEnv ? <p className="text-sm" style={{ color: "var(--tx-2)" }}>This is the platform operator&apos;s own business: its Backpack keys are set in .env.local (BACKPACK_API_KEY and BACKPACK_API_SECRET), not here.</p> : (
+          <Form owner={owner} fields={{ backpackKey: bpKey, backpackSecret: bpSecret }} clear={{ backpackKey: "", backpackSecret: "" }}>
+            <Field label="API key" type="password" value={bpKey} set={setBpKey} ph={status.backpack ? "Set. Paste a new one to replace it." : ""} />
+            <Field label="API secret" type="password" value={bpSecret} set={setBpSecret} ph={status.backpack ? "Set. Paste a new one to replace it." : ""} />
+          </Form>
+        )}
       </Section>
       <CardsSection owner={owner} c={status.cards} webhook={urls.stripeCards} />
     </div>

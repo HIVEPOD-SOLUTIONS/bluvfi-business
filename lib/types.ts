@@ -18,6 +18,20 @@ export interface Invoice {
   /** Raw text of the invoice, including anything a scammer hid in it. */
   text: string;
   receivedAt: string;
+  /** What this payment is for, so History can say so: an ordinary invoice (the default), a bill bought from a provider, or an investment. */
+  category?: "invoice" | "bill" | "investment" | "banking";
+  /**
+   * Set only by our own code (lib/bills.ts), never read from what a person or an API caller sends: the provider whose own answer gave this
+   * payout address and amount. Such an address is new for every order, so it cannot be compared with the vendor's last one.
+   */
+  issuedBy?: string;
+  /** When the provider's price runs out (a bill's order lasts about 15 minutes). Past it, or too close to it, the payment is refused. */
+  expiresAt?: string;
+  /**
+   * An investment: the treasury swaps this much USDC into this asset, which stays in the treasury's own account. Set only by our own code
+   * (lib/invest.ts), never read from what a person or an API caller sends.
+   */
+  allocation?: { assetId: string; symbol: string };
 }
 
 export interface PurchaseOrder {
@@ -102,6 +116,9 @@ export interface Policy {
   acceptPassportProof?: boolean;
   /** One-time cards (lib/cards.ts): the most the agent may put on cards in a day. Missing or 0 means the agent gets no cards. */
   cardDailyLimitUsd?: number;
+  /** Investing: the coins the treasury may put money into (ETH, SOL, NEAR…), and the most for one allocation. Missing means investing is off. */
+  investAssets?: string[];
+  investMaxUsd?: number;
   hash: string;
   createdAt: string;
 }
@@ -300,6 +317,8 @@ export interface Payment {
   custody?: CustodyRecord;
   /** Public inputs of the policy-check proof for this payment (lib/zk.ts). */
   zkJob?: import("./zk").ZkJob;
+  /** A bill bought from a provider (lib/bills.ts): what it is, and where the order stands. The gift card code is only emailed, never kept. */
+  bill?: { provider: string; invoiceId: string; accessToken?: string; product: string; email: string; status: string; expiresAt: string; checkedAt?: string };
   /** Transaction hash a signer reports after sending to the deposit address. */
   txRef?: string;
   settlement?: { status: string; checkedAt: string };
@@ -332,8 +351,12 @@ export interface Receivable {
   chain: string;
   payTo: string;
   createdAt: string;
+  /** "funding": money the business puts into its own treasury from another chain or token, not an invoice to a client. */
+  kind?: "invoice" | "funding";
   status: "open" | "paid";
   deposit?: { chain: string; address: string; memo?: string; amountIn: string; deadline?: string };
+  /** An INR bank transfer (UPI) that buys the USDC for this funding: Credible's order and where it stands (lib/banking.ts). */
+  bank?: { provider: "credible"; orderId: string; status: string; inr: number; upiIntent: string; upiQr: string; expiresAt: string; checkedAt?: string };
   /** What 1Click last said about the deposit: a failed or expired one clears `deposit` so the client can start again. */
   settlement?: { status: string; checkedAt: string; note: string };
 }

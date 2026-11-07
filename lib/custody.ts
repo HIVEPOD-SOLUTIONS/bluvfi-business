@@ -1,9 +1,9 @@
 import { cfg } from "./business";
-import { currentBiz } from "./tenant";
+import { currentBiz, isDemo } from "./tenant";
 import { deserialize } from "borsh";
 import { Account, JsonRpcProvider, KeyPair, SCHEMA, teraToGas, type KeyPairString } from "near-api-js";
 import { ASSET_ID, NEAR_USDC_CONTRACT } from "./chains";
-import { APPROVAL_THRESHOLD_SIGNERS, DEMO, NEAR_RPC_URL, OUTLAYER_BASE, PUBLIC_BASE_URL, RELAYER_ACCOUNT, RELAYER_PRIVATE_KEY, SPENDING_WALLET_LOW_USD, SPENDING_WALLET_TARGET_USD, TREZU_APP_URL } from "./config";
+import { APPROVAL_THRESHOLD_SIGNERS, NEAR_RPC_URL, OUTLAYER_BASE, PUBLIC_BASE_URL, RELAYER_ACCOUNT, RELAYER_PRIVATE_KEY, SPENDING_WALLET_LOW_USD, SPENDING_WALLET_TARGET_USD, TREZU_APP_URL } from "./config";
 import { canonical, sha256 } from "./crypto";
 import { currentPolicy, state } from "./store";
 import { REQUIRE_CUSTODIAN_LIMITS } from "./config";
@@ -81,7 +81,7 @@ const HOUR = 3_600_000;
  */
 export async function payoutWindowMs(): Promise<number> {
   const dao = cfg().CUSTODY === "sputnik" || cfg().CUSTODY === "hybrid";
-  if (!dao || DEMO) return 24 * HOUR;
+  if (!dao || isDemo()) return 24 * HOUR;
   try {
     const period = Number(BigInt((await viewDao<{ proposal_period: string }>("get_policy")).proposal_period) / BigInt(1_000_000));
     return Math.min(Math.max(period, 24 * HOUR), 30 * 24 * HOUR) + 24 * HOUR;
@@ -173,12 +173,12 @@ export const resetCustodyCache = () => { checkCache.delete(currentBiz()); };
 export async function checkCustody(): Promise<CustodyCheck> {
   const hit = checkCache.get(currentBiz());
   if (hit && Date.now() - hit.at < 5 * 60_000) return hit.c;
-  const c = DEMO ? demoCheck()
+  const c = isDemo() ? demoCheck()
     : cfg().CUSTODY === "sputnik" ? await checkSputnik()
     : cfg().CUSTODY === "outlayer" ? await checkOutlayer()
     : cfg().CUSTODY === "hybrid" ? await checkHybrid()
     : manualCheck();
-  if (cfg().CONFIDENTIAL && !DEMO) {
+  if (cfg().CONFIDENTIAL && !isDemo()) {
     const { loginStatus } = await import("./confidential-flow");
     if (cfg().CUSTODY !== "sputnik") c.problems.push("A confidential treasury needs Sputnik custody.");
     const login = loginStatus();
@@ -449,7 +449,7 @@ export async function hybridRoute(amountUsd: number): Promise<{ backend: "sputni
  * add_proposal key) to refill it to the target. The council still votes on it, and only one is open at a time.
  */
 export async function topUpIfLow(): Promise<{ topUp?: TopUp; note: string }> {
-  if (cfg().CUSTODY !== "hybrid" || DEMO) return { note: "Top-ups are only used with hybrid custody." };
+  if (cfg().CUSTODY !== "hybrid" || isDemo()) return { note: "Top-ups are only used with hybrid custody." };
   const s = state();
   if (s.killSwitch) return { topUp: s.topUp, note: "The kill switch is on, so no top-up is requested." };
   if (s.topUp?.status === "InProgress") {
@@ -556,7 +556,7 @@ export function trezuDescription(data: Record<string, string>): string {
 
 /** The agent files a proposal with its scoped key (add_proposal on the DAO, no deposit). Returns the DAO's proposal id. */
 export async function addDaoProposal(kind: unknown, description: string): Promise<number> {
-  if (DEMO) return demoDao().propose(kind as never, description);
+  if (isDemo()) return demoDao().propose(kind as never, description);
   const agent = new Account(cfg().AGENT_ACCOUNT, new JsonRpcProvider({ url: NEAR_RPC_URL }), cfg().AGENT_PRIVATE_KEY as KeyPairString);
   return Number(await agent.callFunction({ contractId: cfg().DAO_ACCOUNT, methodName: "add_proposal", args: { proposal: { description, kind } }, gas: teraToGas(50), deposit: BigInt(0) }));
 }
@@ -650,7 +650,7 @@ export async function refreshPayout(rec: CustodyRecord): Promise<CustodyRecord> 
     const { body } = await outlayer<OutlayerResult>(`/wallet/v1/requests/${encodeURIComponent(rec.ref)}`);
     return applyOutlayerStatus(rec, body);
   }
-  const prop: DaoProposal = DEMO ? demoDao().get(Number(rec.ref)) : await viewDao<DaoProposal>("get_proposal", { id: Number(rec.ref) });
+  const prop: DaoProposal = isDemo() ? demoDao().get(Number(rec.ref)) : await viewDao<DaoProposal>("get_proposal", { id: Number(rec.ref) });
   rec.votes = prop.votes;
   const n = Object.keys(prop.votes ?? {}).length;
   if (prop.status === "Approved") Object.assign(rec, { state: "executed", detail: `Proposal #${rec.ref} approved and executed: the DAO sent the USDC to the NEAR Intents deposit address.` });
@@ -671,7 +671,7 @@ export async function refreshPayout(rec: CustodyRecord): Promise<CustodyRecord> 
 
 // ---------- Gasless council votes (NEP-366) ----------
 
-export const relayerEnabled = () => !DEMO && cfg().DAO_CUSTODY && !!RELAYER_ACCOUNT && /^(ed25519|ml-dsa-65):/.test(RELAYER_PRIVATE_KEY);
+export const relayerEnabled = () => !isDemo() && cfg().DAO_CUSTODY && !!RELAYER_ACCOUNT && /^(ed25519|ml-dsa-65):/.test(RELAYER_PRIVATE_KEY);
 
 interface DecodedDelegate {
   delegateAction: {

@@ -19,8 +19,8 @@ async function PayPage({ params }: { params: Promise<{ id: string }> }) {
     <div className="mx-auto max-w-md pt-4">
       <div className="mb-6"><Logo /></div>
       <div className="card" style={{ borderColor: "var(--bd-sage)" }}>
-        <div className="label">Invoice from {cfg().COMPANY_NAME}</div>
-        <h1 className="mt-1">{r.client}</h1>
+        <div className="label">{r.kind === "funding" ? `Fund the treasury of ${cfg().COMPANY_NAME}` : `Invoice from ${cfg().COMPANY_NAME}`}</div>
+        <h1 className="mt-1">{r.kind === "funding" ? "Add money to the treasury" : r.client}</h1>
         <p style={{ color: "var(--tx-1)" }}>{r.description}</p>
         <div className="amount mt-4 text-3xl">{usd(r.amountUsd)} <span className="label">USDC</span></div>
         {AURORA_API_KEY && r.status !== "paid" ? (

@@ -1,7 +1,7 @@
 import { configuredCardProvider, type CardProvider } from "./card-providers";
 import { confidentialPayoutStatus, quoteConfidentialPayout } from "./confidential-flow";
 import { lookupSignals, spendingWalletBalances, treasuryBalances } from "./chain";
-import { DEMO, NEAR_AI_MODEL } from "./config";
+import { NEAR_AI_MODEL } from "./config";
 import { refreshPayout, submitPayout } from "./custody";
 import { demoServices } from "./demo";
 import { judgeWithNearAi } from "./nearai";
@@ -9,13 +9,14 @@ import { buildRequest, type JudgeFacts } from "./nearai-core";
 import { payX402, quoteForWidget, quotePayout, quoteReceivable, sendCallback, submitDeposit, swapStatus } from "./rails";
 import { redact } from "./redact";
 import { screenSanctions } from "./sanctions";
+import { isDemo } from "./tenant";
 
 /**
  * Every outside service the app talks to, in one object. The defaults are the real mainnet
  * services. Demo mode (BLUVFI_DEMO=1) swaps in the fixtures from lib/demo.ts; tests replace members
  * with fakes. Nothing else changes them.
  */
-export const services = {
+const live = {
   redact,
   judge: (redactedText: string, facts: JudgeFacts) => judgeWithNearAi(buildRequest(NEAR_AI_MODEL, redactedText, facts)),
   quotePayout,
@@ -38,4 +39,17 @@ export const services = {
   cardProvider: (): CardProvider | null => configuredCardProvider(),
 };
 
-if (DEMO) Object.assign(services, demoServices(NEAR_AI_MODEL));
+/**
+ * What a piece of work calls is chosen by its business's mode: a business in demo gets the fixtures, a live one the real services (or what a test
+ * put in their place). The demo fixtures are made on first use and shared, so a simulated DAO is the same one for every business in demo.
+ */
+let demo: Partial<typeof live> | undefined;
+export const services: typeof live = new Proxy(live, {
+  get(target, key: string) {
+    if (isDemo()) {
+      demo ??= demoServices(NEAR_AI_MODEL) as Partial<typeof live>;
+      if (key in demo) return demo[key as keyof typeof live];
+    }
+    return target[key as keyof typeof live];
+  },
+});

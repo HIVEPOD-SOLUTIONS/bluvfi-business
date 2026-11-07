@@ -211,6 +211,12 @@ export function pickCardProvider(c: {
   return ready.stripe ? "stripe" : ready.ramp ? "ramp" : ready.rain ? "rain" : "";
 }
 export const CARD_PROVIDER = process.env.CARD_PROVIDER ?? "";
+/** Credible Finance (INR bank transfers in and out): the operator's own business reads these; every other business brings its own. */
+export const CREDIBLE_API_KEY = process.env.CREDIBLE_FINANCE_API_KEY ?? "";
+export const CREDIBLE_API_SECRET = process.env.CREDIBLE_FINANCE_API_SECRET ?? "";
+/** Backpack Exchange (US stocks and ETFs): the operator's own business reads these; every other business brings its own account. */
+export const BACKPACK_API_KEY = process.env.BACKPACK_API_KEY ?? "";
+export const BACKPACK_API_SECRET = process.env.BACKPACK_API_SECRET ?? "";
 export const CARD_TTL_HOURS = Math.max(1, Number(process.env.CARD_TTL_HOURS ?? 24) || 24);
 
 /** CONFIDENTIAL_TREASURY=1: the DAO's funds are shielded in Confidential Intents, and payouts go out through the MPC signer (lib/confidential-flow.ts). Needs Sputnik custody. */
@@ -224,24 +230,51 @@ export const ENV_CFG = {
   // The business's own card-issuing account (lib/cards.ts).
   CARD_PROVIDER, STRIPE_SECRET_KEY, STRIPE_CARDHOLDER_ID, STRIPE_WEBHOOK_SECRET, RAMP_CLIENT_ID, RAMP_CLIENT_SECRET, RAMP_USER_ID, RAMP_SANDBOX,
   RAIN_API_KEY, RAIN_USER_ID, RAIN_SECRETS_PUBLIC_KEY, RAIN_BASE_URL,
+  CREDIBLE_API_KEY, CREDIBLE_API_SECRET, BACKPACK_API_KEY, BACKPACK_API_SECRET,
 };
 export type Cfg = typeof ENV_CFG;
 
+/**
+ * The operator's own business as demo or as live, whichever way this copy was started. The values that differ are the DAO, custody and
+ * treasury (demo fills in a simulated DAO and treasury); everything else is read from the environment either way.
+ */
+export function envCfgFor(demo: boolean): Cfg {
+  if (demo === DEMO) return ENV_CFG;
+  const dao = process.env.DAO_ACCOUNT ?? (demo ? "bluvfi-demo.sputnik-dao.near" : "");
+  const asked = process.env.CUSTODY;
+  const custody: CustodyMode = demo ? "sputnik"
+    : asked === "sputnik" || asked === "outlayer" || asked === "hybrid" || asked === "manual" ? asked
+    : dao && AGENT_ACCOUNT && AGENT_PRIVATE_KEY ? "sputnik" : OUTLAYER_API_KEY ? "outlayer" : "manual";
+  const daoCustody = custody === "sputnik" || custody === "hybrid";
+  const treasury = (process.env.TREASURY_ACCOUNT ?? (demo ? DEMO_DEFAULTS.TREASURY_ACCOUNT : "")) || (daoCustody ? dao : "");
+  return { ...ENV_CFG, DAO_ACCOUNT: dao, CUSTODY: custody, DAO_CUSTODY: daoCustody, POLICY_VIA_DAO: daoCustody && !demo && process.env.POLICY_VIA_DAO !== "0", TREASURY_ACCOUNT: treasury };
+}
+
+/**
+ * What a business running in demo uses: the simulated DAO and treasury, and no key of anyone's, so nothing in demo can reach a real account.
+ * (The services themselves are the fixtures in lib/demo.ts.)
+ */
+export function demoCfg(): Cfg {
+  const d = envCfgFor(true);
+  const blank = Object.fromEntries(Object.entries(d).map(([k, v]) => [k, typeof v === "string" ? "" : v])) as unknown as Cfg;
+  return { ...blank, CUSTODY: "sputnik", DAO_ACCOUNT: "bluvfi-demo.sputnik-dao.near", TREASURY_ACCOUNT: DEMO_DEFAULTS.TREASURY_ACCOUNT, DAO_CUSTODY: true, POLICY_VIA_DAO: false, RAIN_BASE_URL: d.RAIN_BASE_URL, COMPANY_NAME: d.COMPANY_NAME };
+}
+
 /** What must be set before the app can do its job. Shown on Overview; features refuse to run without it. */
-export function missingConfig(c: Cfg = ENV_CFG, tenant = false): { key: string; why: string }[] {
+export function missingConfig(c: Cfg = ENV_CFG, tenant = false, demo = DEMO): { key: string; why: string }[] {
   const { CUSTODY, DAO_ACCOUNT, AGENT_ACCOUNT, AGENT_PRIVATE_KEY, OUTLAYER_API_KEY, OUTLAYER_WALLET_ACCOUNT, TREASURY_ACCOUNT, DAO_CUSTODY } = c;
   const out: { key: string; why: string }[] = [];
   const need = (ok: boolean, key: string, why: string) => ok || out.push({ key, why });
   need(tenant || /^[0-9a-f]{64}$/i.test(MASTER_KEY), "BLUVFI_MASTER_KEY", "64 hex characters; derives the record encryption and signing keys");
   need(tenant || SIGNERS.length > 0 || PRIVY_LOGIN, "BLUVFI_SIGNERS", "name:token pairs (token 16+ characters) for the people who can approve, or set PRIVY_APP_ID, PRIVY_APP_SECRET and BLUVFI_OWNER_EMAIL to sign in with Privy");
   need(NEAR_ACCOUNT_OR_IMPLICIT.test(TREASURY_ACCOUNT), "TREASURY_ACCOUNT", `your NEAR ${NETWORK} account (name.${NEAR_SUFFIX} or a 64-hex implicit account)`);
-  need(tenant || !!NEAR_AI_KEY || DEMO, "NEAR_AI_API_KEY", "private AI review; without it every payment is held for a human");
-  if (DAO_CUSTODY && !DEMO) {
+  need(tenant || !!NEAR_AI_KEY || demo, "NEAR_AI_API_KEY", "private AI review; without it every payment is held for a human");
+  if (DAO_CUSTODY && !demo) {
     need(NEAR_ACCOUNT.test(DAO_ACCOUNT), "DAO_ACCOUNT", "your Sputnik DAO / Trezu treasury, e.g. acme.sputnik-dao.near");
     need(!!AGENT_ACCOUNT, "AGENT_ACCOUNT", "the NEAR account the agent proposes from");
     need(/^(ed25519|ml-dsa-65):/.test(AGENT_PRIVATE_KEY), "AGENT_PRIVATE_KEY", "the agent's function-call key, scoped to add_proposal on the DAO");
   }
-  if (CUSTODY === "hybrid" && !DEMO) {
+  if (CUSTODY === "hybrid" && !demo) {
     need(!!OUTLAYER_API_KEY, "OUTLAYER_API_KEY", "the agent's API key for the OutLayer spending wallet");
     need(NEAR_ACCOUNT_OR_IMPLICIT.test(OUTLAYER_WALLET_ACCOUNT), "OUTLAYER_WALLET_ACCOUNT", "the OutLayer wallet's NEAR account, which the DAO tops up");
   }

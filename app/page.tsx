@@ -1,6 +1,6 @@
 import { cfg } from "@/lib/business";
 import { currentSigner, tenantPage } from "@/lib/who";
-import { currentBiz, DEFAULT_BIZ } from "@/lib/tenant";
+import { currentBiz, DEFAULT_BIZ, isDemo } from "@/lib/tenant";
 import { ConfidentialPanel } from "./ConfidentialPanel";
 import { loginStatus, shieldStatus } from "@/lib/confidential-flow";
 import { isOwner, signerNames } from "@/lib/team";
@@ -10,7 +10,7 @@ import { ActionButton, KillSwitch } from "@/components/Actions";
 import { Badge, Empty, PageHead, PaymentCard, Stat, usd, when } from "@/components/ui";
 import { CHAIN_LABEL } from "@/lib/chains";
 import type { Balance } from "@/lib/chain";
-import { DEMO, NEAR_AI_KEY, NEAR_AI_MODEL, NETWORK, missingConfig } from "@/lib/config";
+import { NEAR_AI_KEY, NEAR_AI_MODEL, NETWORK, missingConfig } from "@/lib/config";
 import { modelStatus } from "@/lib/aimodel";
 import { checkCustody, spendingWalletBand } from "@/lib/custody";
 import { services } from "@/lib/services";
@@ -44,7 +44,7 @@ async function Overview() {
     balanceError = (e as Error).message;
   }
   // Hybrid custody: the DAO is the vault and an OutLayer wallet the agent spends from. Both are read from the chain.
-  const hybrid = cfg().CUSTODY === "hybrid" && !DEMO;
+  const hybrid = cfg().CUSTODY === "hybrid" && !isDemo();
   let wallet: Balance[] = [];
   let walletError = "";
   if (hybrid) {
@@ -109,7 +109,7 @@ async function Overview() {
           <ul className="mt-2 grid gap-1 text-sm">
             {!tenant && missing.map((m) => <li key={m.key}><span className="mono">{m.key}</span> <span style={{ color: "var(--tx-2)" }}>— {m.why}</span></li>)}
           </ul>
-          {!cfg().DAO_ACCOUNT && !DEMO && <p className="mt-3 text-sm"><Link href="/setup" style={{ color: "#8c8cff" }}>Set up a treasury from the browser →</Link> <span style={{ color: "var(--tx-2)" }}>Your wallet creates the DAO and the agent; the settings are written for you.</span></p>}
+          {!cfg().DAO_ACCOUNT && !isDemo() && <p className="mt-3 text-sm"><Link href="/setup" style={{ color: "#8c8cff" }}>Set up a treasury from the browser →</Link> <span style={{ color: "var(--tx-2)" }}>Your wallet creates the DAO and the agent; the settings are written for you.</span></p>}
         </section>
       )}
 
@@ -125,7 +125,7 @@ async function Overview() {
       )}
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Treasury (USDC)" value={balanceError ? "—" : usd(total)} sub={balanceError ? "balance unavailable" : DEMO ? "demo balance" : hybrid ? `vault + spending wallet, NEAR ${NETWORK}` : `NEAR ${NETWORK}`} />
+        <Stat label="Treasury (USDC)" value={balanceError ? "—" : usd(total)} sub={balanceError ? "balance unavailable" : isDemo() ? "demo balance" : hybrid ? `vault + spending wallet, NEAR ${NETWORK}` : `NEAR ${NETWORK}`} />
         <Stat label="Paid or reserved today" value={usd(spentTodayUsd())} sub={`of ${usd(policy.dailyLimitUsd)} daily limit`} />
         <Stat label="Stopped before paying" value={usd(saved)} sub={`${blocked} payment${blocked === 1 ? "" : "s"} blocked or cancelled`} tone={saved > 0 ? "pos" : undefined} />
         <Stat label="Policy" value={`v${policy.version}`} sub={<span className="mono">{policy.hash.slice(0, 12)}…</span>} />
@@ -161,7 +161,7 @@ async function Overview() {
               <div className="mt-2"><ActionButton url="/api/custody/topup" small>Check and request a top-up</ActionButton></div>
             </>
           )}
-          <p className="mt-3 text-sm" style={{ color: "var(--tx-2)" }}>{DEMO ? "Demo balances, not read from the chain." : `Read live from NEAR ${NETWORK}. NEAR is shown in units, not converted.`}</p>
+          <p className="mt-3 text-sm" style={{ color: "var(--tx-2)" }}>{isDemo() ? "Demo balances, not read from the chain." : `Read live from NEAR ${NETWORK}. NEAR is shown in units, not converted.`}</p>
         </div>
 
         <div className="lg:col-span-2">
@@ -233,7 +233,7 @@ async function Overview() {
         <div className="mt-3">
           {NEAR_AI_KEY
             ? <ActionButton url="/api/ai/verify" small>{ai.checked ? "Check the model again" : "Verify the model now"}</ActionButton>
-            : <span className="text-sm" style={{ color: "var(--tx-2)" }}>{DEMO ? "Demo mode replays signed fixtures; set NEAR_AI_API_KEY to check the live model." : "Set NEAR_AI_API_KEY to check the model."}</span>}
+            : <span className="text-sm" style={{ color: "var(--tx-2)" }}>{isDemo() ? "Demo mode replays signed fixtures; set NEAR_AI_API_KEY to check the live model." : "Set NEAR_AI_API_KEY to check the model."}</span>}
         </div>
       </section>
 

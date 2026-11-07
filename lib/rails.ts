@@ -12,8 +12,12 @@ const oneClickHeaders = () => ({ "content-type": "application/json", ...(ONECLIC
 interface QuoteInput {
   originAsset: string;
   destinationAsset: string;
-  /** Raw units of the destination asset (EXACT_OUTPUT). */
+  /** Raw units of the destination asset (EXACT_OUTPUT), or, with exactInput, of the asset spent. */
   amountOut: string;
+  /** Spend exactly this much and take what it buys (an investment), instead of delivering an exact amount. */
+  exactInput?: boolean;
+  /** INTENTS: deliver into the recipient's own balance in NEAR Intents (the treasury keeps it), not out to a chain. */
+  recipientType?: "DESTINATION_CHAIN" | "INTENTS";
   recipient: string;
   refundTo: string;
   confidentiality?: Confidentiality;
@@ -29,7 +33,7 @@ async function oneClickQuote(q: QuoteInput): Promise<Quote> {
     signal: AbortSignal.timeout(20_000),
     body: JSON.stringify({
       dry: ONECLICK_DRY,
-      swapType: "EXACT_OUTPUT",
+      swapType: q.exactInput ? "EXACT_INPUT" : "EXACT_OUTPUT",
       slippageTolerance: 100,
       originAsset: q.originAsset,
       depositType: "ORIGIN_CHAIN",
@@ -38,7 +42,7 @@ async function oneClickQuote(q: QuoteInput): Promise<Quote> {
       refundTo: q.refundTo,
       refundType: "ORIGIN_CHAIN",
       recipient: q.recipient,
-      recipientType: "DESTINATION_CHAIN",
+      recipientType: q.recipientType ?? "DESTINATION_CHAIN",
       deadline: new Date(Date.now() + (q.deadlineMs ?? 30 * 60_000)).toISOString(),
       // Privacy is a per-payment choice. If 1Click rejects the field the request fails and nothing is silently downgraded.
       ...(q.confidentiality && q.confidentiality !== "public" ? { confidentiality: q.confidentiality } : {}),
@@ -65,6 +69,11 @@ const toRaw = (usd: number) => BigInt(Math.round(usd * 1e6)).toString();
 
 /** Outgoing payout: the treasury pays USDC on NEAR, the vendor receives the invoice asset on its chain. */
 export function quotePayout(inv: Invoice, confidentiality: Confidentiality, deadlineMs?: number): Promise<Quote> {
+  if (inv.allocation) {
+    // An investment: spend exactly this much USDC and keep what it buys in the treasury's own NEAR Intents balance.
+    if (!cfg().TREASURY_ACCOUNT) throw new Error("TREASURY_ACCOUNT is not set");
+    return oneClickQuote({ originAsset: ASSET_ID["near:USDC"], destinationAsset: inv.allocation.assetId, amountOut: toRaw(inv.amountUsd), exactInput: true, recipientType: "INTENTS", recipient: cfg().TREASURY_ACCOUNT, refundTo: cfg().TREASURY_ACCOUNT, confidentiality, deadlineMs });
+  }
   const dest = ASSET_ID[`${inv.chain}:${inv.asset}`];
   if (!dest) throw new Error(`No NEAR Intents route for ${inv.asset} on ${inv.chain}`);
   if (!cfg().TREASURY_ACCOUNT) throw new Error("TREASURY_ACCOUNT is not set");

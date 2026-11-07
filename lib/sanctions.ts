@@ -1,6 +1,7 @@
+import { isDemo } from "./tenant";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { DEMO } from "./config";
+
 import type { SanctionsHit, SanctionsResult } from "./fraud";
 
 /**
@@ -148,7 +149,7 @@ const levenshteinWithin = (a: string, b: string, max: number): boolean => {
 };
 
 export async function screenSanctions(input: { address?: string; name?: string }): Promise<SanctionsResult> {
-  if (DEMO) return { status: "clear", hits: [], note: "Demo mode: the OFAC list is not downloaded." };
+  if (isDemo()) return { status: "clear", hits: [], note: "Demo mode: the OFAC list is not downloaded." };
   const idx = await loadSanctions();
   if (!idx) return { status: "unavailable", hits: [], note: "The OFAC sanctions list could not be loaded and there is no earlier copy, so this payee was NOT screened." };
   const ageHours = Math.round((Date.now() - idx.fetchedAt) / 3_600_000);

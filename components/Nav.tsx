@@ -1,4 +1,5 @@
 "use client";
+import { ModeSwitch } from "@/components/ModeSwitch";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
@@ -8,8 +9,16 @@ const ITEMS = [
   { group: "Every day", href: "/", label: "Overview", icon: "◧" },
   { group: "Every day", href: "/payments", label: "Payments", icon: "⇄" },
   { group: "Every day", href: "/vendors", label: "Vendors", icon: "▤" },
+  { group: "Every day", href: "/bills", label: "Bills", icon: "▦" },
   { group: "Every day", href: "/receivables", label: "Receivables", icon: "↧" },
   { group: "Every day", href: "/cards", label: "Cards", icon: "▭" },
+  { group: "Every day", href: "/fund", label: "Fund", icon: "⊕" },
+  { group: "Every day", href: "/banking", label: "Bank", icon: "₹" },
+  { group: "Every day", href: "/history", label: "History", icon: "≣" },
+  { group: "Every day", href: "/prices", label: "Prices", icon: "∿" },
+  { group: "Every day", href: "/invest", label: "Invest", icon: "↗" },
+  { group: "Every day", href: "/stocks", label: "Stocks", icon: "▲" },
+  { group: "Every day", href: "/chat", label: "Ask agent", icon: "✦" },
   { group: "Stay in control", href: "/policy", label: "Policy", icon: "☰" },
   { group: "Stay in control", href: "/team", label: "Team", icon: "☺" },
   { group: "Stay in control", href: "/settings", label: "Settings", icon: "⚙" },
@@ -32,7 +41,7 @@ export function Logo() {
   );
 }
 
-export function Nav({ signer, demo, business, network = "mainnet", operator = false }: { signer: string; demo?: boolean; business?: string; network?: string; operator?: boolean }) {
+export function Nav({ signer, demo, owner = false, business, network = "mainnet", operator = false }: { signer: string; demo?: boolean; owner?: boolean; business?: string; network?: string; operator?: boolean }) {
   const path = usePathname();
   // The platform operator also manages the platform's own small wallets (the x402 payer, the confidential test account).
   const items = operator ? ITEMS.flatMap((i) => (i.href === "/settings" ? [i, { group: "Stay in control", href: "/wallets", label: "Wallets", icon: "◈" }] : [i])) : ITEMS;
@@ -45,10 +54,11 @@ export function Nav({ signer, demo, business, network = "mainnet", operator = fa
     <>
       <aside className="hidden md:flex fixed inset-y-0 left-0 w-60 flex-col gap-1 p-5 border-r" style={{ background: "var(--bg-1)", borderColor: "var(--bd)" }}>
         <Link href="/" className="mb-1"><Logo /></Link>
-        <div className="mb-5 flex items-center gap-2">
+        <div className="mb-2 flex items-center gap-2">
           <span className="label" title={business}>{business ? (business.length > 14 ? `${business.slice(0, 13)}…` : business) : "Business"}</span>
-          <span className="badge badge-gold">{demo ? "Demo" : network === "testnet" ? "Testnet" : "Mainnet"}</span>
+          {!demo && <span className="badge badge-gold">{network === "testnet" ? "Testnet" : "Mainnet"}</span>}
         </div>
+        <ModeSwitch mode={demo ? "demo" : "live"} owner={owner} />
         {items.map((i, n) => (
           <div key={i.href} className="contents">
             {(n === 0 || items[n - 1].group !== i.group) && <p className="label nav-group">{i.group}</p>}

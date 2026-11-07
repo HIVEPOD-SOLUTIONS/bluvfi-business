@@ -1,3 +1,4 @@
+import { isDemo } from "@/lib/tenant";
 import { cfg } from "@/lib/business";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -8,7 +9,7 @@ import { appPqKeys, verifyPolicyCheck, type PqCheckResult } from "@/lib/pqcheck"
 import { pqSeeds, state } from "@/lib/store";
 import { currentSigner, tenantPage } from "@/lib/who";
 import { GaslessVote } from "@/components/GaslessVote";
-import { DEMO, NEAR_RPC_URL, NETWORK } from "@/lib/config";
+import { NEAR_RPC_URL, NETWORK } from "@/lib/config";
 import { relayerEnabled, viewDao } from "@/lib/custody";
 import { SendPanel } from "./SendPanel";
 
@@ -49,7 +50,7 @@ async function PaymentDetail({ params }: { params: Promise<{ id: string }> }) {
   const c = p.custody;
   // act_proposal must repeat the proposal kind exactly as the DAO stored it, so read it from the chain when we can.
   let kind = c?.kind;
-  if (c?.backend === "sputnik" && c.state === "pending" && !DEMO) kind = (await viewDao<{ kind: unknown }>("get_proposal", { id: Number(c.ref) }).catch(() => null))?.kind ?? kind;
+  if (c?.backend === "sputnik" && c.state === "pending" && !isDemo()) kind = (await viewDao<{ kind: unknown }>("get_proposal", { id: Number(c.ref) }).catch(() => null))?.kind ?? kind;
   const aiSource = v.attestation.source === "demo-fixture" ? "demo fixture, signed with the public demo key" : v.attestation.source === "recorded" ? "a recorded NEAR AI Cloud response, re-verified now" : "live from NEAR AI Cloud";
 
   return (
@@ -98,12 +99,12 @@ async function PaymentDetail({ params }: { params: Promise<{ id: string }> }) {
           {c.state === "pending" && (
             <div className="mt-4 grid gap-3">
               <div className="flex flex-wrap gap-2">
-                {c.url && !DEMO && <a className="btn btn-secondary btn-sm" href={c.url} target="_blank" rel="noreferrer">{c.backend === "sputnik" ? "Vote in Trezu" : "Open OutLayer approvals"}</a>}
+                {c.url && !isDemo() && <a className="btn btn-secondary btn-sm" href={c.url} target="_blank" rel="noreferrer">{c.backend === "sputnik" ? "Vote in Trezu" : "Open OutLayer approvals"}</a>}
                 {!!signer && <ActionButton url={`/api/payments/${p.id}/settlement`} variant="secondary" small>Check status</ActionButton>}
-                {DEMO && !!signer && <ActionButton url={`/api/payments/${p.id}/vote`} payload={{ approve: true }} variant="primary" small>Vote approve as {signer} (demo DAO)</ActionButton>}
-                {DEMO && !!signer && <ActionButton url={`/api/payments/${p.id}/vote`} payload={{ approve: false }} variant="danger" small>Vote reject</ActionButton>}
+                {isDemo() && !!signer && <ActionButton url={`/api/payments/${p.id}/vote`} payload={{ approve: true }} variant="primary" small>Vote approve as {signer} (demo DAO)</ActionButton>}
+                {isDemo() && !!signer && <ActionButton url={`/api/payments/${p.id}/vote`} payload={{ approve: false }} variant="danger" small>Vote reject</ActionButton>}
               </div>
-              {c.backend === "sputnik" && !DEMO && !!signer && <GaslessVote dao={cfg().DAO_ACCOUNT} proposalId={Number(c.ref)} kind={kind} rpcUrl={NEAR_RPC_URL} network={NETWORK} relayer={relayerEnabled()} paymentId={p.id} />}
+              {c.backend === "sputnik" && !isDemo() && !!signer && <GaslessVote dao={cfg().DAO_ACCOUNT} proposalId={Number(c.ref)} kind={kind} rpcUrl={NEAR_RPC_URL} network={NETWORK} relayer={relayerEnabled()} paymentId={p.id} />}
             </div>
           )}
           {p.status === "ready_to_send" && !!signer && <div className="mt-4"><ActionButton url={`/api/payments/${p.id}/settlement`} variant="secondary">Check delivery (1Click)</ActionButton></div>}

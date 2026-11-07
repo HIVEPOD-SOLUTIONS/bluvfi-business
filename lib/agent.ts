@@ -1,6 +1,7 @@
+import { isDemo } from "./tenant";
 import { cfg } from "./business";
 import { canonical, mlDsaSign, mlDsaVerify, sha256, encrypt } from "./crypto";
-import { DEMO, NEAR_AI_MODEL } from "./config";
+import { NEAR_AI_MODEL } from "./config";
 import { signerNames } from "./team";
 import { demoDao, payoutWindowMs } from "./custody";
 import { makeJob, proveInBackground, SYSTEM as ZK_SYSTEM, verifyZk, writeJob } from "./zk";
@@ -10,6 +11,7 @@ import type { Judged } from "./nearai";
 import { attestationTrusted, computeFacts, unavailablePanel, verifyDecision } from "./nearai-core";
 import { isRegisteredSigner } from "./aimodel";
 import { businessGate } from "./kyb";
+import { MIN_MINUTES_TO_PAY } from "./bills-time";
 import { evaluatePolicy, needsApproval, privacyForPayment } from "./policy";
 import { services } from "./services";
 import { currentPolicy, dataKey, fraudContext, persist, persistenceOn, pqSeed, pqSeeds, prefetchCounterparty, prefetchSanctions, spentTodayUsd, state } from "./store";
@@ -22,7 +24,7 @@ const uid = (p: string) => `${p}-${sha256(`${p}${Date.now()}${Math.random()}`).s
  * Final status = the strictest of (policy gate, fraud checks, AI recommendation).
  * The AI can tighten a result (pay -> hold) but can never loosen one.
  */
-export async function processInvoice(inv: Invoice, confidentiality: Confidentiality = "basic"): Promise<Payment> {
+export async function processInvoice(inv: Invoice, confidentiality: Confidentiality = "basic", extra: Pick<Payment, "bill"> = {}): Promise<Payment> {
   const s = state();
   const policy = currentPolicy();
 
@@ -52,6 +54,14 @@ export async function processInvoice(inv: Invoice, confidentiality: Confidential
   const policyCtx = { killSwitch: s.killSwitch, spentTodayUsd: spentTodayUsd(), businessGate: businessGate(inv.amountUsd, privacyForPayment(confidentiality, inv, policy).level, policy) };
   const policyChecks = evaluatePolicy(inv, policy, policyCtx);
   // Privacy is optional, but the policy can set a floor (for investors, institutions and others who need it).
+  // A provider's order only lasts so long: a payment that cannot be sent in time is refused now, not sent late.
+  if (inv.expiresAt) {
+    const left = (Date.parse(inv.expiresAt) - Date.now()) / 60_000;
+    policyChecks.push({
+      id: "provider_expiry", label: "Provider's price", verdict: left >= MIN_MINUTES_TO_PAY ? "allow" : "block",
+      reason: left >= MIN_MINUTES_TO_PAY ? `${inv.vendorName} holds this order for about ${Math.floor(left)} more minutes, so it has to be approved and sent within that time.` : `${inv.vendorName}'s price for this order has run out, or is too close to running out to be sent. Order again.`,
+    });
+  }
   const priv = privacyForPayment(confidentiality, inv, policy);
   const conf = priv.level;
   if (conf !== confidentiality) {
@@ -114,6 +124,7 @@ export async function processInvoice(inv: Invoice, confidentiality: Confidential
       zkProof: null,
       pqSignature: { algo: "ML-DSA-65", publicKey: "", signature: "", valid: false },
     },
+    ...extra, // what the caller already knows (a bill's order), so it is inside the signed record from the start
     createdAt: now.toISOString(),
     holdUntil: status === "held" ? new Date(now.getTime() + policy.holdWindowMinutes * 60_000).toISOString() : undefined,
     redactedInput: red.text,
@@ -156,6 +167,7 @@ const shortReason = (c: CheckResult) =>
     counterparty: "risky receiver",
     kill: "kill switch is on",
     business_kyb: "your business is not verified",
+    provider_expiry: "the provider's price ran out",
     sanctions: "payee is on a sanctions list",
     vendor_kyb: "vendor failed verification",
     limit: "over the payment limit",
@@ -194,7 +206,18 @@ export async function release(p: Payment): Promise<void> {
   }
   try {
     p.confidentiality = privacyForPayment(p.confidentiality, p.invoice, currentPolicy()).level; // the rules may have been tightened since intake
-    const window = await payoutWindowMs();
+    let window = await payoutWindowMs();
+    // A bill's order lasts minutes, not days: the quote must end before it does, and there must be time left to send.
+    if (p.invoice.expiresAt) {
+      const left = Date.parse(p.invoice.expiresAt) - Date.now();
+      if (left < MIN_MINUTES_TO_PAY * 60_000) {
+        p.status = "cancelled";
+        p.headline = "Cancelled: the provider's price ran out before this could be sent";
+        p.reason = `${p.invoice.vendorName} only holds an order for a short time. Nothing was sent. Order again.`;
+        return;
+      }
+      window = Math.min(window, left - 60_000);
+    }
     // A confidential treasury quotes from its shielded balance; everyone else quotes a public deposit address.
     p.quote = cfg().CONFIDENTIAL ? await services.quoteConfidential(p.invoice, window) : await services.quotePayout(p.invoice, p.confidentiality, window);
   } catch (e) {
@@ -231,7 +254,7 @@ export async function release(p: Payment): Promise<void> {
   p.headline = "Approved: send the funds";
   p.reason =
     `Send ${p.quote.amountIn} USDC on NEAR from the treasury to ${p.quote.depositAddress}${p.quote.deadline ? ` before ${p.quote.deadline}` : ""}. ` +
-    `NEAR Intents then delivers ${p.quote.amountOut} ${p.invoice.asset} to the payee on ${p.invoice.chain}, confidentiality: ${p.confidentiality}. ` +
+    `${p.invoice.allocation ? `NEAR Intents then puts about ${p.quote.amountOut} ${p.invoice.allocation.symbol} into the treasury's own account` : `NEAR Intents then delivers ${p.quote.amountOut} ${p.invoice.asset} to the payee on ${p.invoice.chain}`}, confidentiality: ${p.confidentiality}. ` +
     "Bluvfi Business does not hold a treasury key, so a signer sends this from their own wallet and then records the transaction.";
   if (v && !v.paidInvoiceNumbers.includes(p.invoice.invoiceNumber)) v.paidInvoiceNumbers.push(p.invoice.invoiceNumber); // reserved against duplicates
 }
@@ -244,7 +267,7 @@ function applyCustody(p: Payment) {
     p.status = "ready_to_send";
     p.txRef = c.txHash ?? `${c.backend}:${c.ref}`;
     p.headline = "Sent by the treasury: waiting for NEAR Intents to deliver";
-    p.reason = `${c.route ? `${c.route} ` : ""}${c.detail} NEAR Intents then delivers ${p.quote?.amountOut} ${p.invoice.asset} to the payee on ${p.invoice.chain}.`;
+    p.reason = `${c.route ? `${c.route} ` : ""}${c.detail} ${p.invoice.allocation ? `NEAR Intents then puts about ${p.quote?.amountOut} ${p.invoice.allocation.symbol} into the treasury's own account.` : `NEAR Intents then delivers ${p.quote?.amountOut} ${p.invoice.asset} to the payee on ${p.invoice.chain}.`}`;
   } else if (c.state === "pending") {
     p.status = "proposed";
     p.headline = c.backend === "sputnik" ? `Proposed to the treasury DAO (#${c.ref}): needs council votes` : "Submitted to the OutLayer wallet: waiting for its approvers";
@@ -457,7 +480,7 @@ export async function spendX402(url: string) {
  * cast in Trezu or sent gasless from the payment page through the relayer (lib/custody.ts relayVote).
  */
 export async function demoTreasuryVote(id: string, member: string, approve: boolean): Promise<Payment> {
-  if (!DEMO) throw new Error("Votes go to the DAO itself on mainnet");
+  if (!isDemo()) throw new Error("Votes go to the DAO itself on mainnet");
   requireSigner(member);
   const p = mustFind(id);
   if (p.status !== "proposed" || p.custody?.backend !== "sputnik") throw new Error("This payment is not waiting for a DAO vote");

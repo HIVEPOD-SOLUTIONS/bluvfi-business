@@ -78,8 +78,11 @@ export function runFraudChecks(inv: Invoice, ctx: FraudContext): CheckResult[] {
   const vendor = ctx.vendors.find((v) => v.name === inv.vendorName);
   const usd = (n: number) => `$${n.toLocaleString()}`;
 
-  // 1. Payout details changed since the vendor's last payment.
-  if (vendor) {
+  // 1. Payout details changed since the vendor's last payment. A provider's own answer to our call names a new address for every order,
+  //    so for those the address is checked where it came from, not against the last one.
+  if (inv.issuedBy) {
+    out.push({ id: "payout_changed", label: "Payout details", verdict: "allow", reason: `The address was issued by ${inv.issuedBy}'s own system for this order, not copied from a document.` });
+  } else if (vendor) {
     const p = vendor.payout;
     const same = p.address.toLowerCase() === inv.payoutAddress.toLowerCase() && p.chain === inv.chain;
     out.push({
@@ -135,7 +138,7 @@ export function runFraudChecks(inv: Invoice, ctx: FraudContext): CheckResult[] {
   });
 
   // 5. Counterparty signals.
-  const s = ctx.counterparty(inv.payoutAddress);
+  const s = inv.issuedBy ? { ageDays: null, isContract: null, codeChangedRecently: null, priorInteractions: 1, source: "unknown" as const } : ctx.counterparty(inv.payoutAddress);
   const issues: string[] = [];
   if (s.ageDays !== null && s.ageDays < 14) issues.push(`account is only ${s.ageDays} days old`);
   if (s.codeChangedRecently) issues.push("its contract code changed recently");

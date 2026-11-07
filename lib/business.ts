@@ -1,12 +1,12 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { COMPANY_NAME, DEMO, ENV_CFG, RAIN_DEFAULT_BASE, pickCardProvider, type Cfg, type CustodyMode } from "./config";
+import { COMPANY_NAME, DEMO, RAIN_DEFAULT_BASE, demoCfg, envCfgFor, missingConfig, pickCardProvider, type Cfg, type CustodyMode } from "./config";
 import { decrypt, encrypt } from "./crypto";
 import { dataKey } from "./store";
 import { openText, sealText } from "./vault";
 import type { KybRecord, PassportRecord } from "./types";
-import { BIZ_ID, currentBiz, DEFAULT_BIZ } from "./tenant";
+import { BIZ_ID, currentBiz, DEFAULT_BIZ, isDemo } from "./tenant";
 
 /**
  * The businesses on this platform: who they are, who is on their team, and their treasury settings.
@@ -68,6 +68,14 @@ export interface ChannelConfig {
   rainUserId?: string;
   rainPublicKey?: string;
   rainBaseUrl?: string;
+  /** Encrypted. Credible Finance (INR bank transfers). */
+  credibleKey?: string;
+  /** Encrypted. */
+  credibleSecret?: string;
+  /** Encrypted. Backpack Exchange (stocks). */
+  backpackKey?: string;
+  /** Encrypted: the base64 ED25519 seed. */
+  backpackSecret?: string;
 }
 
 export interface Business {
@@ -188,7 +196,7 @@ function derive(b: Business | undefined): Cfg {
     OUTLAYER_WALLET_ACCOUNT: t?.outlayerWallet ?? "",
     TREASURY_ACCOUNT: t?.treasury || (daoCustody ? (t?.dao ?? "") : ""),
     DAO_CUSTODY: daoCustody,
-    POLICY_VIA_DAO: daoCustody && !DEMO && process.env.POLICY_VIA_DAO !== "0",
+    POLICY_VIA_DAO: daoCustody && process.env.POLICY_VIA_DAO !== "0",
     CONFIDENTIAL: daoCustody && !!t?.confidential,
     TELEGRAM_BOT_TOKEN: open(ch?.telegramBotToken),
     TELEGRAM_WEBHOOK_SECRET: open(ch?.telegramWebhookSecret),
@@ -212,6 +220,10 @@ function derive(b: Business | undefined): Cfg {
     RAIN_USER_ID: ch?.rainUserId ?? "",
     RAIN_SECRETS_PUBLIC_KEY: ch?.rainPublicKey ?? "",
     RAIN_BASE_URL: ch?.rainBaseUrl || RAIN_DEFAULT_BASE,
+    CREDIBLE_API_KEY: open(ch?.credibleKey),
+    CREDIBLE_API_SECRET: open(ch?.credibleSecret),
+    BACKPACK_API_KEY: open(ch?.backpackKey),
+    BACKPACK_API_SECRET: open(ch?.backpackSecret),
   };
 }
 
@@ -220,8 +232,17 @@ function derive(b: Business | undefined): Cfg {
  * other business reads only its own record, and never falls back to the operator's treasury.
  */
 export function cfg(): Cfg {
+  if (isDemo()) return demoCfg();
   const biz = currentBiz();
-  return biz === DEFAULT_BIZ ? ENV_CFG : derive(getBusiness(biz));
+  return biz === DEFAULT_BIZ ? envCfgFor(false) : derive(getBusiness(biz));
+}
+
+/** What this business still lacks to run, by its own settings and mode (the demo needs nothing). */
+export const missingHere = () => missingConfig(cfg(), currentBiz() !== DEFAULT_BIZ, isDemo());
+
+/** A business's settings as live, whichever mode it is in now: what going live would run on. */
+export function liveCfg(biz: string): Cfg {
+  return biz === DEFAULT_BIZ ? envCfgFor(false) : derive(getBusiness(biz));
 }
 
 /** Turn a business's confidential treasury on or off. It needs a DAO: shielded funds are spent by a council-approved MPC signature. */
@@ -284,14 +305,18 @@ export interface ChannelInput {
   rainUserId?: string;
   rainPublicKey?: string;
   rainBaseUrl?: string;
+  credibleKey?: string;
+  credibleSecret?: string;
+  backpackKey?: string;
+  backpackSecret?: string;
 }
 
 /** The channel fields that are secrets: stored encrypted, never sent back. */
-const SECRET_FIELDS = new Set<keyof ChannelInput>(["telegramBotToken", "twilioToken", "agentMarketToken", "pingpayKey", "stripeKey", "stripeWebhookSecret", "rampClientSecret", "rainKey"]);
+const SECRET_FIELDS = new Set<keyof ChannelInput>(["telegramBotToken", "twilioToken", "agentMarketToken", "pingpayKey", "stripeKey", "stripeWebhookSecret", "rampClientSecret", "rainKey", "credibleKey", "credibleSecret", "backpackKey", "backpackSecret"]);
 export const CHANNEL_FIELDS = [
   "telegramBotToken", "twilioSid", "twilioToken", "twilioFrom", "agentMarketToken", "pingpayKey", "x402FacilitatorUrl",
   "cardProvider", "stripeKey", "stripeCardholder", "stripeWebhookSecret", "rampClientId", "rampClientSecret", "rampUserId", "rampSandbox",
-  "rainKey", "rainUserId", "rainPublicKey", "rainBaseUrl",
+  "rainKey", "rainUserId", "rainPublicKey", "rainBaseUrl", "credibleKey", "credibleSecret", "backpackKey", "backpackSecret",
 ] as const satisfies readonly (keyof ChannelInput)[];
 
 const CHECKS: Record<keyof ChannelInput, [RegExp, string]> = {
@@ -314,6 +339,10 @@ const CHECKS: Record<keyof ChannelInput, [RegExp, string]> = {
   rainUserId: [/^[\w-]{6,80}$/, "That does not look like a Rain user id"],
   rainPublicKey: [/^-----BEGIN PUBLIC KEY-----[A-Za-z0-9+/=\s]+-----END PUBLIC KEY-----$/, "Paste Rain's public key as PEM, from -----BEGIN PUBLIC KEY----- to -----END PUBLIC KEY-----"],
   rainBaseUrl: [/^https:\/\/[^\s/]+(\/\S*)?$/, "Rain's API address must be an https URL"],
+  credibleKey: [/^\S{8,300}$/, "That does not look like a Credible Finance API key"],
+  credibleSecret: [/^\S{8,300}$/, "That does not look like a Credible Finance API secret"],
+  backpackKey: [/^\S{8,200}$/, "That does not look like a Backpack API key"],
+  backpackSecret: [/^[A-Za-z0-9+/]{43}=$/, "A Backpack API secret is a base64 text of 44 characters, ending in ="],
 };
 
 /** Save a business's channel settings. A value replaces the old one, an empty string clears it, an absent field is kept. Secrets are encrypted here. */
@@ -351,11 +380,13 @@ export function channelStatus(id: string, forOwner = false) {
     agentMarket: !!c.agentMarketToken,
     pingpay: !!c.pingpayKey,
     x402FacilitatorUrl: c.x402FacilitatorUrl ?? "",
+    backpack: (() => { const d = liveCfg(id); return !!(d.BACKPACK_API_KEY && d.BACKPACK_API_SECRET); })(),
+    credible: (() => { const d = liveCfg(id); return !!(d.CREDIBLE_API_KEY && d.CREDIBLE_API_SECRET); })(),
     // Cards: which provider is ready, and the plain fields; secrets only as "set".
     // Cards: which provider is ready, and the plain fields; secrets only as "set". The operator's own business reads its environment.
     cards: (() => {
       const env = id === DEFAULT_BIZ;
-      const d = env ? ENV_CFG : derive(getBusiness(id));
+      const d = liveCfg(id);
       return {
         fromEnv: env,
         provider: pickCardProvider(d),
