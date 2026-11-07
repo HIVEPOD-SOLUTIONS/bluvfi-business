@@ -40,14 +40,14 @@ export function ClaimForms({ vendors, kybOn }: { vendors: string[]; kybOn: boole
           <div className="mt-2 flex flex-wrap gap-2">
             <select className="input" value={vendor} onChange={(e) => setVendor(e.target.value)}>{vendors.map((v) => <option key={v}>{v}</option>)}</select>
             <button className="btn btn-primary btn-sm" disabled={loading || !vendor} onClick={() => go({ kind: "vendor", vendor })}>For this vendor</button>
-            <button className="btn btn-secondary btn-sm" disabled={loading} onClick={() => go({ kind: "business" })}>For our business</button>
+            <button className="btn btn-secondary btn-sm" disabled={loading} aria-busy={loading} onClick={() => go({ kind: "business" })}>For our business</button>
           </div>
         ) : <p className="mt-2 text-sm">Identity verification is not set up (Persona), so there is nothing to attest.</p>}
       </div>
       <div className="card">
         <h2>Treasury is solvent</h2>
         <p className="mt-1 text-sm" style={{ color: "var(--tx-2)" }}>Proves the treasury held at least an amount, from a balance the app read from the chain and signed, without showing any balance.</p>
-        <div className="mt-2 flex gap-2"><input className="input" type="number" min="1" value={minUsd} onChange={(e) => setMinUsd(e.target.value)} /><button className="btn btn-primary btn-sm" disabled={loading} onClick={() => go({ kind: "solvency", minUsd: Number(minUsd) })}>Prove at least this (USD)</button></div>
+        <div className="mt-2 flex gap-2"><input className="input" type="number" min="1" value={minUsd} onChange={(e) => setMinUsd(e.target.value)} /><button className="btn btn-primary btn-sm" disabled={loading} aria-busy={loading} onClick={() => go({ kind: "solvency", minUsd: Number(minUsd) })}>Prove at least this (USD)</button></div>
       </div>
       <div className="card">
         <h2>Secret circuit, bounded</h2>
@@ -56,7 +56,7 @@ export function ClaimForms({ vendors, kybOn }: { vendors: string[]; kybOn: boole
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <label className="text-sm">At most qubits <input className="input w-20" type="number" min="0" value={bounds.q} onChange={(e) => setBounds({ ...bounds, q: e.target.value })} /></label>
           <label className="text-sm">Toffoli <input className="input w-20" type="number" min="0" value={bounds.t} onChange={(e) => setBounds({ ...bounds, t: e.target.value })} /></label>
-          <button className="btn btn-primary btn-sm" disabled={loading} onClick={() => {
+          <button className="btn btn-primary btn-sm" disabled={loading} aria-busy={loading} onClick={() => {
             let parsed: unknown;
             try { parsed = JSON.parse(gates); } catch { setFormError("The gates must be JSON, like the example."); return; }
             void go({ kind: "circuit", gates: parsed, maxQubits: Number(bounds.q), maxToffoli: Number(bounds.t) });
@@ -78,8 +78,8 @@ export function AnchorBox({ attesters, threshold }: { attesters: number; thresho
       <p className="text-sm">Credentials and balances are signed by this app{attesters ? ` and ${attesters} independent attester(s)` : ""}. <strong>{Math.min(threshold, attesters + 1)} different issuer(s) must sign</strong> before such a proof is made.
         {attesters === 0 && " No independent attester is set up (ZK_ATTESTERS), so this app alone is trusted."}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <button className="btn btn-secondary btn-sm" disabled={loading} onClick={check}>Is this set approved on chain?</button>
-        <button className="btn btn-secondary btn-sm" disabled={loading} onClick={async () => { await run("/api/claims", { kind: "anchor" }); await check(); }}>Put this set to the DAO</button>
+        <button className="btn btn-secondary btn-sm" disabled={loading} aria-busy={loading} onClick={check}>Is this set approved on chain?</button>
+        <button className="btn btn-secondary btn-sm" disabled={loading} aria-busy={loading} onClick={async () => { await run("/api/claims", { kind: "anchor" }); await check(); }}>Put this set to the DAO</button>
         {info && <Badge tone={info.anchored ? "ok" : "warn"}>{info.anchored ? `Approved by the council (proposal #${info.proposalId})` : info.status ?? "Not approved"}</Badge>}
       </div>
       <ErrorLine msg={error} />
@@ -106,7 +106,7 @@ export function ClaimList({ claims }: { claims: ClaimRow[] }) {
             {c.error && <div className="text-sm neg">{c.error}</div>}
           </div>
           <div className="flex items-center gap-2">
-            <Badge tone={c.status === "done" ? "ok" : c.status === "failed" ? "bad" : "warn"}>{c.status === "done" ? "Proof ready" : c.status === "failed" ? "Failed" : "Proving…"}</Badge>
+            <Badge tone={c.status === "done" ? "ok" : c.status === "failed" ? "bad" : "warn"} live={c.status === "proving"}>{c.status === "done" ? "Proof ready" : c.status === "failed" ? "Failed" : "Proving…"}</Badge>
             {c.status === "done" && <a className="btn btn-secondary btn-sm" href={`/api/claims/${c.id}?download=1`}>Download proof</a>}
           </div>
         </div>

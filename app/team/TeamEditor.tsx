@@ -10,7 +10,7 @@ export function TeamEditor({ remove }: { remove?: string }) {
   if (remove) {
     return (
       <span className="inline-flex flex-col">
-        <button className="btn btn-ghost btn-sm" disabled={loading} onClick={() => window.confirm(`Remove ${remove}? Their session ends immediately.`) && run("/api/team", { email: remove }, "DELETE")}>Remove</button>
+        <button className="btn btn-ghost btn-sm" disabled={loading} aria-busy={loading} onClick={() => window.confirm(`Remove ${remove}? Their session ends immediately.`) && run("/api/team", { email: remove }, "DELETE")}>Remove</button>
         <ErrorLine msg={error} />
       </span>
     );

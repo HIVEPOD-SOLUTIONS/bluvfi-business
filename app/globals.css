@@ -130,9 +130,105 @@ table.t { width: 100%; border-collapse: collapse; font-size: 14px; }
 table.t th { text-align: left; }
 table.t th, table.t td { padding: 10px 12px; border-bottom: 1px solid var(--bd); vertical-align: top; }
 
-@media (prefers-reduced-motion: reduce) {
-  * { animation: none !important; transition: none !important; }
-}
+
 
 /* grid children must be allowed to shrink so wide <pre> blocks scroll instead of widening the page */
 .grid > * { min-width: 0; }
+
+/* ---------- Calm motion ----------
+   Slow, soft, small: things ease in, never jump. Nothing loops except small "still working" signals.
+   All of it stops for people who ask for reduced motion (the rule at the bottom of this file). */
+:root {
+  --ease-calm: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur-calm: 520ms;
+}
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop { 0% { opacity: 0; transform: scale(0.9); } 65% { opacity: 1; transform: scale(1.04); } 100% { transform: none; } }
+@keyframes breathe { 0%, 100% { opacity: 0.45; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1.15); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@keyframes shake { 10%, 90% { transform: translateX(-1px); } 20%, 80% { transform: translateX(2px); } 30%, 50%, 70% { transform: translateX(-3px); } 40%, 60% { transform: translateX(3px); } }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes ring { 0% { box-shadow: 0 0 0 0 rgba(10, 10, 232, 0.4); } 100% { box-shadow: 0 0 0 14px rgba(10, 10, 232, 0); } }
+@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes slide-out { to { opacity: 0; transform: translateY(10px); } }
+
+/* Each page eases in as you arrive (app/template.tsx remounts on every navigation). */
+.page-in { animation: rise var(--dur-calm) var(--ease-calm) backwards; }
+
+/* Every card eases in, one after another, in the order it sits in its row or list. "backwards" keeps hover effects working afterwards. */
+.card { animation: rise 480ms var(--ease-calm) backwards; animation-delay: calc(var(--n, 0) * 60ms); }
+.card:nth-child(2) { --n: 1; } .card:nth-child(3) { --n: 2; } .card:nth-child(4) { --n: 3; } .card:nth-child(5) { --n: 4; }
+.card:nth-child(6) { --n: 5; } .card:nth-child(7) { --n: 6; } .card:nth-child(8) { --n: 7; } .card:nth-child(n + 9) { --n: 8; }
+.card { transition: border-color var(--dur-standard), background var(--dur-standard), transform var(--dur-standard) var(--ease-calm), box-shadow var(--dur-standard); }
+a.card:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28); }
+a.card:active { transform: translateY(0) scale(0.995); }
+
+/* Buttons: lift a little, press down, and show a spinner while they work. */
+.btn { transition: transform var(--dur-fast) var(--ease-calm), background var(--dur-standard), border-color var(--dur-standard), opacity var(--dur-fast), box-shadow var(--dur-standard); }
+.btn:hover:not(:disabled) { transform: translateY(-1px); }
+.btn:active:not(:disabled) { transform: scale(0.97); }
+.btn-primary:hover:not(:disabled) { box-shadow: 0 6px 18px rgba(10, 10, 232, 0.35); }
+.btn[aria-busy="true"] { pointer-events: none; opacity: 0.85; }
+.btn[aria-busy="true"]::before {
+  content: ""; width: 13px; height: 13px; border-radius: 50%;
+  border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.8s linear infinite; flex: none;
+}
+.btn-primary.attention, .empty-action .btn-primary { animation: ring 2.6s ease-out 1.2s 3; }
+
+/* Inputs: the border warms when you are typing in one. */
+.input { transition: border-color var(--dur-standard), box-shadow var(--dur-standard), background var(--dur-standard); }
+.input:hover { border-color: rgba(242, 240, 232, 0.22); }
+.input:focus { border-color: rgba(10, 10, 232, 0.7); box-shadow: 0 0 0 3px rgba(10, 10, 232, 0.18); outline: none; }
+
+/* Badges pop in; a badge for something still in progress has a small breathing dot. */
+.badge { animation: pop 380ms var(--ease-calm) backwards; }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: breathe 1.8s ease-in-out infinite; flex: none; }
+
+/* Errors shake once; things that appear later (details, results) ease in. */
+.shake { animation: shake 420ms var(--ease-calm); }
+details[open] > :not(summary) { animation: fade 320ms var(--ease-calm); }
+.reveal { animation: rise 420ms var(--ease-calm) backwards; }
+
+/* Toasts: a gentle note that an action worked. */
+.toasts { position: fixed; z-index: 50; left: 0; right: 0; bottom: 84px; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; padding: 0 16px; }
+@media (min-width: 768px) { .toasts { bottom: 28px; padding-left: 240px; } }
+.toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; max-width: 460px; padding: 10px 16px; border-radius: var(--r-xl);
+  background: var(--bg-3); border: 1px solid var(--bd-sage); box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4); font-size: 14px; animation: rise 360ms var(--ease-calm) backwards; }
+.toast.out { animation: slide-out 280ms var(--ease-calm) forwards; }
+.toast-bad { border-color: rgba(224, 82, 82, 0.4); }
+.toast svg path { stroke-dasharray: 24; stroke-dashoffset: 24; animation: draw 520ms 120ms var(--ease-calm) forwards; }
+
+/* Loading skeletons: a soft shimmer, never harsh. */
+.skeleton { border-radius: var(--r-lg); background: linear-gradient(90deg, var(--bg-1) 25%, var(--bg-2) 50%, var(--bg-1) 75%); background-size: 200% 100%; animation: shimmer 2.2s ease-in-out infinite; }
+
+/* The "what to do next" banner and its progress bar. */
+.next-step { border-color: rgba(10, 10, 232, 0.45); background: linear-gradient(135deg, rgba(10, 10, 232, 0.14), var(--bg-1) 60%); }
+.next-step.calm { border-color: var(--bd-sage); background: linear-gradient(135deg, rgba(143, 174, 130, 0.12), var(--bg-1) 60%); }
+.progress { display: flex; gap: 6px; }
+.progress > span { height: 4px; flex: 1; border-radius: 4px; background: var(--bg-3); overflow: hidden; }
+.progress > span.done::after { content: ""; display: block; height: 100%; background: var(--sage); transform-origin: left; animation: grow 700ms var(--ease-calm) backwards; animation-delay: calc(var(--k, 0) * 120ms + 250ms); }
+.progress > span.now::after { content: ""; display: block; height: 100%; width: 40%; background: #5a5aff; border-radius: 4px; animation: breathe 2s ease-in-out infinite; }
+
+/* Empty states: a quiet icon that floats. */
+.empty-icon { display: inline-flex; width: 44px; height: 44px; border-radius: 14px; align-items: center; justify-content: center; margin-bottom: 10px;
+  background: var(--bg-2); border: 1px solid var(--bd); color: var(--tx-1); font-size: 20px; animation: float 4s ease-in-out infinite; }
+
+/* Navigation: an accent bar for where you are, and icons that nudge when you point at them. */
+.nav-link { position: relative; transition: background var(--dur-standard), color var(--dur-standard), transform var(--dur-fast) var(--ease-calm); }
+.nav-link::before { content: ""; position: absolute; left: -20px; top: 22%; bottom: 22%; width: 3px; border-radius: 0 3px 3px 0; background: #6a6aff; transform: scaleY(0); transition: transform var(--dur-standard) var(--ease-calm); }
+.nav-link[aria-current="page"]::before { transform: scaleY(1); }
+.nav-link:hover { background: rgba(242, 240, 232, 0.05); transform: translateX(2px); }
+.nav-link .nav-icon { transition: transform var(--dur-standard) var(--ease-calm), color var(--dur-standard); }
+.nav-link:hover .nav-icon { transform: scale(1.15); }
+.nav-group { margin: 14px 0 4px; padding: 0 12px; }
+.tabbar { overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; }
+.tabbar::-webkit-scrollbar { display: none; }
+.tabbar a { scroll-snap-align: center; flex: 0 0 auto; min-width: 66px; transition: color var(--dur-standard), transform var(--dur-fast); }
+.tabbar a:active { transform: scale(0.94); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

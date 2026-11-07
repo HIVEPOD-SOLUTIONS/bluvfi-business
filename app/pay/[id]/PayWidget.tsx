@@ -40,7 +40,7 @@ export function PayWidget({ id, paid, deposit, note }: { id: string; paid: boole
           {quote.deadline && <div className="mt-2 text-xs" style={{ color: "var(--tx-2)" }}>Before {new Date(quote.deadline).toLocaleString()}. Sending later or a different amount may fail and be refunded.</div>}
           <button
             className="btn btn-secondary btn-sm mt-3"
-            disabled={loading}
+            disabled={loading} aria-busy={loading}
             onClick={async () => {
               const r = await run<{ status: string; note: string; receivable: Receivable }>(`/api/pay/${id}`, { check: true });
               if (!r) return;

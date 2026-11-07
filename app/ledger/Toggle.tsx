@@ -5,7 +5,7 @@ export function LedgerToggle({ on }: { on: boolean }) {
   const { run, error, loading } = useAction();
   return (
     <div>
-      <button role="switch" aria-checked={on} className={`btn ${on ? "btn-secondary" : "btn-primary"}`} disabled={loading} onClick={() => run("/api/audit/ledger", { on: !on })}>
+      <button role="switch" aria-checked={on} className={`btn ${on ? "btn-secondary" : "btn-primary"}`} disabled={loading} aria-busy={loading} onClick={() => run("/api/audit/ledger", { on: !on })}>
         {on ? "Make private" : "Switch on transparency"}
       </button>
       <ErrorLine msg={error} />

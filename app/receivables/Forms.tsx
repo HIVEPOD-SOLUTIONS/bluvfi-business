@@ -20,7 +20,7 @@ export function NewReceivable() {
         <input className="input mt-1" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} placeholder="Q4 retainer" /></label>
       <label className="block"><span className="label">Amount (USD)</span>
         <input className="input mt-1" required type="number" min="1" step="0.01" value={f.amountUsd} onChange={(e) => setF({ ...f, amountUsd: e.target.value })} placeholder="3000" /></label>
-      <div className="sm:col-span-3"><button className="btn btn-primary" disabled={loading}>{loading ? "Creating…" : "Create invoice and link"}</button><ErrorLine msg={error} /></div>
+      <div className="sm:col-span-3"><button className="btn btn-primary" disabled={loading} aria-busy={loading}>{loading ? "Creating…" : "Create invoice and link"}</button><ErrorLine msg={error} /></div>
     </form>
   );
 }

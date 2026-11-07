@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { DM_Sans, Space_Mono } from "next/font/google";
 import { Nav } from "@/components/Nav";
+import { Toaster } from "@/components/Toast";
 import { Logo } from "@/components/Nav";
 import { DEMO, NETWORK, SIGNER_NAMES } from "@/lib/config";
 import { DEFAULT_BIZ } from "@/lib/tenant";
@@ -45,6 +46,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             <div className="mx-auto max-w-5xl px-4 md:px-8 pt-6 md:pt-10">{children}</div>
           </main>
         )}
+        <Toaster />
       </body>
     </html>
   );

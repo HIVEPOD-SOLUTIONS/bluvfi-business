@@ -22,7 +22,7 @@ export function GrantForm() {
           <input className="input mt-1" required value={grantee} onChange={(e) => setGrantee(e.target.value)} placeholder="Auditor, Smith & Co" /></label>
         <label className="block"><span className="label">For (days)</span>
           <input className="input mt-1 w-24" type="number" min="1" max="365" value={days} onChange={(e) => setDays(e.target.value)} /></label>
-        <button className="btn btn-primary" disabled={loading}>Create view key</button>
+        <button className="btn btn-primary" disabled={loading} aria-busy={loading}>Create view key</button>
       </form>
       {key && (
         <div role="status" className="toast-in mt-3 rounded-xl p-3 text-sm" style={{ background: "var(--bg-2)" }}>

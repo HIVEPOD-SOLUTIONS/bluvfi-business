@@ -3,7 +3,8 @@ import { currentSigner, tenantPage } from "@/lib/who";
 import { currentBiz, DEFAULT_BIZ } from "@/lib/tenant";
 import { ConfidentialPanel } from "./ConfidentialPanel";
 import { loginStatus, shieldStatus } from "@/lib/confidential-flow";
-import { isOwner } from "@/lib/team";
+import { isOwner, signerNames } from "@/lib/team";
+import { NextStep } from "@/components/NextStep";
 import Link from "next/link";
 import { ActionButton, KillSwitch } from "@/components/Actions";
 import { Badge, Empty, PageHead, PaymentCard, Stat, usd, when } from "@/components/ui";
@@ -65,6 +66,27 @@ async function Overview() {
   const allVerified = s.payments.length > 0 && s.payments.every((p) => p.verified.signature.valid);
   const saved = s.payments.filter((p) => p.status === "blocked" || p.status === "cancelled").reduce((a, p) => a + p.invoice.amountUsd, 0);
 
+  // The single next thing to do, in plain words. Waiting payments come first (they are time-sensitive); then setup, in order.
+  const steps = [
+    { label: "Set up the treasury", done: missing.length === 0 },
+    { label: "Add a vendor", done: s.vendors.length > 0 },
+    { label: "Submit an invoice", done: s.payments.length > 0 },
+    { label: "Add a second approver", done: signerNames().length >= 2 },
+  ];
+  const open = steps.findIndex((x) => !x.done);
+  const next =
+    attention.length > 0
+      ? { title: `${attention.length} payment${attention.length === 1 ? " needs" : "s need"} you`, body: "Open the first one to approve it, send the funds, or stop it. Nothing moves until you do.", href: `/payments/${attention[0].id}`, cta: "Review it" }
+      : open === 0
+        ? { title: "Set up your treasury", body: "The treasury is where the money sits. Setup takes a few minutes, and you sign it with your own wallet. Until then payments cannot be sent.", href: "/setup", cta: "Set it up" }
+        : open === 1
+          ? { title: "Add your first vendor", body: "Vendors are the people you pay. Save where each gets paid and how to reach them, so the agent can spot a changed address.", href: "/vendors", cta: "Add a vendor" }
+          : open === 2
+            ? { title: "Send in an invoice", body: "Paste an invoice and watch the agent check it. Nothing is paid until your own rules say it may be.", href: "/payments", cta: "Submit an invoice" }
+            : open === 3
+              ? { title: "Add a second approver", body: "A policy change needs two different people, so no one person can change the rules alone. Add a teammate by email.", href: "/team", cta: "Open the team" }
+              : { title: "You are all set", body: "Nothing needs you right now. The agent is watching, and you can stop every payment at any time with the kill switch above.", calm: true };
+
   return (
     <>
       <PageHead
@@ -77,6 +99,8 @@ async function Overview() {
           </div>
         }
       />
+
+      <NextStep steps={steps} title={next.title} body={next.body} href={"href" in next ? next.href : undefined} cta={"cta" in next ? next.cta : undefined} calm={"calm" in next ? next.calm : undefined} kicker={attention.length > 0 ? "Needs you now" : undefined} />
 
       {missing.length > 0 && (
         <section role="alert" className="card mb-4" style={{ borderColor: "rgba(232,168,56,.4)" }}>

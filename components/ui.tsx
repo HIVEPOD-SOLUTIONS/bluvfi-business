@@ -3,10 +3,14 @@ import type { Payment, PaymentStatus, Verdict } from "@/lib/types";
 
 export const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 
-export function Badge({ tone = "default", children }: { tone?: "ok" | "warn" | "bad" | "gold" | "blue" | "default"; children: React.ReactNode }) {
+export function Badge({ tone = "default", live, children }: { tone?: "ok" | "warn" | "bad" | "gold" | "blue" | "default"; live?: boolean; children: React.ReactNode }) {
   const cls = { ok: "badge-ok", warn: "badge-warn", bad: "badge-bad", gold: "badge-gold", blue: "badge-blue", default: "" }[tone];
-  return <span className={`badge ${cls}`}>{children}</span>;
+  // `live`: something is still in progress, so a small dot breathes next to it.
+  return <span className={`badge ${cls}`}>{live && <span className="live-dot" aria-hidden />}{children}</span>;
 }
+
+/** Statuses that mean "waiting on something": they get the breathing dot. */
+export const WAITING = new Set<PaymentStatus>(["proposed", "awaiting_approval", "ready_to_send", "held"]);
 
 export const STATUS: Record<PaymentStatus, { label: string; tone: "ok" | "warn" | "bad" | "blue" | "default" }> = {
   paid: { label: "Paid", tone: "ok" },
@@ -37,12 +41,13 @@ export function PageHead({ title, sub, right }: { title: string; sub?: string; r
   );
 }
 
-export function Empty({ title, hint, children }: { title: string; hint?: string; children?: React.ReactNode }) {
+export function Empty({ title, hint, children, icon = "✦" }: { title: string; hint?: string; children?: React.ReactNode; icon?: string }) {
   return (
     <div className="card text-center py-10">
+      <div className="empty-icon" aria-hidden>{icon}</div>
       <h2>{title}</h2>
       {hint && <p className="mt-1" style={{ color: "var(--tx-1)" }}>{hint}</p>}
-      {children && <div className="mt-4 flex justify-center">{children}</div>}
+      {children && <div className="empty-action mt-4 flex justify-center">{children}</div>}
     </div>
   );
 }
@@ -65,7 +70,7 @@ export function PaymentCard({ p }: { p: Payment }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <Badge tone={st.tone}>{st.label}</Badge>
+            <Badge tone={st.tone} live={WAITING.has(p.status)}>{st.label}</Badge>
             <span className="label">{p.invoice.invoiceNumber}</span>
           </div>
           <h2 className="mt-2">{p.invoice.vendorName}</h2>

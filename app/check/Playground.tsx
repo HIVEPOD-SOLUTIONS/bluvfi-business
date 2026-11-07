@@ -30,7 +30,7 @@ export function Playground({ biz = "" }: { biz?: string }) {
           <label className="block"><span className="label">Vendor domain</span><input className="input mt-1" value={f.vendorDomain} onChange={set("vendorDomain")} /></label>
         </div>
         <label className="block"><span className="label">Invoice text (optional)</span><textarea className="input mt-1" value={f.invoiceText} onChange={set("invoiceText")} placeholder="Paste text to scan for hidden instructions" /></label>
-        <button className="btn btn-primary w-fit" disabled={loading}>{loading ? "Checking…" : "Check this payee"}</button>
+        <button className="btn btn-primary w-fit" disabled={loading} aria-busy={loading}>{loading ? "Checking…" : "Check this payee"}</button>
       </div>
       <ErrorLine msg={error} />
       {res && (
@@ -60,7 +60,7 @@ export function ReportForm() {
         </div>
         <input className="input" required value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} placeholder="What happened" aria-label="Reason" />
         <textarea className="input" required value={f.evidence} onChange={(e) => setF({ ...f, evidence: e.target.value })} placeholder="Evidence (only its hash is published)" aria-label="Evidence" />
-        <button className="btn btn-secondary w-fit" disabled={loading}>Add to blocklist</button>
+        <button className="btn btn-secondary w-fit" disabled={loading} aria-busy={loading}>Add to blocklist</button>
       </div>
       <ErrorLine msg={error} />
       {done && <p role="status" className="mt-2 text-sm pos">Added. Thank you.</p>}

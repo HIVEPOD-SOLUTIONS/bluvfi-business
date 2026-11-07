@@ -60,7 +60,7 @@ export function NewVendor() {
       <p className="text-sm sm:col-span-2" style={{ color: "var(--tx-2)" }}>
         Confirm the verified channel yourself, out of band. It is the only place the agent will ask “was this really you?” when payout details change.
       </p>
-      <div className="sm:col-span-2"><button className="btn btn-primary" disabled={loading}>{loading ? "Saving…" : "Save vendor"}</button><ErrorLine msg={error} /></div>
+      <div className="sm:col-span-2"><button className="btn btn-primary" disabled={loading} aria-busy={loading}>{loading ? "Saving…" : "Save vendor"}</button><ErrorLine msg={error} /></div>
     </form>
   );
 }

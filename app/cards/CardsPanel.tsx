@@ -74,7 +74,7 @@ export function CardsPanel(props: {
         <label className="block"><span className="label">What it is for</span>
           <input className="input mt-1" required maxLength={500} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} /></label>
         <div className="sm:col-span-2">
-          <button className="btn btn-primary" disabled={loading}>{loading ? "Working…" : "Ask for a card"}</button>
+          <button className="btn btn-primary" disabled={loading} aria-busy={loading}>{loading ? "Working…" : "Ask for a card"}</button>
           <ErrorLine msg={error} />
           {last && !shown && <p className="mt-2 text-sm" style={{ color: "var(--tx-1)" }}>{TONE[last.status].label}: {last.note}</p>}
         </div>
@@ -109,10 +109,10 @@ function Purchase({ p, signer, onCard }: { p: CardPurchase; signer: string; onCa
       )}
       <div className="mt-3 flex flex-wrap gap-2">
         {p.status === "awaiting_approval" && !p.approvals.includes(signer) && (
-          <button className="btn btn-primary btn-sm" disabled={loading} onClick={async () => onCard(await run<Result>(`/api/cards/${p.id}`, { action: "approve" }))}>Approve</button>
+          <button className="btn btn-primary btn-sm" disabled={loading} aria-busy={loading} onClick={async () => onCard(await run<Result>(`/api/cards/${p.id}`, { action: "approve" }))}>Approve</button>
         )}
         {(p.status === "awaiting_approval" || p.status === "issued" || p.status === "used") && (
-          <button className="btn btn-danger btn-sm" disabled={loading} onClick={() => { if (window.confirm(p.status === "awaiting_approval" ? "Turn this purchase down?" : "Close this card now? It cannot be reopened.")) run(`/api/cards/${p.id}`, { action: "close" }); }}>
+          <button className="btn btn-danger btn-sm" disabled={loading} aria-busy={loading} onClick={() => { if (window.confirm(p.status === "awaiting_approval" ? "Turn this purchase down?" : "Close this card now? It cannot be reopened.")) run(`/api/cards/${p.id}`, { action: "close" }); }}>
             {p.status === "awaiting_approval" ? "Turn down" : "Close card"}
           </button>
         )}

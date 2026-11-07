@@ -116,7 +116,7 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
         <textarea className="input mt-1" value={f.vendorAllowlist} onChange={(e) => setF({ ...f, vendorAllowlist: e.target.value })} /></label>
       <div className="flex flex-wrap items-end gap-3 sm:col-span-2">
         <span className="text-sm" style={{ color: "var(--tx-2)" }}>Proposing as <span className="mono">{signer}</span></span>
-        <button className="btn btn-primary" disabled={loading}>{loading ? "Proposing…" : "Create proposal"}</button>
+        <button className="btn btn-primary" disabled={loading} aria-busy={loading}>{loading ? "Proposing…" : "Create proposal"}</button>
         {sent && <span role="status" className="text-sm pos">Proposal created. It needs more signers.</span>}
       </div>
       <div className="sm:col-span-2"><ErrorLine msg={formError || error} /></div>

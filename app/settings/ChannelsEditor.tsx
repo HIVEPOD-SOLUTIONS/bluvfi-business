@@ -35,7 +35,7 @@ function Form({ owner, fields, clear, children }: { owner: boolean; fields: Reco
       {children}
       <div className="flex flex-wrap gap-2">
         <button className="btn btn-primary" disabled={loading || !Object.keys(filled).length}>{loading ? "Saving…" : "Save"}</button>
-        <button type="button" className="btn btn-ghost" disabled={loading} onClick={() => window.confirm("Disconnect this? The business stops using it.") && void send(clear)}>Disconnect</button>
+        <button type="button" className="btn btn-ghost" disabled={loading} aria-busy={loading} onClick={() => window.confirm("Disconnect this? The business stops using it.") && void send(clear)}>Disconnect</button>
       </div>
       <ErrorLine msg={error} />
       {note && <p className="text-sm pos">{note}</p>}

@@ -30,13 +30,13 @@ export function KybControl({ kind, vendor, kyb, passport, personaOn, passportOn,
           <Badge tone={status ? TONE[status] : "default"}>{status ? LABEL[status] : "Not verified"}</Badge>
           {kyb?.redactedAt && <span className="text-xs" style={{ color: "var(--tx-2)" }}>Documents deleted at Persona on {day(kyb.redactedAt)}; only the decision is kept.</span>}
           {status !== "verified" && (
-            <button className="btn btn-secondary btn-sm" disabled={loading} onClick={async () => {
+            <button className="btn btn-secondary btn-sm" disabled={loading} aria-busy={loading} onClick={async () => {
               const r = await run<{ link?: string }>("/api/kyb", payload);
               if (r?.link) setLink({ url: r.link, via: "Persona" });
             }}>{status ? "Send a new link" : label}</button>
           )}
           {status && status !== "verified" && (
-            <button className="btn btn-ghost btn-sm" disabled={loading} onClick={() => run("/api/kyb", { ...payload, refresh: true })}>Check the decision</button>
+            <button className="btn btn-ghost btn-sm" disabled={loading} aria-busy={loading} onClick={() => run("/api/kyb", { ...payload, refresh: true })}>Check the decision</button>
           )}
         </div>
       )}
@@ -46,7 +46,7 @@ export function KybControl({ kind, vendor, kyb, passport, personaOn, passportOn,
           {passport?.status === "verified" && <span className="text-xs" style={{ color: "var(--tx-2)" }}>Proved {day(passport.verifiedAt)}{passport.environment === "test" ? " (test environment)" : ""}: no name or document shared.</span>}
           {passport?.note && passport.status !== "verified" && <span className="text-xs" style={{ color: "var(--tx-2)" }}>{passport.note}</span>}
           {passport?.status !== "verified" && (
-            <button className="btn btn-secondary btn-sm" disabled={loading} onClick={async () => {
+            <button className="btn btn-secondary btn-sm" disabled={loading} aria-busy={loading} onClick={async () => {
               const r = await run<{ link?: string }>("/api/passport", payload);
               if (r?.link) setLink({ url: r.link, via: "Self" });
             }}>{passport ? "Send a new passport link" : "Check with a passport (no documents)"}</button>

@@ -77,7 +77,7 @@ export function SubmitInvoice({ vendors }: { vendors: VendorOption[] }) {
           </select>
         </label>
         <div className="flex items-end">
-          <button className="btn btn-primary" disabled={loading}>{loading ? "Reviewing…" : "Send to agent"}</button>
+          <button className="btn btn-primary" disabled={loading} aria-busy={loading}>{loading ? "Reviewing…" : "Send to agent"}</button>
         </div>
       </form>
       <ErrorLine msg={error} />

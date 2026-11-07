@@ -1,20 +1,22 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef } from "react";
 
+/** The menu in three short lists: what you do every day, how you stay in control, and what you can show others. */
 const ITEMS = [
-  { href: "/", label: "Overview", icon: "◧" },
-  { href: "/payments", label: "Payments", icon: "⇄" },
-  { href: "/vendors", label: "Vendors", icon: "▤" },
-  { href: "/receivables", label: "Receivables", icon: "↧" },
-  { href: "/cards", label: "Cards", icon: "▭" },
-  { href: "/policy", label: "Policy", icon: "☰" },
-  { href: "/team", label: "Team", icon: "☺" },
-  { href: "/settings", label: "Settings", icon: "⚙" },
-  { href: "/auditor", label: "Auditor", icon: "✓" },
-  { href: "/proofs", label: "Proofs", icon: "∴" },
-  { href: "/check", label: "Check", icon: "◎" },
-  { href: "/ledger", label: "Ledger", icon: "≡" },
+  { group: "Every day", href: "/", label: "Overview", icon: "◧" },
+  { group: "Every day", href: "/payments", label: "Payments", icon: "⇄" },
+  { group: "Every day", href: "/vendors", label: "Vendors", icon: "▤" },
+  { group: "Every day", href: "/receivables", label: "Receivables", icon: "↧" },
+  { group: "Every day", href: "/cards", label: "Cards", icon: "▭" },
+  { group: "Stay in control", href: "/policy", label: "Policy", icon: "☰" },
+  { group: "Stay in control", href: "/team", label: "Team", icon: "☺" },
+  { group: "Stay in control", href: "/settings", label: "Settings", icon: "⚙" },
+  { group: "Show others", href: "/auditor", label: "Auditor", icon: "✓" },
+  { group: "Show others", href: "/proofs", label: "Proofs", icon: "∴" },
+  { group: "Show others", href: "/check", label: "Check", icon: "◎" },
+  { group: "Show others", href: "/ledger", label: "Ledger", icon: "≡" },
 ];
 
 export function Logo() {
@@ -33,8 +35,11 @@ export function Logo() {
 export function Nav({ signer, demo, business, network = "mainnet", operator = false }: { signer: string; demo?: boolean; business?: string; network?: string; operator?: boolean }) {
   const path = usePathname();
   // The platform operator also manages the platform's own small wallets (the x402 payer, the confidential test account).
-  const items = operator ? [...ITEMS, { href: "/wallets", label: "Wallets", icon: "◈" }] : ITEMS;
+  const items = operator ? ITEMS.flatMap((i) => (i.href === "/settings" ? [i, { group: "Stay in control", href: "/wallets", label: "Wallets", icon: "◈" }] : [i])) : ITEMS;
   const router = useRouter();
+  const bar = useRef<HTMLElement>(null);
+  // On a phone the bar scrolls sideways: keep the page you are on in view.
+  useEffect(() => { bar.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" }); }, [path]);
   const active = (h: string) => (h === "/" ? path === "/" : path.startsWith(h));
   return (
     <>
@@ -44,21 +49,19 @@ export function Nav({ signer, demo, business, network = "mainnet", operator = fa
           <span className="label" title={business}>{business ? (business.length > 14 ? `${business.slice(0, 13)}…` : business) : "Business"}</span>
           <span className="badge badge-gold">{demo ? "Demo" : network === "testnet" ? "Testnet" : "Mainnet"}</span>
         </div>
-        {items.map((i) => (
-          <Link
-            key={i.href}
-            href={i.href}
-            aria-current={active(i.href) ? "page" : undefined}
-            className="flex items-center gap-3 rounded-[10px] px-3 py-2 text-sm font-medium"
-            style={{
-              background: active(i.href) ? "rgba(10,10,232,.16)" : "transparent",
-              color: active(i.href) ? "#fff" : "var(--tx-1)",
-              transition: "background var(--dur-standard), color var(--dur-standard)",
-            }}
-          >
-            <span className="mono w-4 text-center" style={{ color: active(i.href) ? "#8c8cff" : "var(--tx-2)" }}>{i.icon}</span>
-            {i.label}
-          </Link>
+        {items.map((i, n) => (
+          <div key={i.href} className="contents">
+            {(n === 0 || items[n - 1].group !== i.group) && <p className="label nav-group">{i.group}</p>}
+            <Link
+              href={i.href}
+              aria-current={active(i.href) ? "page" : undefined}
+              className="nav-link flex items-center gap-3 rounded-[10px] px-3 py-2 text-sm font-medium"
+              style={{ background: active(i.href) ? "rgba(10,10,232,.16)" : undefined, color: active(i.href) ? "#fff" : "var(--tx-1)" }}
+            >
+              <span className="nav-icon mono w-4 text-center" style={{ color: active(i.href) ? "#8c8cff" : "var(--tx-2)" }}>{i.icon}</span>
+              {i.label}
+            </Link>
+          </div>
         ))}
         <div className="mt-auto">
           <p className="text-xs" style={{ color: "var(--tx-2)" }}>Signed in as <span className="mono">{signer}</span></p>
@@ -71,7 +74,8 @@ export function Nav({ signer, demo, business, network = "mainnet", operator = fa
       </aside>
 
       <nav
-        className="md:hidden fixed bottom-0 inset-x-0 z-20 flex justify-around border-t px-1 pb-[env(safe-area-inset-bottom)]"
+        ref={bar}
+        className="tabbar md:hidden fixed bottom-0 inset-x-0 z-20 flex border-t px-1 pb-[env(safe-area-inset-bottom)]"
         style={{ background: "var(--bg-2)", borderColor: "var(--bd)" }}
         aria-label="Primary"
       >
@@ -80,7 +84,7 @@ export function Nav({ signer, demo, business, network = "mainnet", operator = fa
             key={i.href}
             href={i.href}
             aria-current={active(i.href) ? "page" : undefined}
-            className="flex min-w-0 flex-1 flex-col items-center py-2 text-[10px]"
+            className="flex flex-col items-center py-2 text-[10px]"
             style={{ color: active(i.href) ? "#8c8cff" : "var(--tx-2)" }}
           >
             <span className="mono text-base leading-none">{i.icon}</span>
