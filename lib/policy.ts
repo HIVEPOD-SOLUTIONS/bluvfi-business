@@ -50,6 +50,8 @@ export const DEFAULT_POLICY_BODY: PolicyProposal["changes"] = {
   verifyNewVendors: false,
   verifyForPrivacy: false,
   acceptPassportProof: true,
+  // One-time cards: at most this much a day on cards. Each card is also under the per-payment limit and, from the approval threshold, needs signers.
+  cardDailyLimitUsd: 500,
 };
 
 /** The confidentiality a payment actually gets: what was asked for, raised to the policy's privacy floor. */

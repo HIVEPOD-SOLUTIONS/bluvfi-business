@@ -1,7 +1,7 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { COMPANY_NAME, DEMO, ENV_CFG, type Cfg, type CustodyMode } from "./config";
+import { COMPANY_NAME, DEMO, ENV_CFG, RAIN_DEFAULT_BASE, pickCardProvider, type Cfg, type CustodyMode } from "./config";
 import { decrypt, encrypt } from "./crypto";
 import { dataKey } from "./store";
 import { openText, sealText } from "./vault";
@@ -50,6 +50,24 @@ export interface ChannelConfig {
   /** Encrypted: this business's PingPay key, so what Check earns settles to its own treasury. */
   pingpayKey?: string;
   x402FacilitatorUrl?: string;
+  /** The business's own card-issuing account for one-time cards (lib/cards.ts). Which one, when several are set. */
+  cardProvider?: string;
+  /** Encrypted. */
+  stripeKey?: string;
+  stripeCardholder?: string;
+  /** Encrypted: Stripe's signing secret for this business's real-time authorization webhook. */
+  stripeWebhookSecret?: string;
+  rampClientId?: string;
+  /** Encrypted. */
+  rampClientSecret?: string;
+  rampUserId?: string;
+  /** "1" for Ramp's sandbox. */
+  rampSandbox?: string;
+  /** Encrypted. */
+  rainKey?: string;
+  rainUserId?: string;
+  rainPublicKey?: string;
+  rainBaseUrl?: string;
 }
 
 export interface Business {
@@ -182,6 +200,18 @@ function derive(b: Business | undefined): Cfg {
     PINGPAY_API_KEY: open(ch?.pingpayKey),
     X402_FACILITATOR_URL: ch?.x402FacilitatorUrl ?? "",
     COMPANY_NAME: b?.name ?? "",
+    CARD_PROVIDER: ch?.cardProvider ?? "",
+    STRIPE_SECRET_KEY: open(ch?.stripeKey),
+    STRIPE_CARDHOLDER_ID: ch?.stripeCardholder ?? "",
+    STRIPE_WEBHOOK_SECRET: open(ch?.stripeWebhookSecret),
+    RAMP_CLIENT_ID: ch?.rampClientId ?? "",
+    RAMP_CLIENT_SECRET: open(ch?.rampClientSecret),
+    RAMP_USER_ID: ch?.rampUserId ?? "",
+    RAMP_SANDBOX: ch?.rampSandbox === "1",
+    RAIN_API_KEY: open(ch?.rainKey),
+    RAIN_USER_ID: ch?.rainUserId ?? "",
+    RAIN_SECRETS_PUBLIC_KEY: ch?.rainPublicKey ?? "",
+    RAIN_BASE_URL: ch?.rainBaseUrl || RAIN_DEFAULT_BASE,
   };
 }
 
@@ -242,7 +272,27 @@ export interface ChannelInput {
   agentMarketToken?: string;
   pingpayKey?: string;
   x402FacilitatorUrl?: string;
+  cardProvider?: string;
+  stripeKey?: string;
+  stripeCardholder?: string;
+  stripeWebhookSecret?: string;
+  rampClientId?: string;
+  rampClientSecret?: string;
+  rampUserId?: string;
+  rampSandbox?: string;
+  rainKey?: string;
+  rainUserId?: string;
+  rainPublicKey?: string;
+  rainBaseUrl?: string;
 }
+
+/** The channel fields that are secrets: stored encrypted, never sent back. */
+const SECRET_FIELDS = new Set<keyof ChannelInput>(["telegramBotToken", "twilioToken", "agentMarketToken", "pingpayKey", "stripeKey", "stripeWebhookSecret", "rampClientSecret", "rainKey"]);
+export const CHANNEL_FIELDS = [
+  "telegramBotToken", "twilioSid", "twilioToken", "twilioFrom", "agentMarketToken", "pingpayKey", "x402FacilitatorUrl",
+  "cardProvider", "stripeKey", "stripeCardholder", "stripeWebhookSecret", "rampClientId", "rampClientSecret", "rampUserId", "rampSandbox",
+  "rainKey", "rainUserId", "rainPublicKey", "rainBaseUrl",
+] as const satisfies readonly (keyof ChannelInput)[];
 
 const CHECKS: Record<keyof ChannelInput, [RegExp, string]> = {
   telegramBotToken: [/^\d{6,12}:[\w-]{30,}$/, "That does not look like a Telegram bot token (from @BotFather, like 123456789:AA…)"],
@@ -252,6 +302,18 @@ const CHECKS: Record<keyof ChannelInput, [RegExp, string]> = {
   agentMarketToken: [/^aat_[\w-]{8,}$/, "An Agent Market token starts with aat_"],
   pingpayKey: [/^\S{8,200}$/, "That does not look like a PingPay API key"],
   x402FacilitatorUrl: [/^https:\/\/[^\s/]+(\/\S*)?$/, "The facilitator must be an https URL"],
+  cardProvider: [/^(stripe|ramp|rain)$/, "The card provider must be stripe, ramp or rain"],
+  stripeKey: [/^(sk|rk)_(test|live)_[\w]{10,}$/, "A Stripe secret key starts with sk_test_, sk_live_ or rk_ (a restricted key)"],
+  stripeCardholder: [/^ich_[\w]{6,}$/, "A Stripe cardholder id starts with ich_"],
+  stripeWebhookSecret: [/^whsec_[\w+/=]{10,}$/, "A Stripe webhook signing secret starts with whsec_"],
+  rampClientId: [/^[\w-]{6,200}$/, "That does not look like a Ramp client id"],
+  rampClientSecret: [/^\S{8,300}$/, "That does not look like a Ramp client secret"],
+  rampUserId: [/^[\w-]{6,80}$/, "That does not look like a Ramp user id"],
+  rampSandbox: [/^[01]$/, "Ramp sandbox is 1 (on) or 0 (off)"],
+  rainKey: [/^\S{8,300}$/, "That does not look like a Rain API key"],
+  rainUserId: [/^[\w-]{6,80}$/, "That does not look like a Rain user id"],
+  rainPublicKey: [/^-----BEGIN PUBLIC KEY-----[A-Za-z0-9+/=\s]+-----END PUBLIC KEY-----$/, "Paste Rain's public key as PEM, from -----BEGIN PUBLIC KEY----- to -----END PUBLIC KEY-----"],
+  rainBaseUrl: [/^https:\/\/[^\s/]+(\/\S*)?$/, "Rain's API address must be an https URL"],
 };
 
 /** Save a business's channel settings. A value replaces the old one, an empty string clears it, an absent field is kept. Secrets are encrypted here. */
@@ -264,7 +326,7 @@ export function setChannels(id: string, input: ChannelInput, generated: { telegr
     if (value === undefined) continue;
     const v = value.trim();
     if (v && !CHECKS[field][0].test(v)) throw new Error(CHECKS[field][1]);
-    const secret = field === "telegramBotToken" || field === "twilioToken" || field === "agentMarketToken" || field === "pingpayKey";
+    const secret = SECRET_FIELDS.has(field);
     (c as Record<string, string | undefined>)[field] = v ? (secret ? encrypt(v, key) : v) : undefined;
   }
   if (!c.telegramBotToken) c.telegramWebhookSecret = undefined;
@@ -289,5 +351,20 @@ export function channelStatus(id: string, forOwner = false) {
     agentMarket: !!c.agentMarketToken,
     pingpay: !!c.pingpayKey,
     x402FacilitatorUrl: c.x402FacilitatorUrl ?? "",
+    // Cards: which provider is ready, and the plain fields; secrets only as "set".
+    // Cards: which provider is ready, and the plain fields; secrets only as "set". The operator's own business reads its environment.
+    cards: (() => {
+      const env = id === DEFAULT_BIZ;
+      const d = env ? ENV_CFG : derive(getBusiness(id));
+      return {
+        fromEnv: env,
+        provider: pickCardProvider(d),
+        asked: d.CARD_PROVIDER,
+        stripe: !!(d.STRIPE_SECRET_KEY && d.STRIPE_CARDHOLDER_ID), stripeCardholder: d.STRIPE_CARDHOLDER_ID, stripeWebhook: !!d.STRIPE_WEBHOOK_SECRET,
+        stripeTest: /^(sk|rk)_test_/.test(d.STRIPE_SECRET_KEY),
+        ramp: !!(d.RAMP_CLIENT_ID && d.RAMP_CLIENT_SECRET && d.RAMP_USER_ID), rampClientId: d.RAMP_CLIENT_ID, rampUserId: d.RAMP_USER_ID, rampSandbox: d.RAMP_SANDBOX,
+        rain: !!(d.RAIN_API_KEY && d.RAIN_USER_ID && d.RAIN_SECRETS_PUBLIC_KEY), rainUserId: d.RAIN_USER_ID, rainBaseUrl: env ? d.RAIN_BASE_URL : (c.rainBaseUrl ?? ""), rainPublicKey: !!d.RAIN_SECRETS_PUBLIC_KEY,
+      };
+    })(),
   };
 }

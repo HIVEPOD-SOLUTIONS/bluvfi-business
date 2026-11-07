@@ -100,6 +100,8 @@ export interface Policy {
   verifyBusinessFromUsd?: number;
   verifyForPrivacy?: boolean;
   acceptPassportProof?: boolean;
+  /** One-time cards (lib/cards.ts): the most the agent may put on cards in a day. Missing or 0 means the agent gets no cards. */
+  cardDailyLimitUsd?: number;
   hash: string;
   createdAt: string;
 }
@@ -361,4 +363,33 @@ export interface CheckResponse {
   checks: CheckResult[];
   reasons: string[];
   checkedAt: string;
+}
+
+/**
+ * A purchase the agent makes with a one-time card (lib/cards.ts). The card's number is never stored: it is handed over once, when the
+ * card is issued, and only its last four digits are kept.
+ */
+export interface CardPurchase {
+  id: string;
+  merchant: string;
+  merchantUrl?: string;
+  /** The most the card can be charged, tax and shipping included. */
+  amountUsd: number;
+  reason: string;
+  requestedBy: string;
+  createdAt: string;
+  status: "awaiting_approval" | "issued" | "used" | "closed" | "refused" | "failed";
+  /** Signers who approved it, when it needed approval. */
+  approvals: string[];
+  needsApprovalBecause?: string;
+  provider?: "stripe" | "ramp" | "rain" | "demo";
+  cardId?: string;
+  /** What closing the card needs, if not the card id (Ramp: the fund behind it). */
+  closeRef?: string;
+  last4?: string;
+  expiresAt?: string;
+  /** Charges seen on the card (Stripe's real-time authorizations), each approved or declined here. */
+  authorizations: { at: string; amountUsd: number; merchant: string; approved: boolean; reason: string }[];
+  note: string;
+  closedAt?: string;
 }

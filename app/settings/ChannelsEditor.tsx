@@ -3,7 +3,11 @@ import { useState } from "react";
 import { ErrorLine, useAction } from "@/components/Actions";
 import { Badge } from "@/components/ui";
 
-type Status = { cronSecret: string; telegram: boolean; twilio: boolean; twilioSid: string; twilioFrom: string; agentMarket: boolean; pingpay: boolean; x402FacilitatorUrl: string };
+type CardStatus = {
+  fromEnv: boolean; provider: string; asked: string; stripe: boolean; stripeCardholder: string; stripeWebhook: boolean; stripeTest: boolean;
+  ramp: boolean; rampClientId: string; rampUserId: string; rampSandbox: boolean; rain: boolean; rainUserId: string; rainBaseUrl: string; rainPublicKey: boolean;
+};
+type Status = { cronSecret: string; telegram: boolean; twilio: boolean; twilioSid: string; twilioFrom: string; agentMarket: boolean; pingpay: boolean; x402FacilitatorUrl: string; cards: CardStatus };
 
 function Section({ title, on, hint, children }: { title: string; on: boolean; hint: string; children: React.ReactNode }) {
   return (
@@ -43,7 +47,7 @@ const Field = ({ label, value, set, type = "text", ph }: { label: string; value:
   <label className="block"><span className="label">{label}</span><input className="input mt-1" type={type} autoComplete="off" placeholder={ph} value={value} onChange={(e) => set(e.target.value)} /></label>
 );
 
-export function ChannelsEditor({ owner, status, urls }: { owner: boolean; status: Status; urls: { check: string; ledger: string; poll: string } }) {
+export function ChannelsEditor({ owner, status, urls }: { owner: boolean; status: Status; urls: { check: string; ledger: string; poll: string; stripeCards: string } }) {
   const [tg, setTg] = useState("");
   const [sid, setSid] = useState(status.twilioSid);
   const [tok, setTok] = useState("");
@@ -77,6 +81,86 @@ export function ChannelsEditor({ owner, status, urls }: { owner: boolean; status
           <Field label="Or an x402 facilitator URL (https)" value={fac} set={setFac} ph="https://…" />
         </Form>
       </Section>
+      <CardsSection owner={owner} c={status.cards} webhook={urls.stripeCards} />
     </div>
+  );
+}
+
+const PROVIDER_NAME: Record<string, string> = { stripe: "Stripe Issuing", ramp: "Ramp Agent Cards", rain: "Rain" };
+
+/**
+ * The business's own card-issuing account, for the agent's one-time cards. Cards are charged to this account and no other business's.
+ * One provider is used; the select says which when more than one is set.
+ */
+function CardsSection({ owner, c, webhook }: { owner: boolean; c: CardStatus; webhook: string }) {
+  const [provider, setProvider] = useState(c.asked || c.provider || "stripe");
+  const [sk, setSk] = useState("");
+  const [holder, setHolder] = useState(c.stripeCardholder);
+  const [whsec, setWhsec] = useState("");
+  const [rampId, setRampId] = useState(c.rampClientId);
+  const [rampSecret, setRampSecret] = useState("");
+  const [rampUser, setRampUser] = useState(c.rampUserId);
+  const [rampSandbox, setRampSandbox] = useState(c.rampSandbox);
+  const [rainKey, setRainKey] = useState("");
+  const [rainUser, setRainUser] = useState(c.rainUserId);
+  const [rainPem, setRainPem] = useState("");
+  const [rainBase, setRainBase] = useState(c.rainBaseUrl);
+  const hint = `One-time cards for the agent come from this business's own card-issuing account, so every card is charged to it and to no other business. ${
+    c.provider ? `In use: ${PROVIDER_NAME[c.provider]}${c.provider === "stripe" && c.stripeTest ? " (test mode)" : ""}.` : "Connect one provider."
+  }`;
+  if (c.fromEnv) {
+    return (
+      <Section title="Cards" on={!!c.provider} hint={hint}>
+        <p className="text-sm" style={{ color: "var(--tx-2)" }}>This is the platform operator&apos;s own business: its card keys are set in .env.local (STRIPE_*, RAMP_* or RAIN_*), not here.</p>
+        {c.provider === "stripe" && <p className="text-sm">Stripe authorization webhook: <span className="mono break-all">{webhook}</span> {c.stripeWebhook ? "" : "(no signing secret set: charges are not approved here)"}</p>}
+      </Section>
+    );
+  }
+  const fields: Record<string, string> =
+    provider === "stripe" ? { cardProvider: "stripe", stripeKey: sk, stripeCardholder: holder, stripeWebhookSecret: whsec }
+    : provider === "ramp" ? { cardProvider: "ramp", rampClientId: rampId, rampClientSecret: rampSecret, rampUserId: rampUser, rampSandbox: rampSandbox ? "1" : "0" }
+    : { cardProvider: "rain", rainKey, rainUserId: rainUser, rainPublicKey: rainPem, rainBaseUrl: rainBase };
+  const clear: Record<string, string> =
+    provider === "stripe" ? { stripeKey: "", stripeCardholder: "", stripeWebhookSecret: "" }
+    : provider === "ramp" ? { rampClientId: "", rampClientSecret: "", rampUserId: "", rampSandbox: "" }
+    : { rainKey: "", rainUserId: "", rainPublicKey: "", rainBaseUrl: "" };
+  const setMark = (on: boolean) => (on ? "Set. Paste a new one to replace it." : "");
+  return (
+    <Section title="Cards" on={!!c.provider} hint={hint}>
+      <label className="block"><span className="label">Provider</span>
+        <select className="input mt-1" value={provider} onChange={(e) => setProvider(e.target.value)} disabled={!owner}>
+          <option value="stripe">Stripe Issuing {c.stripe ? "(set)" : ""}</option>
+          <option value="ramp">Ramp Agent Cards {c.ramp ? "(set)" : ""}</option>
+          <option value="rain">Rain, backed by stablecoins {c.rain ? "(set)" : ""}</option>
+        </select>
+      </label>
+      <Form owner={owner} fields={fields} clear={clear}>
+        {provider === "stripe" && (
+          <>
+            <Field label="Secret key" type="password" value={sk} set={setSk} ph={setMark(c.stripe) || "sk_test_… (test mode is free)"} />
+            <Field label="Company cardholder id" value={holder} set={setHolder} ph="ich_…" />
+            <Field label="Authorization webhook signing secret" type="password" value={whsec} set={setWhsec} ph={setMark(c.stripeWebhook) || "whsec_…"} />
+            <p className="text-xs" style={{ color: "var(--tx-2)" }}>In Stripe, point Issuing&apos;s real-time authorization webhook at <span className="mono break-all">{webhook}</span>. Every charge on this business&apos;s cards is then approved or declined here, against the purchase the card was made for.</p>
+          </>
+        )}
+        {provider === "ramp" && (
+          <>
+            <Field label="Client id" value={rampId} set={setRampId} />
+            <Field label="Client secret" type="password" value={rampSecret} set={setRampSecret} ph={setMark(c.ramp)} />
+            <Field label="User whose funds the cards draw on" value={rampUser} set={setRampUser} />
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={rampSandbox} onChange={(e) => setRampSandbox(e.target.checked)} /> Ramp&apos;s sandbox (no real money)</label>
+          </>
+        )}
+        {provider === "rain" && (
+          <>
+            <Field label="API key" type="password" value={rainKey} set={setRainKey} ph={setMark(c.rain)} />
+            <Field label="User id" value={rainUser} set={setRainUser} />
+            <label className="block"><span className="label">Rain&apos;s public key (PEM), for reading card numbers</span>
+              <textarea className="input mt-1 mono text-xs" rows={4} value={rainPem} onChange={(e) => setRainPem(e.target.value)} placeholder={c.rainPublicKey ? "Set. Paste a new key to replace it." : "-----BEGIN PUBLIC KEY-----"} /></label>
+            <Field label="API address (empty: Rain's production)" value={rainBase} set={setRainBase} ph="https://api-dev.raincards.xyz/v1 for the sandbox" />
+          </>
+        )}
+      </Form>
+    </Section>
   );
 }

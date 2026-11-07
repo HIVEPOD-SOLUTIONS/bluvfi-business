@@ -1,4 +1,4 @@
-import { channelStatus, setChannels, type ChannelInput } from "@/lib/business";
+import { CHANNEL_FIELDS, channelStatus, setChannels, type ChannelInput } from "@/lib/business";
 import { randomBytes } from "node:crypto";
 import { PUBLIC_BASE_URL } from "@/lib/config";
 import { body, route } from "@/lib/http";
@@ -11,7 +11,7 @@ import { currentBiz, DEFAULT_BIZ } from "@/lib/tenant";
 const urls = (origin: string) => {
   const q = currentBiz() === DEFAULT_BIZ ? "" : `?b=${currentBiz()}`;
   const base = PUBLIC_BASE_URL || origin;
-  return { telegramWebhook: `${base}/api/telegram/webhook${q}`, agentMarketPoll: `${base}/api/agentmarket/poll${q}`, check: `${base}/api/check${q}`, ledger: `${base}/ledger${q}` };
+  return { telegramWebhook: `${base}/api/telegram/webhook${q}`, agentMarketPoll: `${base}/api/agentmarket/poll${q}`, check: `${base}/api/check${q}`, ledger: `${base}/ledger${q}`, stripeCards: `${base}/api/cards/stripe${q}` };
 };
 
 export const GET = route(async (req) => {
@@ -28,9 +28,8 @@ export const POST = route(async (req) => {
   const who = await requireSigner(req);
   if (!isOwner(who)) throw new Error("Only an owner can change the business's channels");
   const input = await body<ChannelInput>(req);
-  const allowed = ["telegramBotToken", "twilioSid", "twilioToken", "twilioFrom", "agentMarketToken", "pingpayKey", "x402FacilitatorUrl"] as const;
   const clean: ChannelInput = {};
-  for (const k of allowed) if (typeof input[k] === "string") clean[k] = input[k];
+  for (const k of CHANNEL_FIELDS) if (typeof input[k] === "string") clean[k] = input[k];
 
   const notes: string[] = [];
   const generated: { telegramWebhookSecret?: string } = {};

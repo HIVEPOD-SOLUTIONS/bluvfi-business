@@ -7,7 +7,7 @@ import { DEFAULT_POLICY_BODY, makePolicy } from "./policy";
 import { services } from "./services";
 import { currentBiz, DEFAULT_BIZ } from "./tenant";
 import type { CounterpartySignals } from "./fraud";
-import type { BlocklistEntry, Payment, Policy, PolicyProposal, PurchaseOrder, Receivable, TopUp, Vendor, ViewGrant } from "./types";
+import type { BlocklistEntry, CardPurchase, Payment, Policy, PolicyProposal, PurchaseOrder, Receivable, TopUp, Vendor, ViewGrant } from "./types";
 
 export interface State {
   policies: Policy[];
@@ -44,6 +44,8 @@ export interface State {
   killLog: { at: string; by: string; on: boolean }[];
   ledgerPublic: boolean;
   x402Spend: { at: string; url: string; priceUsd: number }[];
+  /** Purchases the agent made with one-time cards (lib/cards.ts). Missing in files made before cards existed. */
+  cardPurchases?: CardPurchase[];
   checkLog: { at: string; verdict: string }[];
   /** The setup-time check of the private AI model: its attested signing keys (lib/aimodel.ts). */
   aiModel?: import("./nearai").ModelCheck;
@@ -78,6 +80,7 @@ const fresh = (): State => ({
   killLog: [],
   ledgerPublic: false,
   x402Spend: [],
+  cardPurchases: [],
   checkLog: [],
 });
 

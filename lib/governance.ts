@@ -24,7 +24,7 @@ const KNOWN_ASSETS = new Set(Object.keys(ASSET_ID).map((k) => k.split(":")[1]));
 export function validateChanges(c: PolicyProposal["changes"]) {
   const nums: [string, number][] = [
     ["Per-payment limit", c.perPaymentLimitUsd], ["Daily limit", c.dailyLimitUsd], ["Approval threshold", c.approvalThresholdUsd],
-    ["Hold window", c.holdWindowMinutes], ["API spend per day", c.x402DailyLimitUsd],
+    ["Hold window", c.holdWindowMinutes], ["API spend per day", c.x402DailyLimitUsd], ["Card spend per day", c.cardDailyLimitUsd ?? 0],
   ];
   for (const [n, v] of nums) if (!Number.isFinite(v) || v < 0) throw new Error(`${n} must be zero or more.`);
   if (c.perPaymentLimitUsd === 0 || c.dailyLimitUsd === 0) throw new Error("A limit of 0 would stop every payment. Use the kill switch for that.");
@@ -89,7 +89,7 @@ function daoPolicyText(version: number, changes: PolicyProposal["changes"]) {
   const description =
     `Bluvfi Business policy v${version}: per payment ${usd(changes.perPaymentLimitUsd)}, daily ${usd(changes.dailyLimitUsd)}, ` +
     `signer approval from ${usd(changes.approvalThresholdUsd)}, hold ${changes.holdWindowMinutes} min, chains ${changes.allowedChains.join("/")}, ` +
-    `assets ${changes.allowedAssets.join("/")}, ${changes.vendorAllowlist.length} allowlisted vendor(s), API spend ${usd(changes.x402DailyLimitUsd)}/day, ` +
+    `assets ${changes.allowedAssets.join("/")}, ${changes.vendorAllowlist.length} allowlisted vendor(s), API spend ${usd(changes.x402DailyLimitUsd)}/day, cards ${usd(changes.cardDailyLimitUsd ?? 0)}/day, ` +
     `privacy floor ${changes.privacyFloor ?? "public"}${changes.privacyProfile ? ` (${changes.privacyProfile})` : ""}, ${changes.privacyTiers?.length ?? 0} amount tier(s), ${Object.keys(changes.privateVendors ?? {}).length} private vendor(s), post-quantum keys ${changes.requirePostQuantumKeys ? "required" : "optional"}, verification: ${describeTiers(changes)}. ${tag}`;
   const kind = carrierKind();
   const args = JSON.stringify({ proposal: { description, kind } });

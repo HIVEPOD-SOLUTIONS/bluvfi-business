@@ -24,7 +24,7 @@ async function Settings() {
       <ChannelsEditor
         owner={owner}
         status={st}
-        urls={{ check: `/api/check${q}`, ledger: `/ledger${q}`, poll: `/api/agentmarket/poll${q}` }}
+        urls={{ check: `/api/check${q}`, ledger: `/ledger${q}`, poll: `/api/agentmarket/poll${q}`, stripeCards: `${PUBLIC_BASE_URL || ""}/api/cards/stripe${q}` }}
       />
     </>
   );

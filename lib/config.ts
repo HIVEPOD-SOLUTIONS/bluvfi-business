@@ -163,6 +163,56 @@ export const APPROVAL_THRESHOLD_SIGNERS = Math.max(1, Math.min(Number(process.en
  * as here; for a business that signed up on the platform they come from its record (lib/business.ts cfg()). Code that
  * serves a business reads them through cfg(), never from these constants directly.
  */
+/**
+ * One-time cards for the agent (lib/cards.ts): the agent buys from an ordinary card checkout with a virtual card issued for that one
+ * purchase, capped at its amount, and closed after it. Every business uses its own card-issuing account: a business that signed up sets
+ * its keys on the Settings page (stored encrypted); the operator's own business reads them from here. One provider per business:
+ *  - Stripe Issuing: STRIPE_SECRET_KEY (sk_test_... to try it), STRIPE_CARDHOLDER_ID (ich_..., the company cardholder the cards belong to),
+ *    and STRIPE_WEBHOOK_SECRET (whsec_...) for real-time authorizations: point Issuing's authorization webhook at
+ *    PUBLIC_BASE_URL/api/cards/stripe (a signed-up business adds ?b=<its id>; the Settings page shows its URL), and every charge on a card is
+ *    approved or declined here, against the purchase it was made for.
+ *  - Ramp Agent Cards (Vault API): RAMP_CLIENT_ID, RAMP_CLIENT_SECRET, RAMP_USER_ID (whose funds the card draws on); RAMP_SANDBOX=1 for Ramp's sandbox.
+ *  - Rain (cards backed by stablecoin collateral): RAIN_API_KEY, RAIN_USER_ID, RAIN_SECRETS_PUBLIC_KEY (Rain's PEM key for reading card
+ *    numbers), RAIN_BASE_URL (default production; https://api-dev.raincards.xyz/v1 for the sandbox).
+ * CARD_PROVIDER picks one when more than one is set. CARD_TTL_HOURS: an unused card is closed after this many hours (default 24).
+ */
+export const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY ?? "";
+export const STRIPE_CARDHOLDER_ID = process.env.STRIPE_CARDHOLDER_ID ?? "";
+export const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+export const STRIPE_API_BASE = process.env.STRIPE_API_BASE || "https://api.stripe.com";
+export const STRIPE_API_VERSION = process.env.STRIPE_API_VERSION || "2025-03-31.basil";
+export const RAMP_CLIENT_ID = process.env.RAMP_CLIENT_ID ?? "";
+export const RAMP_CLIENT_SECRET = process.env.RAMP_CLIENT_SECRET ?? "";
+export const RAMP_USER_ID = process.env.RAMP_USER_ID ?? "";
+export const RAMP_SANDBOX = process.env.RAMP_SANDBOX === "1";
+/** Ramp's API and Vault hosts, production or sandbox (RAMP_API_BASE and RAMP_VAULT_BASE override both, for tests). */
+export const rampBases = (sandbox: boolean) => ({
+  api: process.env.RAMP_API_BASE || (sandbox ? "https://demo-api.ramp.com" : "https://api.ramp.com"),
+  vault: process.env.RAMP_VAULT_BASE || (sandbox ? "https://demo-vault-api.ramp.com" : "https://vault-api.ramp.com"),
+});
+export const RAIN_API_KEY = process.env.RAIN_API_KEY ?? "";
+export const RAIN_USER_ID = process.env.RAIN_USER_ID ?? "";
+export const RAIN_SECRETS_PUBLIC_KEY = (process.env.RAIN_SECRETS_PUBLIC_KEY ?? "").replace(/\\n/g, "\n");
+export const RAIN_DEFAULT_BASE = "https://api.raincards.xyz/v1";
+export const RAIN_BASE_URL = process.env.RAIN_BASE_URL || RAIN_DEFAULT_BASE;
+export type CardProviderName = "stripe" | "ramp" | "rain" | "";
+/** Which provider a business's card settings point to: the one asked for if it is fully set, else the first that is. */
+export function pickCardProvider(c: {
+  CARD_PROVIDER?: string; STRIPE_SECRET_KEY: string; STRIPE_CARDHOLDER_ID: string; RAMP_CLIENT_ID: string; RAMP_CLIENT_SECRET: string; RAMP_USER_ID: string;
+  RAIN_API_KEY: string; RAIN_USER_ID: string; RAIN_SECRETS_PUBLIC_KEY: string;
+}): CardProviderName {
+  const ready = {
+    stripe: !!(c.STRIPE_SECRET_KEY && c.STRIPE_CARDHOLDER_ID),
+    ramp: !!(c.RAMP_CLIENT_ID && c.RAMP_CLIENT_SECRET && c.RAMP_USER_ID),
+    rain: !!(c.RAIN_API_KEY && c.RAIN_USER_ID && c.RAIN_SECRETS_PUBLIC_KEY),
+  };
+  const asked = c.CARD_PROVIDER as keyof typeof ready | undefined;
+  if (asked && ready[asked]) return asked;
+  return ready.stripe ? "stripe" : ready.ramp ? "ramp" : ready.rain ? "rain" : "";
+}
+export const CARD_PROVIDER = process.env.CARD_PROVIDER ?? "";
+export const CARD_TTL_HOURS = Math.max(1, Number(process.env.CARD_TTL_HOURS ?? 24) || 24);
+
 /** CONFIDENTIAL_TREASURY=1: the DAO's funds are shielded in Confidential Intents, and payouts go out through the MPC signer (lib/confidential-flow.ts). Needs Sputnik custody. */
 export const CONFIDENTIAL = process.env.CONFIDENTIAL_TREASURY === "1";
 
@@ -171,6 +221,9 @@ export const ENV_CFG = {
   // The business's own channels and what it charges for Check. A business that signed up brings its own bot, phone account and facilitator.
   TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM, AGENT_MARKET_TOKEN, AGENT_MARKET_CRON_SECRET,
   PINGPAY_API_KEY, X402_FACILITATOR_URL, COMPANY_NAME,
+  // The business's own card-issuing account (lib/cards.ts).
+  CARD_PROVIDER, STRIPE_SECRET_KEY, STRIPE_CARDHOLDER_ID, STRIPE_WEBHOOK_SECRET, RAMP_CLIENT_ID, RAMP_CLIENT_SECRET, RAMP_USER_ID, RAMP_SANDBOX,
+  RAIN_API_KEY, RAIN_USER_ID, RAIN_SECRETS_PUBLIC_KEY, RAIN_BASE_URL,
 };
 export type Cfg = typeof ENV_CFG;
 

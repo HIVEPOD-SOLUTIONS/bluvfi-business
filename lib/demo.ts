@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { demoCardProvider } from "./card-providers";
 import type { Balance } from "./chain";
 import { ed25519KeyFromSeed, sha256 } from "./crypto";
 import type { CounterpartySignals } from "./fraud";
@@ -102,4 +103,5 @@ export const demoServices = (model: string) => ({
     delivered: "demo",
   }),
   payX402: async (url: string) => ({ ok: true, status: 200, priceUsd: 0.01, body: { demo: true, url }, note: "Demo mode: no payment was made." }),
+  cardProvider: () => demoCardProvider(),
 });

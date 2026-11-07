@@ -1,3 +1,4 @@
+import { configuredCardProvider, type CardProvider } from "./card-providers";
 import { confidentialPayoutStatus, quoteConfidentialPayout } from "./confidential-flow";
 import { lookupSignals, spendingWalletBalances, treasuryBalances } from "./chain";
 import { DEMO, NEAR_AI_MODEL } from "./config";
@@ -32,6 +33,9 @@ export const services = {
   payX402,
   submitPayout,
   refreshPayout,
+  /** The card issuer the agent gets one-time cards from (lib/cards.ts), or null when none is set up. */
+  // Called lazily: card-providers reads the business settings, and they import this file in turn.
+  cardProvider: (): CardProvider | null => configuredCardProvider(),
 };
 
 if (DEMO) Object.assign(services, demoServices(NEAR_AI_MODEL));

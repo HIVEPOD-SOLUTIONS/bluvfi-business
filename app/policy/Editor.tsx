@@ -15,7 +15,7 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
   const [f, setF] = useState({
     perPaymentLimitUsd: String(policy.perPaymentLimitUsd), dailyLimitUsd: String(policy.dailyLimitUsd),
     approvalThresholdUsd: String(policy.approvalThresholdUsd), holdWindowMinutes: String(policy.holdWindowMinutes),
-    x402DailyLimitUsd: String(policy.x402DailyLimitUsd), allowedChains: policy.allowedChains.join(", "),
+    x402DailyLimitUsd: String(policy.x402DailyLimitUsd), cardDailyLimitUsd: String(policy.cardDailyLimitUsd ?? 0), allowedChains: policy.allowedChains.join(", "),
     allowedAssets: policy.allowedAssets.join(", "), vendorAllowlist: policy.vendorAllowlist.join("\n"),
     privacyFloor: policy.privacyFloor ?? "public", requirePostQuantumKeys: !!policy.requirePostQuantumKeys,
     privacyProfile: (policy.privacyProfile ?? "") as PrivacyProfile | "", privacyTiers: tiersToText(policy.privacyTiers), privateVendors: vendorsToText(policy.privateVendors),
@@ -28,7 +28,7 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
   const [formError, setFormError] = useState("");
   const [sent, setSent] = useState(false);
   const list = (s: string, sep: RegExp) => s.split(sep).map((x) => x.trim()).filter(Boolean);
-  const num = (k: "perPaymentLimitUsd" | "dailyLimitUsd" | "approvalThresholdUsd" | "holdWindowMinutes" | "x402DailyLimitUsd", label: string, hint?: string) => (
+  const num = (k: "perPaymentLimitUsd" | "dailyLimitUsd" | "approvalThresholdUsd" | "holdWindowMinutes" | "x402DailyLimitUsd" | "cardDailyLimitUsd", label: string, hint?: string) => (
     <label className="block">
       <span className="label">{label}</span>
       <input className="input mt-1" type="number" min="0" value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
@@ -48,7 +48,7 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
           changes: {
             perPaymentLimitUsd: Number(f.perPaymentLimitUsd), dailyLimitUsd: Number(f.dailyLimitUsd),
             approvalThresholdUsd: Number(f.approvalThresholdUsd), holdWindowMinutes: Number(f.holdWindowMinutes),
-            x402DailyLimitUsd: Number(f.x402DailyLimitUsd), allowedChains: list(f.allowedChains, /[,\s]+/),
+            x402DailyLimitUsd: Number(f.x402DailyLimitUsd), cardDailyLimitUsd: Number(f.cardDailyLimitUsd), allowedChains: list(f.allowedChains, /[,\s]+/),
             allowedAssets: list(f.allowedAssets, /[,\s]+/).map((a) => a.toUpperCase()), vendorAllowlist: list(f.vendorAllowlist, /\n/),
             privacyFloor: f.privacyFloor, requirePostQuantumKeys: f.requirePostQuantumKeys,
             ...(f.privacyProfile ? { privacyProfile: f.privacyProfile } : {}), privacyTiers, privateVendors,
@@ -64,6 +64,7 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
       {num("approvalThresholdUsd", "Signer approval from (USD)", "Payments at or above this need a human.")}
       {num("holdWindowMinutes", "Hold window (minutes)", "How long suspicious payments wait.")}
       {num("x402DailyLimitUsd", "API spend per day (USD)", "For x402 paywalls the agent buys from.")}
+      {num("cardDailyLimitUsd", "Card spend per day (USD)", "One-time cards for card checkouts. 0 gives the agent no cards.")}
       <label className="block"><span className="label">Allowed chains</span>
         <input className="input mt-1" value={f.allowedChains} onChange={(e) => setF({ ...f, allowedChains: e.target.value })} /></label>
       <label className="block"><span className="label">Allowed assets</span>

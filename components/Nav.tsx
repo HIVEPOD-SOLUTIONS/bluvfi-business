@@ -7,6 +7,7 @@ const ITEMS = [
   { href: "/payments", label: "Payments", icon: "⇄" },
   { href: "/vendors", label: "Vendors", icon: "▤" },
   { href: "/receivables", label: "Receivables", icon: "↧" },
+  { href: "/cards", label: "Cards", icon: "▭" },
   { href: "/policy", label: "Policy", icon: "☰" },
   { href: "/team", label: "Team", icon: "☺" },
   { href: "/settings", label: "Settings", icon: "⚙" },

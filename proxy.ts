@@ -21,6 +21,8 @@ const PUBLIC = [
   /^\/setup$/, /^\/api\/setup$/,
   // Passport checks: Self's signed webhook, and the page a person lands on after the Self app.
   /^\/api\/passport\/webhook$/, /^\/passport\/done$/,
+  // Stripe Issuing asks for a decision on each one-time card charge; the route checks Stripe's signature itself.
+  /^\/api\/cards\/stripe$/,
 ];
 
 export async function proxy(req: NextRequest) {
