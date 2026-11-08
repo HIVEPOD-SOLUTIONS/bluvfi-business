@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { bizFromRequest, cfg, secretEquals } from "@/lib/business";
 import { handleTelegramReply } from "@/lib/channels";
 import { TELEGRAM_API } from "@/lib/rails";
-import { persist } from "@/lib/store";
+import { withRecords } from "@/lib/store";
 import { runAs } from "@/lib/tenant";
 
 /**
@@ -24,8 +24,7 @@ export async function POST(req: Request) {
     const u = (await req.json().catch(() => ({}))) as { message?: { chat?: { id?: number }; text?: string } };
     const chatId = u.message?.chat?.id;
     if (chatId === undefined || !u.message?.text) return NextResponse.json({ ok: true });
-    const { reply } = handleTelegramReply(String(chatId), u.message.text);
-    persist();
+    const { reply } = await withRecords(() => handleTelegramReply(String(chatId), u.message!.text!));
     if (cfg().TELEGRAM_BOT_TOKEN) {
       await fetch(`${TELEGRAM_API}/bot${cfg().TELEGRAM_BOT_TOKEN}/sendMessage`, {
         method: "POST",

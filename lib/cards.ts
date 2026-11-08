@@ -4,7 +4,7 @@ import { businesses, cfg } from "./business";
 import { CARD_TTL_HOURS } from "./config";
 import { sha256 } from "./crypto";
 import { services } from "./services";
-import { currentPolicy, persist, spentTodayUsd, state } from "./store";
+import { currentPolicy, persist, spentTodayUsd, state, withRecords } from "./store";
 import { approvalThreshold } from "./team";
 import { DEFAULT_BIZ, runAs } from "./tenant";
 import type { CardPurchase } from "./types";
@@ -182,7 +182,7 @@ export async function closeOpenCardsEverywhere(): Promise<Record<string, Awaited
   const ids = [DEFAULT_BIZ, ...businesses().map((b) => b.id).filter((id) => id !== DEFAULT_BIZ)];
   const out: Record<string, Awaited<ReturnType<typeof closeOpenCards>>> = {};
   for (const id of ids) {
-    const r = await runAs(id, () => closeOpenCards());
+    const r = await runAs(id, () => withRecords(() => closeOpenCards()));
     if (r.closed.length || r.failed.length) out[id] = r;
   }
   return out;
@@ -241,7 +241,8 @@ export function decideAuthorization(a: StripeAuthorization, now = Date.now()): {
  * secret, so one business's Stripe account can never approve a charge on another's cards.
  */
 export async function handleStripeWebhook(raw: string, signature: string | null, biz = DEFAULT_BIZ): Promise<{ status: number; body: Record<string, unknown>; decision?: boolean }> {
-  return runAs(biz, async () => {
+  // Stripe waits two seconds for an answer: if this business's records stay busy longer, the charge is declined (the caller answers no).
+  return runAs(biz, () => withRecords(async () => {
     if (!stripeSignatureValid(raw, signature, cfg().STRIPE_WEBHOOK_SECRET)) return { status: 400, body: { error: "Bad signature" } };
     const event = JSON.parse(raw) as { type?: string; data?: { object?: StripeAuthorization } };
     const a = event.data?.object ?? {};
@@ -251,5 +252,5 @@ export async function handleStripeWebhook(raw: string, signature: string | null,
       return { status: 200, body: { approved: d.approved, metadata: { bluvfi_reason: d.reason.slice(0, 450) } }, decision: d.approved };
     }
     return { status: 200, body: { received: true } };
-  });
+  }, 1_500));
 }

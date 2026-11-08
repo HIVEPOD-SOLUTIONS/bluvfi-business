@@ -2,7 +2,7 @@ import { bizFromRequest } from "@/lib/business";
 import { handleVoiceDigit, handleVoiceSpeech } from "@/lib/channels";
 import { PUBLIC_BASE_URL } from "@/lib/config";
 import { twilioSignatureValid } from "@/lib/rails";
-import { persist } from "@/lib/store";
+import { withRecords } from "@/lib/store";
 import { runAs } from "@/lib/tenant";
 import { transcribeTwilioRecording } from "@/lib/transcribe";
 
@@ -29,15 +29,15 @@ export async function POST(req: Request) {
     if (!twilioSignatureValid(full, params, req.headers.get("x-twilio-signature") ?? "")) return new Response("forbidden", { status: 403 });
     const pid = u.searchParams.get("pid") ?? "";
     let say: string;
-    if (params.Digits) say = handleVoiceDigit(pid, params.Digits);
+    if (params.Digits) say = await withRecords(() => handleVoiceDigit(pid, params.Digits));
     else if (params.RecordingUrl) {
       try {
-        say = handleVoiceSpeech(pid, await transcribeTwilioRecording(params.RecordingUrl));
+        const heard = await transcribeTwilioRecording(params.RecordingUrl);
+        say = await withRecords(() => handleVoiceSpeech(pid, heard));
       } catch {
         say = "Sorry, we could not process your answer. Someone from our team will contact you. Goodbye.";
       }
     } else say = "No answer received. Goodbye.";
-    persist();
     return new Response(`<?xml version="1.0" encoding="UTF-8"?><Response><Say>${esc(say)}</Say></Response>`, { headers: { "content-type": "text/xml" } });
   });
 }

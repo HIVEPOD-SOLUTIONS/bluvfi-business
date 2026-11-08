@@ -12,8 +12,10 @@ AI agents are starting to pay invoices and buy services. Nobody can verify what 
 
 ## Try it (no keys, no funds, about a minute)
 
+Needs Node.js 22.12 or newer and npm (the only lockfile is `package-lock.json`).
+
 ```bash
-npm install
+npm ci
 npm run demo
 ```
 
@@ -213,7 +215,7 @@ This build deploys **no smart contract**, so there are no contract audit finding
 | Demo mode, fixtures, hosted demo | `npm run demo`, `npm run demo:ui`, Docker with `BLUVFI_DEMO=1` (`npm run demo:serve`) |
 | Zero-knowledge proof of the policy check | Written in TypeScript with **o1js** (`lib/zk-program.ts`): the policy gate as a ZK circuit. Every payment's statement (amounts, limits, chain, asset, allowlist, policy hash, payment) is proved in a background process (~15 s) and verified on the payment page against the committed verification key (`zk/verification-key.json`), plus a check that the proof's statement is this payment's and its output equals the policy result. Runs on Windows, macOS and Linux; tested with real proofs. `npm run demo -- --zk` shows it. See `zk/README.md` |
 | Post-quantum policy check | Every payment's policy check (the same public statement the o1js proof uses) is signed at intake with **ML-DSA-65** (lattice, FIPS 204) and **SLH-DSA-SHA2-128f** (hash-based, FIPS 205; secure as long as SHA-256 is), in `lib/pqcheck.ts`. The payment page and `npm run zk:verify` re-run the check from its public inputs and verify both signatures against this app's keys. Forging it needs a break of both lattices and hashes. It is post-quantum where the o1js proof (elliptic curves) is not. It is not zero-knowledge, which hides nothing here because every input is public. A post-quantum ZK proof (Lattice Jolt, or a hash-based STARK) needs a Rust toolchain and stays on the roadmap |
-| Persistence | JSON snapshot (`.data/`), single process, no database |
+| Persistence | Sealed files in `.data/`, no database. **Safe to run as several instances** that share one `.data` volume: every write to a business's records happens under a lock all instances respect (an atomic lock directory, refreshed while slow work runs and taken over if its holder dies), each instance re-reads records another one wrote, and files are replaced atomically (`lib/shared-file.ts`, `tests/shared-file.test.ts`, which runs three processes against one file). The same lock makes requests for one business take turns, so two clicks on "approve" cannot both pay. Not for serverless hosts with no shared disk |
 
 **Not built, and why:**
 - **Our own smart contract:** out of scope by choice; custody is Sputnik or OutLayer instead.
@@ -237,10 +239,51 @@ This build deploys **no smart contract**, so there are no contract audit finding
 
 ## Libraries and AI-generated code
 
-- **Libraries:** Next.js 16, React 19, Tailwind 4, `near-api-js` 7, `borsh`, `@noble/curves`, `@noble/hashes`, `@noble/post-quantum`, `@phala/dcap-qvl`, `@aurora-is-near/intents-swap-widget-standalone`, `o1js`, `pdf-lib`, `tsx`.
-- **AI assistance:** much of this code was written with AI assistance (Claude).
+Every direct dependency (`package.json`), and what it is used for:
+
+| Library | Used for |
+|---|---|
+| `next` 16, `react` 19, `react-dom` 19, Tailwind 4 | The app, its pages and API routes |
+| `near-api-js` 7, `borsh` | NEAR accounts, keys, transactions, RPC, meta transactions (NEP-366), NEP-413 messages |
+| `@noble/curves`, `@noble/hashes`, `@noble/post-quantum` | ed25519 and secp256k1 signatures, hashing, ML-DSA-65 and SLH-DSA |
+| `@phala/dcap-qvl` | Verifying Intel TDX quotes from NEAR AI Cloud |
+| `jose` | Checking NVIDIA attestation (NRAS) tokens and Privy login tokens |
+| `o1js` | Zero-knowledge proofs of the policy check and of claims |
+| `viem` | EVM addresses and EIP-3009 signatures for the x402 payer on Base |
+| `@aurora-is-near/intents-swap-widget-standalone` | Aurora's Intents swap widget on invoice pay links |
+| `@hot-labs/near-connect` | Connecting a NEAR wallet in the browser during treasury setup |
+| `@privy-io/react-auth` | Email and Google sign-in, and the card on-ramp |
+| `@selfxyz/enterprise-sdk` | Self passport proofs (licensed BUSL-1.1, see above) |
+| `@stripe/stripe-js`, `@walletconnect/sign-client`, `got`, `google-protobuf`, `fastestsmallesttextencoderdecoder` | Not imported by our code: peer dependencies the wallet packages above need installed (Privy's card on-ramp, Stellar and WalletConnect wallets, Solana codecs), pinned so the build is reproducible |
+| `pdf-lib` | The spec PDF in `docs/` |
+| `tsx`, `typescript`, `eslint` (dev) | Running the scripts and tests, type checks, lint |
+
+- **AI-generated code:** most of the code, tests and documentation in this repository were written by Claude (Anthropic's model) through Claude Code, directed, reviewed and tested by the team. No code was copied from another project.
 - **Credit:** Quest (Electric Capital) inspired the redact-before-reasoning step.
-- **Hackathon baseline:** commit `dc95082` (2026-11-01) is the first commit. All work is within the NEAR HACKATHON window.
+
+## Hackathon baseline and diff (rules Q-001, Q-003, Q-015)
+
+- **Everything here was built during NEAR HACKATHON.** The first commit, `dc95082` ("first UI commit"), is dated 2026-11-01, inside the window, so there is no pre-hackathon code: the whole history is the hackathon diff. Libraries are listed above (Q-005); none is our own earlier work.
+- **Tags:** `v0-first-ui` marks the first commit and `hackathon-submission` the submitted state. Diff: [https://github.com/HIVEPOD-SOLUTIONS/bluvfi-business/compare/v0-first-ui...hackathon-submission](https://github.com/HIVEPOD-SOLUTIONS/bluvfi-business/compare/v0-first-ui...hackathon-submission). Full history: [https://github.com/HIVEPOD-SOLUTIONS/bluvfi-business/commits/hackathon-submission](https://github.com/HIVEPOD-SOLUTIONS/bluvfi-business/commits/hackathon-submission).
+- **Other projects (Q-015):** this team submits no other project to NEAR HACKATHON.
+
+## Running it in production
+
+- **One command:** `docker build -t bluvfi .` then `docker run -p 3000:3000 -v bluvfi-data:/app/.data --env-file .env.local bluvfi`. The image runs as the unprivileged `node` user, never contains `.env*`, `.mainnet/`, `.testnet/` or `.data/`, and checks itself through `GET /api/health` (200 when the master key is set and the data folder is writable, 503 otherwise).
+- **Several instances:** point them all at the same `.data` volume (a Docker volume on one host, or a ReadWriteMany volume, EFS or NFS across hosts). See *Persistence* above. Rate limits are per instance.
+- **Backups:** back up the `.data` volume, and keep `BLUVFI_MASTER_KEY` (or `BLUVFI_MASTER_KEY_FILE`) somewhere separate and safe: the files are sealed under it and cannot be read without it.
+- **Security headers** on every response (`next.config.ts`): no framing by other sites (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), HSTS, `nosniff`, a strict referrer policy and a permissions policy.
+- **CI** (`.github/workflows/ci.yml`) runs lint, the type check, every test, the demo and a production build on each push, and fails on any critical advisory in the shipped dependencies.
+- **Dependency advisories:** patched versions of vulnerable nested packages are pinned in `package.json` `overrides`. What `npm audit` still reports sits inside the wallet libraries (Aurora's widget, Privy, WalletConnect, Self), mostly in browser-only wallet code, with no patched release yet; see *Known dependency advisories* below.
+
+### Known dependency advisories
+
+`npm audit --omit=dev` on 2026-11-08: no critical findings. Every remaining high finding traces back to one of two packages that have no fixed release a wallet library can use yet:
+
+- **`zod` 3** (GHSA-mrhx-c7xc-m3w5, memory exhaustion when validating oversized collections): fixed only in zod 4.6.6. Privy, Reown/WalletConnect and Self still depend on zod 3, and forcing zod 4 on them would break them. It runs where those libraries validate their own responses, mostly in the browser.
+- **`bigint-buffer`** (GHSA-3gc7-fjrx-p6mg, `toBigIntLE` overflow): no fixed version exists. It comes with `@solana/web3.js`, used only by the Aurora pay widget's Solana wallet in the payer's browser.
+
+Fixed by pinning patched versions in `package.json` `overrides`: `ws` (memory disclosure and DoS), `protobufjs` (code injection), `decode-uri-component`, `underscore`, `toml`, `snarkjs` and `@solana/web3.js`. That took high findings from 60 to 41. CI fails on any critical finding.
 
 ## Business model and roadmap
 
@@ -249,9 +292,8 @@ This build deploys **no smart contract**, so there are no contract audit finding
 - **The network effect:** every treasury that uses Bluvfi Business adds evidence-backed reports to the shared blocklist, which makes Check better for every other agent. This works like a card network's fraud network, but for agent payments.
 
 **Roadmap:**
-- ZK KYB ("verified business, not sanctioned", without sharing documents)
 - Agent credit lines against treasury assets on Rhea
-- Virtual cards
+- A Postgres backend for hosts with no shared disk (serverless)
 - Cross-chain sharing of fraud intelligence
 - Post-quantum agent keys by default
 
@@ -259,7 +301,7 @@ This build deploys **no smart contract**, so there are no contract audit finding
 
 ```bash
 npm run ai:verify -- --review   # Layer 2 against the live NEAR AI Cloud: attestation, NVIDIA, signature, structured decision (needs NEAR_AI_API_KEY)
-npm test         # 135 tests; outside services are mocked inside tests/ only
+npm test         # 275 tests; outside services are mocked inside tests/ only
 npm run demo     # the end-to-end story; exits non-zero if an outcome or a signature is wrong
 ```
 

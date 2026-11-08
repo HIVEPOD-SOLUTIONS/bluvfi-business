@@ -23,6 +23,8 @@ const PUBLIC = [
   /^\/api\/passport\/webhook$/, /^\/passport\/done$/,
   // Stripe Issuing asks for a decision on each one-time card charge; the route checks Stripe's signature itself.
   /^\/api\/cards\/stripe$/,
+  // Health check for the container and the load balancer: says only whether this instance can serve.
+  /^\/api\/health$/,
 ];
 
 export async function proxy(req: NextRequest) {

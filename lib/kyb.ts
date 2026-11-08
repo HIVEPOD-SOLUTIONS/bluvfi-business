@@ -1,11 +1,11 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { getBusiness, setBusinessKyb } from "./business";
 import { KYB_ENABLED, KYB_REQUIRED, PASSPORT_ENABLED, PERSONA_REDACT_AFTER_DAYS, PERSONA_API_KEY, PERSONA_BASE, PERSONA_TEMPLATE_BUSINESS, PERSONA_TEMPLATE_VENDOR, PERSONA_VERSION, PERSONA_WEBHOOK_SECRET } from "./config";
-import { currentPolicy, persist, state } from "./store";
+import { currentPolicy, persist, state, withRecords } from "./store";
 import { currentBiz, DEFAULT_BIZ, runAs } from "./tenant";
 import { openText, sealText } from "./vault";
+import { fileStamp, withFileLockSync, writeAtomic } from "./shared-file";
 import type { Confidentiality, KybRecord, KybStatus } from "./types";
 import { businessRequirement, standing, type VerificationTiers } from "./verify-tiers";
 
@@ -32,25 +32,35 @@ const persona = async (path: string, init?: RequestInit, extra: Record<string, s
 interface Entry { biz: string; kind: "vendor" | "business"; vendor?: string }
 const FILE = process.env.BLUVFI_PERSIST === "0" ? "" : (process.env.BLUVFI_KYB_FILE ?? ".data/kyb-index.json");
 let index: Record<string, Entry> | undefined;
-const load = (): Record<string, Entry> => {
-  if (index) return index;
-  index = {};
-  if (FILE && existsSync(FILE)) {
-    try {
-      index = JSON.parse(openText(readFileSync(FILE, "utf8")).text) as Record<string, Entry>;
-    } catch {
-      throw new Error(`KYB index ${FILE} is unreadable (or BLUVFI_MASTER_KEY is not the key it was sealed with). Fix or move it.`);
-    }
+let indexStamp = "";
+const readIndex = (): Record<string, Entry> => {
+  if (!FILE || !existsSync(FILE)) return {};
+  try {
+    const stamp = fileStamp(FILE);
+    const out = JSON.parse(openText(readFileSync(FILE, "utf8")).text) as Record<string, Entry>;
+    indexStamp = stamp;
+    return out;
+  } catch {
+    throw new Error(`KYB index ${FILE} is unreadable (or BLUVFI_MASTER_KEY is not the key it was sealed with). Fix or move it.`);
   }
-  return index;
+};
+/** The index, re-read when another instance has added to it (lib/shared-file.ts). */
+const load = (): Record<string, Entry> => {
+  if (index && (!FILE || fileStamp(FILE) === indexStamp)) return index;
+  return (index = readIndex());
 };
 function remember(inquiryId: string, e: Entry) {
-  load()[inquiryId] = e;
-  if (!FILE) return;
-  mkdirSync(dirname(FILE), { recursive: true });
-  const tmp = FILE + ".tmp";
-  writeFileSync(tmp, sealText(JSON.stringify(index)));
-  renameSync(tmp, FILE);
+  if (!FILE) {
+    load()[inquiryId] = e;
+    return;
+  }
+  withFileLockSync(FILE, () => {
+    const fresh = readIndex();
+    fresh[inquiryId] = e;
+    writeAtomic(FILE, sealText(JSON.stringify(fresh)));
+    indexStamp = fileStamp(FILE);
+    index = fresh;
+  });
 }
 /** Test helper. */
 export const resetKybIndex = () => { index = {}; };
@@ -148,7 +158,7 @@ export async function refreshInquiry(inquiryId: string): Promise<KybRecord | und
   const e = load()[inquiryId];
   if (!e) return undefined;
   const status = await fetchStatus(inquiryId);
-  return runAs(e.biz, () => {
+  return runAs(e.biz, () => withRecords(() => {
     if (e.kind === "vendor") {
       const v = state().vendors.find((x) => x.name === e.vendor);
       // A newer inquiry for the same vendor replaces this one: an old inquiry must not overwrite it.
@@ -160,7 +170,7 @@ export async function refreshInquiry(inquiryId: string): Promise<KybRecord | und
     const b = getBusiness(e.biz);
     if (!b || (b.kyb && b.kyb.inquiryId !== inquiryId)) return b?.kyb;
     return setBusinessKyb(e.biz, rec(status, inquiryId, b.kyb));
-  });
+  }));
 }
 
 /** Refresh whatever inquiry the vendor or this business has open. */
@@ -254,7 +264,7 @@ export async function redactDue(now = Date.now()): Promise<RetentionPass> {
   if (PERSONA_REDACT_AFTER_DAYS === null || !KYB_ENABLED) return out;
   const due = PERSONA_REDACT_AFTER_DAYS * 86_400_000;
   for (const [inquiryId, e] of Object.entries(load())) {
-    await runAs(e.biz, async () => {
+    await runAs(e.biz, () => withRecords(async () => {
       const record = e.kind === "vendor" ? state().vendors.find((x) => x.name === e.vendor)?.kyb : getBusiness(e.biz)?.kyb;
       if (!record || record.inquiryId !== inquiryId || !record.decidedAt || record.redactedAt) return;
       if (now - Date.parse(record.decidedAt) < due) {
@@ -273,7 +283,7 @@ export async function redactDue(now = Date.now()): Promise<RetentionPass> {
       } catch (err) {
         out.errors.push((err as Error).message);
       }
-    });
+    }));
   }
   return out;
 }

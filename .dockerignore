@@ -2,5 +2,14 @@ node_modules
 .next
 .data
 .env*
+!.env.example
 .git
+.github
 tests
+.mainnet
+.testnet
+.claude
+*.pem
+*.key
+keys
+docs

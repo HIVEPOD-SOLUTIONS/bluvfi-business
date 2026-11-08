@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Tests (outside services are local fakes; no keys, no network spend)
+        run: npm test
+      - name: Demo (the judge's path; exits non-zero if any scenario fails)
+        run: npm run demo
+      - name: Production build
+        run: npm run build
+      - name: Dependency audit (fails on critical findings in what ships)
+        run: npm audit --omit=dev --audit-level=critical

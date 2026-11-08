@@ -2,7 +2,7 @@ import { checkSettlement } from "./agent";
 import { refreshOpenBills } from "./bills";
 import { businesses, getBusiness } from "./business";
 import { refreshReceivable } from "./receivables";
-import { persist, state } from "./store";
+import { state, withRecords } from "./store";
 import { DEFAULT_BIZ, runAs } from "./tenant";
 
 export interface SettlementPass {
@@ -46,11 +46,7 @@ export async function pollAllBusinesses(): Promise<Record<string, SettlementPass
   const ids = [DEFAULT_BIZ, ...businesses().map((b) => b.id).filter((id) => id !== DEFAULT_BIZ)];
   const out: Record<string, SettlementPass> = {};
   for (const id of ids) {
-    out[id] = await runAs(id, async () => {
-      const pass = await pollSettlements();
-      persist();
-      return pass;
-    });
+    out[id] = await runAs(id, () => withRecords(() => pollSettlements()));
   }
   return out;
 }

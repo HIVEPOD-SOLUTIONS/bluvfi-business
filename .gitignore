@@ -49,3 +49,8 @@ next-env.d.ts
 
 # the mainnet agent keys made by npm run mainnet:setup
 /.mainnet/
+
+# One package manager: npm (package-lock.json). Other lockfiles are not used.
+yarn.lock
+bun.lock
+pnpm-lock.yaml

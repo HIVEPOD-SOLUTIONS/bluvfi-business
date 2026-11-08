@@ -1,10 +1,10 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { COMPANY_NAME, DEMO, RAIN_DEFAULT_BASE, demoCfg, envCfgFor, missingConfig, pickCardProvider, type Cfg, type CustodyMode } from "./config";
 import { decrypt, encrypt } from "./crypto";
 import { dataKey } from "./store";
 import { openText, sealText } from "./vault";
+import { fileStamp, withFileLockSync, writeAtomic } from "./shared-file";
 import type { KybRecord, PassportRecord } from "./types";
 import { BIZ_ID, currentBiz, DEFAULT_BIZ, isDemo } from "./tenant";
 
@@ -92,29 +92,61 @@ export interface Business {
 }
 
 const FILE = process.env.BLUVFI_PERSIST === "0" ? "" : (process.env.BLUVFI_BUSINESSES_FILE ?? (DEMO ? ".data/demo-businesses.json" : ".data/businesses.json"));
-const g = globalThis as unknown as { __bluvfiRegistry?: Map<string, Business> };
+// Several instances may share this file (lib/shared-file.ts): each re-reads it when another has written it, and a save writes
+// only the businesses this instance changed, on top of what is on disk, under a lock.
+const g = globalThis as unknown as { __bluvfiRegistry?: Map<string, Business>; __bluvfiRegistryMeta?: { stamp: string; checkedAt: number; seen: Map<string, string> } };
+const meta = () => (g.__bluvfiRegistryMeta ??= { stamp: "", checkedAt: 0, seen: new Map() });
+const RECHECK_MS = 500;
+
+function readRegistryFile(): { map: Map<string, Business>; legacy: boolean } {
+  const map = new Map<string, Business>();
+  if (!FILE || !existsSync(FILE)) return { map, legacy: false };
+  try {
+    const stamp = fileStamp(FILE);
+    const { text, legacy } = openText(readFileSync(FILE, "utf8"));
+    for (const b of JSON.parse(text) as Business[]) map.set(b.id, b);
+    meta().stamp = stamp;
+    return { map, legacy };
+  } catch {
+    throw new Error(`Business file ${FILE} is unreadable (or BLUVFI_MASTER_KEY is not the key it was sealed with). Fix or move it; refusing to start empty over it.`);
+  }
+}
+
+function adopt(map: Map<string, Business>) {
+  meta().seen = new Map([...map].map(([id, b]) => [id, JSON.stringify(b)]));
+  return (g.__bluvfiRegistry = map);
+}
 
 function registry(): Map<string, Business> {
-  if (g.__bluvfiRegistry) return g.__bluvfiRegistry;
-  const map = new Map<string, Business>();
-  if (FILE && existsSync(FILE)) {
-    try {
-      const { text, legacy } = openText(readFileSync(FILE, "utf8"));
-      for (const b of JSON.parse(text) as Business[]) map.set(b.id, b);
-      if (legacy) { g.__bluvfiRegistry = map; saveRegistry(); }
-    } catch {
-      throw new Error(`Business file ${FILE} is unreadable (or BLUVFI_MASTER_KEY is not the key it was sealed with). Fix or move it; refusing to start empty over it.`);
-    }
+  const m = meta();
+  if (g.__bluvfiRegistry) {
+    if (!FILE || Date.now() - m.checkedAt < RECHECK_MS) return g.__bluvfiRegistry;
+    m.checkedAt = Date.now();
+    const now = fileStamp(FILE);
+    if (!now || now === m.stamp) return g.__bluvfiRegistry;
   }
-  return (g.__bluvfiRegistry = map);
+  const { map, legacy } = readRegistryFile();
+  m.checkedAt = Date.now();
+  adopt(map);
+  if (legacy) {
+    m.seen.clear();
+    saveRegistry();
+  }
+  return g.__bluvfiRegistry!;
 }
 
 export function saveRegistry() {
   if (!FILE) return;
-  mkdirSync(dirname(FILE), { recursive: true });
-  const tmp = FILE + ".tmp";
-  writeFileSync(tmp, sealText(JSON.stringify([...registry().values()])));
-  renameSync(tmp, FILE);
+  // Not registry(): re-reading here would drop the change the caller just made.
+  const mine = g.__bluvfiRegistry ?? registry();
+  withFileLockSync(FILE, () => {
+    const { map: disk } = readRegistryFile();
+    for (const [id, b] of mine) if (meta().seen.get(id) !== JSON.stringify(b)) disk.set(id, b);
+    writeAtomic(FILE, sealText(JSON.stringify([...disk.values()])));
+    meta().stamp = fileStamp(FILE);
+    meta().checkedAt = Date.now();
+    adopt(disk);
+  });
 }
 
 /** Record an owner's passport proof for this business (lib/passport.ts). */
@@ -135,7 +167,7 @@ export function setBusinessKyb(id: string, kyb: KybRecord): KybRecord {
 }
 
 /** Test helper. */
-export const resetRegistry = () => { g.__bluvfiRegistry = new Map(); };
+export const resetRegistry = () => { adopt(new Map()); };
 
 export const businesses = (): Business[] => [...registry().values()];
 

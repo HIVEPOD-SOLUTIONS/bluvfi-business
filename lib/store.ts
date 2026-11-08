@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { exclusive, fileStamp, writeAtomic } from "./shared-file";
 import { DEMO, KYB_ENABLED, MASTER_KEY, PASSPORT_ENABLED } from "./config";
 import { deriveKey } from "./crypto";
 import { openText, sealText } from "./vault";
@@ -102,16 +103,20 @@ const fileFor = (key: string) => {
   return biz === DEFAULT_BIZ ? base : join(dirname(base), "businesses", `${biz}${demo ? ".demo" : ""}.json`);
 };
 const thisSpace = () => spaceKey(currentBiz(), isDemo());
-const g = globalThis as unknown as { __bluvfiBusinesses?: Map<string, State> };
+const g = globalThis as unknown as { __bluvfiBusinesses?: Map<string, State>; __bluvfiStamps?: Map<string, string> };
 const all = () => (g.__bluvfiBusinesses ??= new Map());
+/** What each business's file looked like when this instance last read or wrote it, to notice another instance's writes. */
+const stamps = () => (g.__bluvfiStamps ??= new Map());
 
 function load(key: string): State {
   const file = fileFor(key);
   if (file && existsSync(file)) {
     try {
+      const stamp = fileStamp(file);
       const { text, legacy } = openText(readFileSync(file, "utf8"));
       const s = { ...fresh(), ...(JSON.parse(text) as Partial<State>) };
-      if (legacy) writeSealed(file, s); // an old plain-text file is sealed on first read
+      stamps().set(key, stamp);
+      if (legacy) writeSealed(key, file, s); // an old plain-text file is sealed on first read
       return s;
     } catch {
       throw new Error(`State file ${file} is unreadable (or BLUVFI_MASTER_KEY is not the key it was sealed with). Fix or move it; refusing to start empty over it.`);
@@ -127,6 +132,35 @@ export const state = (): State => {
   if (!s) all().set(key, (s = load(key)));
   return s;
 };
+
+/**
+ * Re-read this business's records if another instance has written them since this one last looked. Called at the start of
+ * every request and page, so several instances sharing one .data folder all see the same records.
+ */
+export function refreshState() {
+  const key = thisSpace();
+  const file = fileFor(key);
+  if (!file || !all().has(key)) return;
+  const now = fileStamp(file);
+  if (now && now !== stamps().get(key)) all().set(key, load(key));
+}
+
+/**
+ * Change this business's records with nobody else changing them at the same time: other requests for the same business,
+ * in this instance or any other, wait their turn. The records are re-read first and saved before the turn ends, so the next
+ * request (wherever it runs) starts from them. This is also what stops two clicks on "approve" from paying twice.
+ */
+export function withRecords<T>(fn: () => Promise<T> | T, waitMs?: number): Promise<T> {
+  const key = thisSpace();
+  return exclusive(`records:${key}`, fileFor(key), async () => {
+    refreshState();
+    try {
+      return await fn();
+    } finally {
+      persist();
+    }
+  }, waitMs);
+}
 /** Test helper: empty records for the current business. */
 export const resetState = () => {
   const s = fresh();
@@ -139,17 +173,16 @@ export const resetAllState = () => all().clear();
 export const persistenceOn = () => !!fileFor(thisSpace());
 
 export function persist() {
-  const file = fileFor(thisSpace());
-  const s = all().get(thisSpace());
+  const key = thisSpace();
+  const file = fileFor(key);
+  const s = all().get(key);
   if (!file || !s) return;
-  writeSealed(file, s);
+  writeSealed(key, file, s);
 }
 
-function writeSealed(file: string, s: State) {
-  mkdirSync(dirname(file), { recursive: true });
-  const tmp = file + ".tmp";
-  writeFileSync(tmp, sealText(JSON.stringify(s)));
-  renameSync(tmp, file);
+function writeSealed(key: string, file: string, s: State) {
+  writeAtomic(file, sealText(JSON.stringify(s)));
+  stamps().set(key, fileStamp(file));
 }
 
 export const currentPolicy = () => state().policies[state().policies.length - 1];

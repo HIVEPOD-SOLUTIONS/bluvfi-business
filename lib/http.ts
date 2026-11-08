@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { persist } from "./store";
+import { refreshState, withRecords } from "./store";
 import { clientKey, limited } from "./ratelimit";
 import { cookieFrom, verifySessionFull } from "./session";
 import { DEFAULT_BIZ, runAs } from "./tenant";
@@ -19,8 +19,14 @@ export function route<C = unknown>(fn: Handler<C>, scope?: (req: Request, ctx: C
     try {
       const biz = scope ? await scope(req, ctx) : ((await verifySessionFull(cookieFrom(req)))?.biz ?? DEFAULT_BIZ);
       return await runAs(biz, async () => {
-        const out = await fn(req, ctx);
-        if (req.method !== "GET") persist();
+        // A read sees the latest records; a write has the business's records to itself until it is saved (lib/store.ts).
+        let out: unknown;
+        if (req.method === "GET") {
+          refreshState();
+          out = await fn(req, ctx);
+        } else {
+          out = await withRecords(() => fn(req, ctx));
+        }
         return out instanceof Response ? out : NextResponse.json(out ?? { ok: true });
       });
     } catch (e) {

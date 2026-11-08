@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { getBusiness, setBusinessPassport } from "./business";
 import { PASSPORT_ENABLED, PUBLIC_BASE_URL, SELF_ALLOW_TEST, SELF_API_KEY, SELF_BASE_URL, SELF_FLOW_ID, SELF_ORG_ID, SELF_WEBHOOK_SECRET } from "./config";
-import { persist, state } from "./store";
+import { persist, state, withRecords } from "./store";
 import { currentBiz, runAs } from "./tenant";
 import { openText, sealText } from "./vault";
+import { fileStamp, withFileLockSync, writeAtomic } from "./shared-file";
 import type { PassportRecord } from "./types";
 
 /**
@@ -41,18 +41,35 @@ export const selfApi = {
 interface Entry { biz: string; kind: "vendor" | "business"; vendor?: string }
 const FILE = process.env.BLUVFI_PERSIST === "0" ? "" : (process.env.BLUVFI_PASSPORT_FILE ?? ".data/passport-index.json");
 let index: Record<string, Entry> | undefined;
+let indexStamp = "";
+const readIndex = (): Record<string, Entry> => {
+  if (!FILE || !existsSync(FILE)) return {};
+  try {
+    const stamp = fileStamp(FILE);
+    const out = JSON.parse(openText(readFileSync(FILE, "utf8")).text) as Record<string, Entry>;
+    indexStamp = stamp;
+    return out;
+  } catch {
+    throw new Error(`Passport index ${FILE} is unreadable (or BLUVFI_MASTER_KEY is not the key it was sealed with). Fix or move it.`);
+  }
+};
+/** The index, re-read when another instance has added to it (lib/shared-file.ts). */
 const load = (): Record<string, Entry> => {
-  if (index) return index;
-  index = {};
-  if (FILE && existsSync(FILE)) index = JSON.parse(openText(readFileSync(FILE, "utf8")).text) as Record<string, Entry>;
-  return index;
+  if (index && (!FILE || fileStamp(FILE) === indexStamp)) return index;
+  return (index = readIndex());
 };
 function remember(ref: string, e: Entry) {
-  load()[ref] = e;
-  if (!FILE) return;
-  mkdirSync(dirname(FILE), { recursive: true });
-  writeFileSync(FILE + ".tmp", sealText(JSON.stringify(index)));
-  renameSync(FILE + ".tmp", FILE);
+  if (!FILE) {
+    load()[ref] = e;
+    return;
+  }
+  withFileLockSync(FILE, () => {
+    const fresh = readIndex();
+    fresh[ref] = e;
+    writeAtomic(FILE, sealText(JSON.stringify(fresh)));
+    indexStamp = fileStamp(FILE);
+    index = fresh;
+  });
 }
 /** Test helper. */
 export const resetPassportIndex = () => { index = {}; };
@@ -110,7 +127,7 @@ export async function handleSelfWebhook(raw: string, headers: Record<string, str
   const e = load()[event.external_uuid];
   if (!e) return { ok: true, detail: "Not one of ours" };
 
-  return runAs(e.biz, async () => {
+  return runAs(e.biz, () => withRecords(async () => {
     const now = new Date().toISOString();
     const current = e.kind === "vendor" ? state().vendors.find((x) => x.name === e.vendor)?.passport : getBusiness(e.biz)?.passport;
     // A newer passport check for the same party replaces this one: an old session must not overwrite it.
@@ -135,5 +152,5 @@ export async function handleSelfWebhook(raw: string, headers: Record<string, str
       persist();
     } else setBusinessPassport(e.biz, next);
     return { ok: true, detail: `${e.kind === "vendor" ? e.vendor : "business"}: ${next.status}` };
-  });
+  }));
 }

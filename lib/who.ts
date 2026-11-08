@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { bizName, getBusiness } from "./business";
 import { COOKIE, verifySessionFull } from "./session";
+import { refreshState } from "./store";
 import { BIZ_ID, DEFAULT_BIZ, runAs } from "./tenant";
 
 /** The signed-in signer and their business for a server component, or null. */
@@ -28,6 +29,9 @@ export async function publicBiz(searchParams: Promise<{ b?: string }>): Promise<
 export function tenantPage<P, Q = P>(fn: (props: P) => Promise<React.ReactNode> | React.ReactNode, pick?: (props: Q) => Promise<string> | string) {
   return async (props: P & Q) => {
     const biz = pick ? await pick(props) : ((await currentSession())?.biz ?? DEFAULT_BIZ);
-    return runAs(biz, () => fn(props));
+    return runAs(biz, () => {
+      refreshState();
+      return fn(props);
+    });
   };
 }

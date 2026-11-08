@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { DEMO } from "./config";
+import { fileStamp, withFileLockSync, writeAtomic } from "./shared-file";
 
 /**
  * Which business a piece of work belongs to. Every request runs inside one business (the session says which), and
@@ -22,17 +22,39 @@ export const BIZ_ID = /^bz_[0-9a-f]{10}$/;
  */
 export type Mode = "demo" | "live";
 const MODES_FILE = process.env.BLUVFI_PERSIST === "0" ? "" : (process.env.BLUVFI_MODES_FILE ?? ".data/modes.json");
-const gm = globalThis as unknown as { __bluvfiModes?: Record<string, Mode> };
+// Shared between instances like the other .data files (lib/shared-file.ts): re-read when another instance changed it.
+const gm = globalThis as unknown as { __bluvfiModes?: Record<string, Mode>; __bluvfiModesStamp?: string; __bluvfiModesAt?: number };
+function readModes(): Record<string, Mode> {
+  if (!MODES_FILE || !existsSync(MODES_FILE)) return {};
+  const stamp = fileStamp(MODES_FILE);
+  // An unreadable file must not quietly put every business back on the default mode: it throws instead.
+  const m = JSON.parse(readFileSync(MODES_FILE, "utf8")) as Record<string, Mode>;
+  gm.__bluvfiModesStamp = stamp;
+  return m;
+}
 function modes(): Record<string, Mode> {
-  if (gm.__bluvfiModes) return gm.__bluvfiModes;
-  let m: Record<string, Mode> = {};
-  try { if (MODES_FILE && existsSync(MODES_FILE)) m = JSON.parse(readFileSync(MODES_FILE, "utf8")) as Record<string, Mode>; } catch { /* unreadable: start from the default */ }
-  return (gm.__bluvfiModes = m);
+  if (gm.__bluvfiModes) {
+    if (!MODES_FILE || Date.now() - (gm.__bluvfiModesAt ?? 0) < 500) return gm.__bluvfiModes;
+    gm.__bluvfiModesAt = Date.now();
+    const now = fileStamp(MODES_FILE);
+    if (!now || now === gm.__bluvfiModesStamp) return gm.__bluvfiModes;
+  }
+  gm.__bluvfiModesAt = Date.now();
+  return (gm.__bluvfiModes = readModes());
 }
 export const modeOf = (biz: string): Mode => modes()[biz] ?? (DEMO ? "demo" : "live");
 export function setMode(biz: string, mode: Mode) {
-  modes()[biz] = mode;
-  if (MODES_FILE) { mkdirSync(dirname(MODES_FILE), { recursive: true }); writeFileSync(MODES_FILE, JSON.stringify(modes())); }
+  if (!MODES_FILE) {
+    modes()[biz] = mode;
+    return;
+  }
+  withFileLockSync(MODES_FILE, () => {
+    const m = readModes();
+    m[biz] = mode;
+    writeAtomic(MODES_FILE, JSON.stringify(m));
+    gm.__bluvfiModesStamp = fileStamp(MODES_FILE);
+    gm.__bluvfiModes = m;
+  });
 }
 /** Things that would reach a real provider (an order, an account) are refused in demo, so a demo can never spend or open anything real. */
 export function needLive(what: string) {
