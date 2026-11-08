@@ -52,7 +52,7 @@ export function Nav({ signer, demo, owner = false, business, network = "mainnet"
   const active = (h: string) => (h === "/" ? path === "/" : path.startsWith(h));
   return (
     <>
-      <aside className="hidden md:flex fixed inset-y-0 left-0 w-60 flex-col gap-1 p-5 border-r" style={{ background: "var(--bg-1)", borderColor: "var(--bd)" }}>
+      <aside className="hidden md:flex fixed inset-y-0 left-0 w-60 flex-col gap-1 overflow-y-auto overscroll-contain p-5 border-r" style={{ background: "var(--bg-1)", borderColor: "var(--bd)" }}>
         <Link href="/" className="mb-1"><Logo /></Link>
         <div className="mb-2 flex items-center gap-2">
           <span className="label" title={business}>{business ? (business.length > 14 ? `${business.slice(0, 13)}…` : business) : "Business"}</span>
@@ -73,7 +73,7 @@ export function Nav({ signer, demo, owner = false, business, network = "mainnet"
             </Link>
           </div>
         ))}
-        <div className="mt-auto">
+        <div className="mt-auto shrink-0 pt-4">
           <p className="text-xs" style={{ color: "var(--tx-2)" }}>Signed in as <span className="mono">{signer}</span></p>
           <button
             className="btn btn-ghost btn-sm mt-2"
