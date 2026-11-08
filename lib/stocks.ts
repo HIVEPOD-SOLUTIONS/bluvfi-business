@@ -2,7 +2,8 @@ import { createPrivateKey, sign as edSign } from "node:crypto";
 import { processInvoice } from "./agent";
 import { cfg } from "./business";
 import { currentPolicy } from "./store";
-import { needLive } from "./tenant";
+import { demoBackpackPublic, demoBackpackSigned } from "./demo-providers";
+import { isDemo } from "./tenant";
 import type { Confidentiality, Invoice, Payment } from "./types";
 
 /**
@@ -24,7 +25,7 @@ const MIN_FUND_USD = 10;
 export class StocksError extends Error {
   constructor(message: string, readonly httpStatus = 400, readonly code: string | null = null) { super(message); this.name = "StocksError"; }
 }
-export const stocksConfigured = () => { const c = cfg(); return !!(c.BACKPACK_API_KEY && c.BACKPACK_API_SECRET); };
+export const stocksConfigured = () => { if (isDemo()) return true; const c = cfg(); return !!(c.BACKPACK_API_KEY && c.BACKPACK_API_SECRET); };
 
 type Params = Record<string, string | number | boolean | undefined>;
 const PKCS8 = Buffer.from("302e020100300506032b657004220420", "hex");
@@ -46,12 +47,14 @@ async function fail(res: Response): Promise<StocksError> {
   return new StocksError(b?.message ?? (text.slice(0, 200) || `Backpack ${res.status}`), res.status, b?.code ?? null);
 }
 async function pub<T>(path: string, params: Params = {}): Promise<T> {
+  if (isDemo()) return demoBackpackPublic(path, params) as T;
   const q = query(params);
   const res = await fetch(`${API}${path}${q ? `?${q}` : ""}`, { headers: { accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw await fail(res);
   return (await res.json()) as T;
 }
 async function signed<T>(method: "GET" | "POST", path: string, instruction: string, params: Params = {}): Promise<T> {
+  if (isDemo()) return demoBackpackSigned(method, path, params) as T;
   const c = cfg();
   if (!c.BACKPACK_API_KEY || !c.BACKPACK_API_SECRET) throw new StocksError("This business has no Backpack account connected. Add its API key and secret on the Settings page.", 400, "NOT_CONFIGURED");
   const ts = Date.now();
@@ -70,7 +73,8 @@ export interface Stock { asset: string; ticker: string; name: string; priceUsd: 
 interface Security { asset: string; name: string; sessions?: { minQuantity: string; stepSize: string }[] }
 interface Ticker { symbol: string; lastPrice: string; priceChangePercent: string }
 const cache = new Map<string, { at: number; data: unknown }>();
-async function cached<T>(key: string, ttl: number, load: () => Promise<T>): Promise<T> {
+async function cached<T>(name: string, ttl: number, load: () => Promise<T>): Promise<T> {
+  const key = isDemo() ? `demo:${name}` : name; // demo fixtures never answer a live business
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < ttl) return hit.data as T;
   const data = await load();
@@ -127,7 +131,6 @@ export async function account(): Promise<Account> {
 
 /** Put money into the account: a USDC payment on Base to Backpack's deposit address. Proposed here; the rules and the council decide it like any payment. */
 export async function fundAccount(input: { amountUsd: number; confidentiality?: Confidentiality }): Promise<Payment> {
-  needLive("fund a brokerage account");
   if (!(input.amountUsd >= MIN_FUND_USD) || input.amountUsd > 1_000_000) throw new StocksError(`Put in from $${MIN_FUND_USD} to $1,000,000`);
   if (!cfg().TREASURY_ACCOUNT) throw new StocksError("This business has no treasury yet. Set it up first.");
   const address = await depositAddress();
@@ -154,7 +157,6 @@ function tradeCap(): number {
 
 /** Buy or sell with a price cap (1% from the shown price). Market hours use Backpack's request for quote, other hours its order book for the few stocks that have one. */
 export async function trade(input: TradeInput): Promise<TradeResult> {
-  needLive("trade stocks");
   const cap = tradeCap();
   if (!(input.amountUsd > 0)) throw new StocksError("Give an amount in dollars");
   if (input.amountUsd > cap) throw new StocksError(`The council allows up to $${cap.toLocaleString()} for one investment, and that is $${input.amountUsd}.`);

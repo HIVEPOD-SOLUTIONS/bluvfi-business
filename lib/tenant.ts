@@ -56,11 +56,6 @@ export function setMode(biz: string, mode: Mode) {
     gm.__bluvfiModes = m;
   });
 }
-/** Things that would reach a real provider (an order, an account) are refused in demo, so a demo can never spend or open anything real. */
-export function needLive(what: string) {
-  if (isDemo()) throw new Error(`This business is in demo mode, so it cannot ${what}. Switch it to live to do that.`);
-}
-
 /** Test helper. */
 export const resetModes = () => { gm.__bluvfiModes = {}; };
 

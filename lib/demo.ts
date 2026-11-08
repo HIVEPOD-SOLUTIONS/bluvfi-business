@@ -84,7 +84,11 @@ export const demoServices = (model: string) => ({
     { chain: "near", asset: "NEAR", amount: 12.5, usd: false },
   ],
   quotePayout: async (inv: Invoice): Promise<Quote> => quote(`pay:${inv.invoiceNumber}`, inv.amountUsd),
-  quoteReceivable: async (amountUsd: number, fromChain: string, _refundTo: string, payTo: string): Promise<Quote> => quote(`recv:${fromChain}:${payTo}:${amountUsd}`, amountUsd),
+  quoteReceivable: async (amountUsd: number, fromChain: string, _refundTo: string, payTo: string): Promise<Quote> => {
+    const q = quote(`recv:${fromChain}:${payTo}:${amountUsd}`, amountUsd);
+    // On an EVM chain the made-up deposit address looks like one (nobody holds a key for it), so the checks on a real address run as they do live.
+    return ["base", "arb", "eth"].includes(fromChain) ? { ...q, depositAddress: `0x${sha256(`demo-evm:${q.depositAddress}`).slice(0, 40)}` } : q;
+  },
   quoteForWidget: async (request: Record<string, unknown>, amountUsd: number, payTo: string) => {
     const q = quote(`widget:${payTo}:${amountUsd}:${String(request.originAsset)}`, amountUsd);
     const raw = BigInt(Math.round(amountUsd * 1.002 * 1e6)).toString();

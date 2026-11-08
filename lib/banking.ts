@@ -4,7 +4,8 @@ import { cfg } from "./business";
 import { createFundingLink } from "./fund";
 import { services } from "./services";
 import { state } from "./store";
-import { currentBiz, needLive } from "./tenant";
+import { demoCredible } from "./demo-providers";
+import { currentBiz, isDemo } from "./tenant";
 import type { Confidentiality, Invoice, Payment, Receivable } from "./types";
 
 /**
@@ -51,7 +52,7 @@ function keys(): { key: string; secret: string } {
   if (!c.CREDIBLE_API_KEY || !c.CREDIBLE_API_SECRET) throw new CredibleError("This business has no Credible Finance account connected. Add its API key and secret on the Settings page.", 400);
   return { key: c.CREDIBLE_API_KEY, secret: c.CREDIBLE_API_SECRET };
 }
-export const bankingConfigured = () => { const c = cfg(); return !!(c.CREDIBLE_API_KEY && c.CREDIBLE_API_SECRET); };
+export const bankingConfigured = () => { if (isDemo()) return true; const c = cfg(); return !!(c.CREDIBLE_API_KEY && c.CREDIBLE_API_SECRET); };
 
 /** Credible signs the request's own string and number fields, sorted by name, with a nonce and a receive window. */
 export function sign(params: Record<string, string | number>, nonce: number, recvWindow: number, secret: string): string {
@@ -60,6 +61,7 @@ export function sign(params: Record<string, string | number>, nonce: number, rec
 }
 
 async function call<T>(area: "onramp" | "offramp", method: "GET" | "POST", path: string, data: Record<string, string | number | boolean> = {}): Promise<T> {
+  if (isDemo()) return demoCredible(area, method, path, data) as T; // a business in demo gets Credible-shaped fixtures, never the real service
   const { key, secret } = keys();
   const nonce = Date.now();
   const signed: Record<string, string | number> = {};
@@ -142,7 +144,6 @@ export async function quoteOfframp(pairId: string, usdc: number) {
 const NAME = /^[\p{L} .'-]{1,60}$/u;
 export interface OnrampInput { pairId: string; amountInr: number; firstName: string; lastName: string; refundTo: string }
 export async function startOnramp(input: OnrampInput): Promise<Receivable> {
-  needLive("add money by bank transfer");
   if (!NAME.test(input.firstName.trim()) || !NAME.test(input.lastName.trim())) throw new Error("Give the first and last name on the bank account that will pay");
   if (!(input.amountInr > 0)) throw new Error("Give an amount in rupees");
   const pair = (await onrampPairs()).find((p) => p.pairId === input.pairId);
@@ -199,7 +200,6 @@ export async function addBankAccount(i: { firstName: string; lastName: string; a
 // ---------- Cash out: the treasury pays USDC, Credible pays INR ----------
 export interface CashOutInput { pairId: string; amountUsdc: number; bankAccountId: string; firstName: string; lastName: string; confidentiality?: Confidentiality }
 export async function cashOut(input: CashOutInput): Promise<Payment> {
-  needLive("cash out to a bank");
   if (!NAME.test(input.firstName.trim()) || !NAME.test(input.lastName.trim())) throw new Error("Give the first and last name on the bank account");
   if (!(input.amountUsdc >= 1) || input.amountUsdc > maxCashOutUsd()) throw new Error(`A cash-out is from 1 to ${maxCashOutUsd().toLocaleString()} USDC`);
   const pair = (await offrampPairs()).find((p) => p.pairId === input.pairId);

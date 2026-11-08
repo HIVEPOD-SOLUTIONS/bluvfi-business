@@ -1,6 +1,7 @@
 /**
  * `npm run spec:pdf`: prints docs/bluvfi-business-spec.html to docs/bluvfi-business-spec.pdf with a headless
  * Chromium browser (Edge or Chrome; set BROWSER to its path if neither is found), then sets the PDF's title.
+ * `npm run brief:pdf` does the same for the X marketing brief: the first two arguments are the HTML to print and the PDF to write.
  */
 async function main() {
   const { execFileSync } = await import("node:child_process");
@@ -10,8 +11,8 @@ async function main() {
   const { pathToFileURL } = await import("node:url");
   const { PDFDocument } = await import("pdf-lib");
 
-  const html = resolve("docs/bluvfi-business-spec.html");
-  const out = resolve(process.env.SPEC_PDF_OUT ?? "docs/bluvfi-business-spec.pdf");
+  const html = resolve(process.argv[2] ?? "docs/bluvfi-business-spec.html");
+  const out = resolve(process.argv[3] ?? process.env.SPEC_PDF_OUT ?? "docs/bluvfi-business-spec.pdf");
   const candidates = [
     process.env.BROWSER,
     "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
@@ -41,9 +42,10 @@ async function main() {
     }
     if (!existsSync(printed)) throw new Error("The browser did not write the PDF.");
     const doc = await PDFDocument.load(readFileSync(printed));
-    doc.setTitle("Bluvfi Business: build spec");
+    const source = readFileSync(html, "utf8");
+    doc.setTitle(source.match(/<title>([^<]+)<\/title>/)?.[1]?.trim() ?? "Bluvfi Business: build spec");
     // The subject follows the cover's stamp, so the two never disagree.
-    const stamp = readFileSync(html, "utf8").match(/Status update: ([^<]+)</)?.[1]?.trim();
+    const stamp = source.match(/Status update: ([^<]+)</)?.[1]?.trim();
     doc.setSubject(stamp ? `Status update, ${stamp}` : "Build spec");
     // Close the PDF in any viewer first: Windows locks an open file.
     writeFileSync(out, await doc.save());

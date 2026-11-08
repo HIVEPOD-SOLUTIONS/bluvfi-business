@@ -2,12 +2,14 @@ import "./setup";
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import { GET as modeGet, POST as modePost } from "../app/api/mode/route";
-import { orderBill } from "../lib/bills";
+import { orderBill, productDetails, refreshBill, searchProducts } from "../lib/bills";
+import { addBankAccount, bankingConfigured, cashOut, onrampPairs, startOnramp } from "../lib/banking";
+import { listBrands, orderCryptorefills } from "../lib/cryptorefills";
 import { cfg, createBusiness, resetRegistry, setTreasury, type Business } from "../lib/business";
-import { fundAccount } from "../lib/stocks";
+import { account, fundAccount, listStocks, stockChart, trade } from "../lib/stocks";
 import { COOKIE, issueSession, privySubject } from "../lib/session";
 import { services } from "../lib/services";
-import { resetAllState, state } from "../lib/store";
+import { currentPolicy, resetAllState, state } from "../lib/store";
 import { isDemo, modeOf, resetModes, runAs, setMode } from "../lib/tenant";
 
 beforeEach(() => { resetAllState(); resetRegistry(); resetModes(); });
@@ -57,13 +59,55 @@ test("what a business calls follows its mode: fixtures in demo, the real service
   assert.equal(runAs(a.id, () => services.treasuryBalances), liveFn);
 });
 
-test("a business in demo cannot order a real bill, open a bank or fund a brokerage account", async () => {
+test("a business in demo can use bills, bank transfers and stocks on fixtures, and never touches the network", async () => {
   const a = createBusiness("Acme Ltd", "ada@acme.test");
   setMode(a.id, "demo");
-  await runAs(a.id, async () => {
-    await assert.rejects(orderBill({ productId: "x", packageValue: "10", email: "a@b.test" }), /demo mode, so it cannot order bills/);
-    await assert.rejects(fundAccount({ amountUsd: 100 }), /cannot fund a brokerage account/);
-  });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => { throw new Error("the network was used in demo"); }) as typeof fetch;
+  try {
+    await runAs(a.id, async () => {
+      // Bitrefill: search, sizes, an order that becomes an ordinary payment, and its status once the simulated DAO has paid it.
+      assert.deepEqual((await searchProducts("netflix")).map((p) => p.id), ["netflix-usa"]);
+      assert.deepEqual((await productDetails("netflix-usa")).packages.map((p) => p.value), ["15", "30", "60"]);
+      const bill = await orderBill({ productId: "netflix-usa", packageValue: "30", email: "pat@acme.test" });
+      assert.deepEqual([bill.invoice.issuedBy, bill.invoice.chain, bill.invoice.amountUsd, bill.bill?.status], ["bitrefill", "base", 30.06, "unpaid"]);
+      assert.equal((await refreshBill(bill)).status, "unpaid");
+      bill.status = "paid";
+      assert.equal((await refreshBill(bill)).status, "complete");
+      // Cryptorefills.
+      assert.ok((await listBrands("us")).some((b) => b.name === "Amazon"));
+      const cr = await orderCryptorefills({ country: "US", brand: "Amazon", productId: "cr-amz-25", beneficiary: "friend@acme.test", email: "pat@acme.test", user: { ip: "203.0.113.9", userAgent: "t" } });
+      assert.deepEqual([cr.invoice.issuedBy, cr.invoice.amountUsd], ["cryptorefills", 25.15]);
+      // Credible: pairs, a saved bank account, a cash-out and an add-money order.
+      assert.equal(bankingConfigured(), true);
+      assert.deepEqual((await onrampPairs()).map((p) => p.chain), ["base"]);
+      const acct = await addBankAccount({ firstName: "Asha", lastName: "Rao", accountNumber: "123456789012", ifsc: "HDFC0001234" });
+      assert.equal(acct.last4, "9012");
+      const out = await cashOut({ pairId: "demo-usdc-inr-base", amountUsdc: 50, bankAccountId: acct.id, firstName: "Asha", lastName: "Rao" });
+      assert.deepEqual([out.invoice.issuedBy, out.bill?.provider, out.bill?.status], ["credible", "credible", "unpaid"]);
+      const add = await startOnramp({ pairId: "demo-inr-usdc-base", amountInr: 5000, firstName: "Asha", lastName: "Rao", refundTo: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045" });
+      assert.ok(add.bank?.upiIntent.startsWith("upi://pay"));
+      // Backpack: prices and a chart, funding as a payment, and a trade that uses what the simulated treasury paid in.
+      const stocks = await listStocks();
+      assert.ok(stocks.length >= 5 && stocks.every((s) => s.priceUsd && s.priceUsd > 0));
+      assert.ok((await stockChart("AAPL.US", 30)).points.length >= 25);
+      assert.equal((await account()).usdc, 0);
+      const fund = await fundAccount({ amountUsd: 500 });
+      assert.deepEqual([fund.invoice.issuedBy, fund.invoice.amountUsd], ["backpack", 500]);
+      currentPolicy().investMaxUsd = 200;
+      await assert.rejects(trade({ asset: "AAPL.US", side: "buy", amountUsd: 100 }), /Fund it first/);
+      fund.status = "paid";
+      assert.equal((await account()).usdc, 500);
+      const done = await trade({ asset: "AAPL.US", side: "buy", amountUsd: 100 });
+      assert.equal(done.status, "Filled");
+      const held = await account();
+      assert.ok(held.usdc < 410 && held.usdc > 395, `cash after the trade: ${held.usdc}`);
+      assert.deepEqual(held.positions.map((p) => p.asset), ["AAPL.US"]);
+    });
+  } finally { globalThis.fetch = realFetch; }
+  // None of it leaked into the live side of the same business.
+  setMode(a.id, "live");
+  assert.deepEqual(runAs(a.id, () => state().payments), []);
 });
 
 test("only an owner can switch, going live needs the treasury set up, and demo is always allowed", async () => {

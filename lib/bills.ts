@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { processInvoice, seal } from "./agent";
 import { BILL_WINDOW_MINUTES, MIN_MINUTES_TO_PAY } from "./bills-time";
 import { state } from "./store";
-import { needLive } from "./tenant";
+import { demoBitrefill } from "./demo-providers";
+import { isDemo } from "./tenant";
 import type { Confidentiality, Invoice, Payment } from "./types";
 
 /**
@@ -45,6 +46,7 @@ async function bearer(): Promise<string | undefined> {
 let rpcId = 0;
 /** One call to a Bitrefill tool. Its answer is JSON or a compact text format; both come back as text. */
 async function callTool(name: string, args: Record<string, unknown>): Promise<string> {
+  if (isDemo()) return demoBitrefill(name, args); // a business in demo gets Bitrefill-shaped fixtures, never the real service
   const t = await bearer();
   const headers: Record<string, string> = { "content-type": "application/json", accept: "application/json, text/event-stream", ...(t ? { authorization: `Bearer ${t}` } : {}) };
   const url = (process.env.BITREFILL_MCP_URL ?? "").trim() || MCP_BASE;
@@ -171,7 +173,6 @@ export interface BillOrderInput { productId: string; packageValue: string; email
  * decide. Returns that payment. Nothing is sent from here.
  */
 export async function orderBill(input: BillOrderInput): Promise<Payment> {
-  needLive("order bills");
   if (!EMAIL.test(input.email)) throw new Error("Give an email address for the receipt and the code");
   const d = await productDetails(input.productId);
   if (!d.inStock) throw new Error(`${d.name} is out of stock`);

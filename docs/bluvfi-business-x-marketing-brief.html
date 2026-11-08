@@ -1,0 +1,166 @@
+<!doctype html>
+<!-- Source of docs/bluvfi-business-x-marketing-brief.pdf. Rebuild the PDF with: npm run brief:pdf -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bluvfi Business: X marketing brief</title>
+<meta name="description" content="X marketing brief, 8 November 2026">
+<style>
+  :root { --ink: #1c1c1c; --muted: #555; --faint: #888; --blue: #0a0ae8; --gold: #c9a85c; --sage: #8fa876; --beige: #f4f1e6; --line: #e2e0d8; --ok: #2f7d4f; --ok-bg: #e5f2ea; --no: #a33b3b; --no-bg: #f8e3e3; }
+  @page { size: letter; margin: 0.75in 0.85in 0.8in; @bottom-left { content: "Bluvfi Business  |  X marketing brief"; font: 9pt Arial, sans-serif; color: #888; } @bottom-right { content: counter(page); font: 9pt Arial, sans-serif; color: #888; } }
+  @page :first { margin: 0; @bottom-left { content: none; } @bottom-right { content: none; } }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; font: 10.5pt/1.45 Arial, Helvetica, sans-serif; color: var(--ink); background: #fff; }
+  .cover { width: 8.5in; height: 11in; background: #111; color: #f2efe8; padding: 1.45in 0.9in 0.9in; position: relative; page-break-after: always; }
+  .logo { display: flex; align-items: center; gap: 18px; font-size: 27pt; font-weight: 700; }
+  .mark { position: relative; width: 52px; height: 52px; background: var(--blue); }
+  .mark::after { content: ""; position: absolute; right: 6px; top: -5px; width: 13px; height: 13px; background: var(--gold); }
+  .cover h1 { font-size: 44pt; margin: 2.55in 0 0; line-height: 1.1; }
+  .cover .sub { font-size: 18pt; color: #a9a59a; margin-top: 14px; max-width: 6in; }
+  .cover .rule { width: 92px; height: 4px; background: var(--blue); margin: 30px 0 34px; }
+  .cover p { margin: 0 0 18px; font-size: 13pt; color: #b9b5aa; }
+  .cover .tag { color: var(--sage); font-weight: 700; font-size: 14.5pt; }
+  h2 { font-size: 18pt; margin: 0 0 8px; padding-top: 4px; border-top: 3px solid var(--blue); }
+  h3 { font-size: 12pt; margin: 18px 0 6px; }
+  p { margin: 6px 0 10px; }
+  .break { page-break-before: always; }
+  .small { font-size: 9pt; color: var(--muted); }
+  ul { margin: 6px 0 10px 20px; padding: 0; } li { margin: 3px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 10pt; }
+  th, td { border: 1px solid var(--line); padding: 6px 8px; vertical-align: top; text-align: left; }
+  th { background: var(--beige); }
+  .ok { background: var(--ok-bg); } .no { background: var(--no-bg); }
+  .post { border: 1px solid var(--line); border-left: 4px solid var(--blue); background: #fafaf6; padding: 8px 12px; margin: 8px 0; page-break-inside: avoid; }
+  .post .n { display: block; font-size: 8.5pt; color: var(--faint); margin-top: 4px; }
+  .say { color: var(--ok); font-weight: 700; } .never { color: var(--no); font-weight: 700; }
+  .box { background: var(--beige); border: 1px solid var(--line); padding: 10px 14px; margin: 10px 0; page-break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div class="logo"><span class="mark"></span><span>bluvfi<br><span style="font-size:9pt;color:#c9a85c;letter-spacing:.15em">BUSINESS</span></span></div>
+  <h1>X marketing brief</h1>
+  <div class="sub">Positioning, messaging, ready-to-post drafts and the claims you can and cannot make.</div>
+  <div class="rule"></div>
+  <p>Status update: 8 November 2026</p>
+  <p class="tag">The AI has judgment, never authority.</p>
+</section>
+
+<h2>1. Positioning</h2>
+<p><strong>One line.</strong> Bluvfi Business is the trust layer for AI agents that pay invoices: the agent reads and proposes, your rules and your council decide, and every decision leaves evidence anyone can check.</p>
+<h3>Who it is for</h3>
+<ul>
+  <li><strong>Teams that want an AI agent doing accounts payable</strong> but will not hand it a wallet.</li>
+  <li><strong>DAOs and crypto-native companies</strong> that already hold a treasury on NEAR (a Sputnik DAO, as Trezu runs).</li>
+  <li><strong>Auditors and finance leads</strong> who need to see why a payment was made, not just that it was.</li>
+</ul>
+<h3>What it is, and what it is not</h3>
+<table>
+  <tr><th style="width:50%">It is</th><th>It is not</th></tr>
+  <tr><td>A policy gate, fraud checks and a council vote between an AI's opinion and any money moving.</td><td>An AI that controls funds. The agent's key can propose a payment and nothing else.</td></tr>
+  <tr><td>Built on a NEAR DAO treasury the business already controls. No smart contracts of our own.</td><td>A custodian. Funds do not sit with us.</td></tr>
+  <tr><td>Evidence by default: the policy version, the AI's signed review, the checks that ran, who approved.</td><td>A promise to "trust the AI". Nothing here asks for trust it can show instead.</td></tr>
+  <tr><td>One app for the business's money: invoices, bills, stocks, rupee transfers, prices and an agent to ask.</td><td>Investment advice, a bank, or a broker. Providers do those parts, in the business's own accounts.</td></tr>
+</table>
+
+<h2 class="break">2. Messages</h2>
+<p>Lead with the first. Every post should carry at most one message, and should be true as written (section 5 says what is proven).</p>
+<table>
+  <tr><th style="width:26%">Message</th><th>Say it like this</th></tr>
+  <tr><td><strong>1. Judgment, not authority</strong></td><td>The AI reads the invoice and gives an opinion. Your rules and your council decide whether money moves. The agent's key can propose a payment, nothing more.</td></tr>
+  <tr><td><strong>2. Evidence, not trust</strong></td><td>Every decision is signed and leaves a record an auditor can re-check: the policy version, the model's signed review, the checks and the approvers.</td></tr>
+  <tr><td><strong>3. Your treasury stays yours</strong></td><td>It runs on a NEAR DAO you control. We wrote no smart contracts and we hold no funds.</td></tr>
+  <tr><td><strong>4. Privacy when you need it</strong></td><td>Privacy is optional and set by the business per payment, with zero-knowledge proofs where a claim must be proved without revealing the data behind it.</td></tr>
+  <tr><td><strong>5. One app for the business's money</strong></td><td>Pay bills, buy stocks, move rupees in and out, watch prices and ask an agent, and every spend is still an ordinary payment your rules and council approve.</td></tr>
+  <tr><td><strong>6. Try it with nothing at stake</strong></td><td>Demo mode is a full simulation with its own records: a simulated DAO, no keys, no funds. Flip one switch per business to go live.</td></tr>
+</table>
+<h3>Tone</h3>
+<ul>
+  <li>Plain, specific, a little dry. Show the mechanism ("the key can only call add_proposal"), not adjectives.</li>
+  <li>Say what is not done as readily as what is. The people we want to reach check.</li>
+  <li>No hype words ("revolutionary", "unhackable", "trustless"), no emoji walls, no price talk.</li>
+</ul>
+
+<h2 class="break">3. Launch thread (6 posts)</h2>
+<p class="small">Each post is under 280 characters. Add the link in the last post. Attach a screenshot of the Payments page with a payment's evidence open to post 3.</p>
+<div class="post">1/ AI agents can now pay invoices. Almost nobody can check what they did. We built Bluvfi Business around one rule: the AI has judgment, never authority. It reads the invoice and gives an opinion. Your rules and your council decide whether money moves.</div>
+<div class="post">2/ How it works: an agent reads an invoice and proposes a payment. A policy gate you set checks limits, vendors and fraud signals. Your NEAR DAO council votes. The agent's key can propose a payment and nothing else.</div>
+<div class="post">3/ The AI's review is signed. Every decision leaves evidence an auditor can re-check later: the policy version, the model's signed judgment, the checks that ran, and who approved. Nothing to take on trust.</div>
+<div class="post">4/ No smart contracts of our own. The treasury is a NEAR DAO you control, and funds never sit with us. Privacy is optional, and set by the business payment by payment.</div>
+<div class="post">5/ Around that treasury it does what a finance app does: pay bills, buy stocks, move rupees in and out, track prices, ask an agent. Every spend is still an ordinary payment your rules and your council approve.</div>
+<div class="post">6/ Try it with nothing at stake. Demo mode is a full simulation with its own records: a simulated DAO, no keys, no funds. One switch per business takes it live. [link]</div>
+
+<h2 class="break">4. Feature posts</h2>
+<p class="small">One feature, one post, one screenshot. Check section 5 before editing any of these.</p>
+<h3>Demo and live</h3>
+<div class="post">Every business in Bluvfi Business has a Demo | Live switch. Demo runs on a simulated DAO with no keys and no funds, and keeps its own records. Live uses the real chain and your own keys. Flip back and the other side is exactly as you left it.</div>
+<h3>Bills</h3>
+<div class="post">Pay a gift card or a phone top-up from the treasury. The provider's order becomes an ordinary payment: your policy checks it, your council approves it, and it is refused if the order's 15 minutes run out. No late payments to an expired order.</div>
+<h3>Bank transfers (India)</h3>
+<div class="post">Rupees in and out of the treasury through the business's own Credible Finance account. Add money by UPI and it arrives as USDC. Cash out is a normal USDC payment your council approves, then Credible pays the rupees. Bank numbers stay with Credible, never us.</div>
+<p class="small">Post only after the first real run with Credible (section 5).</p>
+<h3>Stocks</h3>
+<div class="post">US stocks and ETFs on the business's own Backpack account. The treasury funds it with an approved payment, and each trade is capped by the most your council allows for one investment. A limit order only fills within 1% of the price you saw.</div>
+<h3>Price charts</h3>
+<div class="post">Open any coin in Bluvfi Business for a chart from one day to one year, next to what the treasury holds. Live prices, no account needed.</div>
+<h3>Privacy and proofs</h3>
+<div class="post">Not every business wants every payment public. Privacy in Bluvfi Business is optional and per payment, and where a claim has to be proved (a sanctions check, a passport rule) it can be proved in zero knowledge, so the data behind it is not shared.</div>
+<h3>Tests</h3>
+<div class="post">275 automated tests, plus checks that run against the real services (NEAR Intents, NEAR AI, Bitrefill, Backpack, CoinGecko). Where something has not been run for real, the spec says so on the page, not in a footnote.</div>
+
+<h2 class="break">5. Claims</h2>
+<p>This is the check before you post. If a claim is not in the first column, do not make it.</p>
+<h3 class="say">You can say</h3>
+<table>
+  <tr><th style="width:44%">Claim</th><th>What backs it</th></tr>
+  <tr class="ok"><td>The agent's key can only propose a payment.</td><td>It is a function-call key scoped to add_proposal on the DAO. Council members vote.</td></tr>
+  <tr class="ok"><td>No smart contracts of our own.</td><td>The treasury is a Sputnik DAO, the contract Trezu runs on. Nothing here is deployed by us.</td></tr>
+  <tr class="ok"><td>Every decision leaves checkable evidence.</td><td>Policy versions are hashed, the AI's review is signed, records are signed (including a post-quantum signature), and a Check page re-verifies proofs.</td></tr>
+  <tr class="ok"><td>Demo mode needs no keys and no funds, and keeps separate records.</td><td>Tested: demo and live records are separate for the same business, and demo flows run with the network switched off.</td></tr>
+  <tr class="ok"><td>275 automated tests, and live-service tests against NEAR Intents, NEAR AI, Bitrefill, Backpack and CoinGecko.</td><td>The spec's reproducibility section. Three live tests skip when a service needs a key or blocks the network, and the spec lists them.</td></tr>
+  <tr class="ok"><td>Prices and charts are live; stock prices come from Backpack.</td><td>Read from the real CoinGecko, CoinMarketCap (when keyed) and Backpack.</td></tr>
+</table>
+<h3 class="never">You cannot say</h3>
+<table>
+  <tr><th style="width:44%">Do not claim</th><th>Why</th></tr>
+  <tr class="no"><td>"Audited", "secure", "unhackable".</td><td>No outside audit has been done. Say what is tested instead.</td></tr>
+  <tr class="no"><td>"Works with Indian banks" as a live fact.</td><td>The rupee flow is built to Credible's API but has not been run against the real Credible: it only answers from allowed IP addresses, and the machine it was built on is not allowed. Say "built for" until the first real run.</td></tr>
+  <tr class="no"><td>"Buy stocks" or "bank transfers" as live today.</td><td>Funding and trading were tested against a local stand-in. Only prices, the stock list and charts were read from the real Backpack.</td></tr>
+  <tr class="no"><td>"Cryptorefills works".</td><td>Its catalogue refused the build machine (403) and was not worked around. Ordering was tested against a stand-in.</td></tr>
+  <tr class="no"><td>"Sell back" for coins, or "withdraw" from stocks.</td><td>Not built. Selling a coin needs the council to sign an intent, and Backpack withdrawals are made in Backpack.</td></tr>
+  <tr class="no"><td>"We hold nothing" about third parties.</td><td>Credible and Backpack hold the funds in the business's own accounts with them. Our claim is about the treasury and about us.</td></tr>
+  <tr class="no"><td>Returns, yields, "make money", or any investment advice.</td><td>It is not advice and no result is promised. Never post a price target or a performance number.</td></tr>
+  <tr class="no"><td>Regulatory approval, licences, or "compliant".</td><td>None is held. Sanctions screening and identity checks are tools the business runs, not a licence.</td></tr>
+  <tr class="no"><td>Customer counts, volumes or "used by".</td><td>There are none to cite yet. Do not imply any.</td></tr>
+  <tr class="no"><td>"Every page works in demo".</td><td>Agent chat needs the real NEAR AI model, and identity checks and the card step of the card on-ramp need real accounts.</td></tr>
+</table>
+
+<h2 class="break">6. Replies to expect</h2>
+<p>Short answers that stay inside section 5.</p>
+<table>
+  <tr><th style="width:30%">They ask</th><th>Reply</th></tr>
+  <tr><td>Can the AI steal funds?</td><td>The agent's key can only call add_proposal on the DAO. It can propose a payment; your council has to vote before anything moves, and your policy gate checks it first.</td></tr>
+  <tr><td>Is it audited?</td><td>Not yet. What we can show: 275 automated tests, live checks against the real services where they allow it, and a spec that lists what has not been run for real.</td></tr>
+  <tr><td>Do you hold my money?</td><td>No. The treasury is your NEAR DAO. Providers like Credible or Backpack hold funds only in accounts you open with them.</td></tr>
+  <tr><td>Why trust the AI's review?</td><td>You do not have to. It is one input. It is signed, so it can be re-checked later, and it cannot approve a payment on its own.</td></tr>
+  <tr><td>Does it work with real banks?</td><td>The rupee flow is built to Credible's API. We have not run it against the real Credible yet, because it only answers from allowed IPs. We will post when we have.</td></tr>
+  <tr><td>Is this financial advice?</td><td>No. It does not recommend what to buy and it promises no result.</td></tr>
+  <tr><td>Open source?</td><td>Answer only with what is true on the day, and link to the repository only if it is public.</td></tr>
+</table>
+
+<h2>7. Before you post</h2>
+<div class="box">
+  <ul>
+    <li>Is every claim in the "can say" column, word for word or narrower?</li>
+    <li>Does the screenshot show demo data? If so, say "demo" in the post.</li>
+    <li>No numbers except the test count, and the test count matches the spec's cover date.</li>
+    <li>No reply promises a date, a price or a provider that is not announced.</li>
+    <li>A third party's name (Credible, Backpack, Bitrefill, NEAR) is a fact, not an endorsement: do not tag them or imply they said anything.</li>
+  </ul>
+</div>
+<p class="small">Source of truth: docs/bluvfi-business-spec.html. If it changes, update this brief and rebuild with <code>npm run brief:pdf</code>.</p>
+
+</body>
+</html>

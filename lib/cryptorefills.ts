@@ -1,6 +1,7 @@
 import { processInvoice, seal } from "./agent";
 import { MIN_MINUTES_TO_PAY } from "./bills-time";
-import { needLive } from "./tenant";
+import { demoCryptorefillsGet, demoCryptorefillsOrder, demoCryptorefillsState } from "./demo-providers";
+import { isDemo } from "./tenant";
 import type { Confidentiality, Invoice, Payment } from "./types";
 
 /**
@@ -28,7 +29,8 @@ export class CryptorefillsError extends Error {
 
 // ---------- Discovery (the catalogue changes slowly) ----------
 const cache = new Map<string, { at: number; data: unknown }>();
-async function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
+async function cached<T>(name: string, load: () => Promise<T>): Promise<T> {
+  const key = isDemo() ? `demo:${name}` : name; // demo fixtures never answer a live business
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < 10 * 60_000) return hit.data as T;
   const data = await load();
@@ -38,6 +40,7 @@ async function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
 }
 
 async function getJson<T>(base: string, path: string, params: Record<string, string | number | undefined> = {}): Promise<T> {
+  if (isDemo()) return demoCryptorefillsGet(path, params) as T;
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== "") qs.set(k, String(v));
   const res = await fetch(`${base}${path}${qs.size ? `?${qs}` : ""}`, { headers: { accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(15_000) });
@@ -103,6 +106,12 @@ function partnerBody(i: CrOrderInput, p: CrProduct, net: CrNetwork) {
 }
 
 async function partner(path: string, body: unknown, user: CrOrderInput["user"]): Promise<Record<string, unknown>> {
+  if (isDemo()) {
+    const j = demoCryptorefillsOrder(path, body as never);
+    const problem = (j.problems as { problem?: string }[] | undefined)?.[0]?.problem;
+    if (problem) throw new CryptorefillsError(problem, 422, problem);
+    return j;
+  }
   const id = partnerId();
   if (!id) throw new CryptorefillsError("Cryptorefills is not set up: add a CRYPTOREFILLS_PARTNER_ID (free with any Cryptorefills account)", 501, "PARTNER_NOT_CONFIGURED");
   const res = await fetch(`${PARTNER}${path}`, {
@@ -122,7 +131,6 @@ const pick = (o: Record<string, unknown>, ...keys: string[]) => { for (const k o
  * USDC address and amount) is checked, and becomes a payment that the policy and the treasury still decide. Returns that payment. Nothing is sent.
  */
 export async function orderCryptorefills(input: CrOrderInput): Promise<Payment> {
-  needLive("order bills");
   if (!EMAIL.test(input.email)) throw new Error("Give an email address for the receipt and the code");
   if (!input.beneficiary?.trim() || input.beneficiary.length > 120) throw new Error("Say who it is for: the email or phone number the card or top-up goes to");
   const product = (await listProducts(input.country, input.brand)).find((p) => p.productId === input.productId);
@@ -178,11 +186,15 @@ export function normaliseStatus(orderState: string | undefined, paymentState: st
 /** Ask Cryptorefills where an order stands and record it, signing the record again if it changed. The code is only ever emailed, never kept. */
 export async function refreshCryptorefills(p: Payment): Promise<NonNullable<Payment["bill"]>> {
   if (p.bill?.provider !== "cryptorefills") throw new Error("This payment is not a Cryptorefills order");
-  const id = partnerId();
-  if (!id) throw new CryptorefillsError("Cryptorefills is not set up", 501, "PARTNER_NOT_CONFIGURED");
-  const res = await fetch(`${PARTNER}/v5/orders/${encodeURIComponent(p.bill.invoiceId)}`, { headers: { accept: "application/json", "x-cr-application": id, "x-cr-version": "bluvfi-business-1.0" }, cache: "no-store", signal: AbortSignal.timeout(15_000) });
-  if (!res.ok) throw new CryptorefillsError(`Cryptorefills answered ${res.status}`, res.status, null);
-  const b = (await res.json()) as { order_state?: string; payment_state?: string };
+  let b: { order_state?: string; payment_state?: string };
+  if (isDemo()) b = demoCryptorefillsState(p.bill.invoiceId);
+  else {
+    const id = partnerId();
+    if (!id) throw new CryptorefillsError("Cryptorefills is not set up", 501, "PARTNER_NOT_CONFIGURED");
+    const res = await fetch(`${PARTNER}/v5/orders/${encodeURIComponent(p.bill.invoiceId)}`, { headers: { accept: "application/json", "x-cr-application": id, "x-cr-version": "bluvfi-business-1.0" }, cache: "no-store", signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) throw new CryptorefillsError(`Cryptorefills answered ${res.status}`, res.status, null);
+    b = (await res.json()) as { order_state?: string; payment_state?: string };
+  }
   const status = normaliseStatus(b.order_state, b.payment_state);
   const changed = p.bill.status !== status;
   p.bill.status = status;
@@ -192,4 +204,4 @@ export async function refreshCryptorefills(p: Payment): Promise<NonNullable<Paym
 }
 
 export { MIN_MINUTES_TO_PAY };
-export const cryptorefillsConfigured = () => !!partnerId();
+export const cryptorefillsConfigured = () => isDemo() || !!partnerId();

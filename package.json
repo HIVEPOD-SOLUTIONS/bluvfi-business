@@ -19,6 +19,7 @@
     "confidential:check": "tsx scripts/confidential-check.ts",
     "x402:payer": "tsx scripts/x402-payer.ts",
     "spec:pdf": "tsx scripts/spec-pdf.ts",
+    "brief:pdf": "tsx scripts/spec-pdf.ts docs/bluvfi-business-x-marketing-brief.html docs/bluvfi-business-x-marketing-brief.pdf",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
