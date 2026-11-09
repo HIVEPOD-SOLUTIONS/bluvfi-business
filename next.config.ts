@@ -36,6 +36,8 @@ const nextConfig: NextConfig = {
     ignoreIssue: [
       { path: "**/lib/setup.ts", title: /Dynamic filesystem access/ },
       { path: "**/lib/wallets.ts", title: /Dynamic filesystem access/ }, // the operator's wallet key files, also under the project
+      { path: "**/lib/store.ts", title: /Dynamic filesystem access/ }, // the records in the data folder (BLUVFI_DATA_FILE)
+      { path: "**/lib/backup.ts", title: /Dynamic filesystem access/ }, // backups read the data folder and write BLUVFI_BACKUP_DIR
     ],
   },
 };

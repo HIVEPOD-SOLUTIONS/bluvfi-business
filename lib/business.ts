@@ -89,6 +89,21 @@ export interface Business {
   kyb?: KybRecord;
   /** An owner's passport proof for this business (lib/passport.ts), which the council may accept instead. */
   passport?: PassportRecord;
+  /** This business's own backups, to its own S3-compatible bucket (lib/business-backup.ts). */
+  backup?: BusinessBackupConfig;
+}
+
+export interface BusinessBackupConfig {
+  endpoint: string;
+  bucket: string;
+  region: string;
+  prefix: string;
+  accessKeyId: string;
+  /** Encrypted. */
+  secretAccessKey: string;
+  /** Encrypted. The passphrase the backups are encrypted with; the business keeps it too, to open them without this platform. */
+  passphrase: string;
+  status?: { lastAttemptAt?: string; lastOkAt?: string; lastName?: string; lastBytes?: number; error?: string };
 }
 
 const FILE = process.env.BLUVFI_PERSIST === "0" ? "" : (process.env.BLUVFI_BUSINESSES_FILE ?? (DEMO ? ".data/demo-businesses.json" : ".data/businesses.json"));

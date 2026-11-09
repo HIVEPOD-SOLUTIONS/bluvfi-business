@@ -54,3 +54,6 @@ next-env.d.ts
 yarn.lock
 bun.lock
 pnpm-lock.yaml
+
+# Local backup folder, if BLUVFI_BACKUP_DIR points inside the project (encrypted, but large and per machine)
+/backups/

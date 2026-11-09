@@ -26,12 +26,12 @@ export function fileStamp(file: string): string {
 }
 
 /** Write a file so a reader in any instance sees the old or the new content, never half of one. */
-export function writeAtomic(file: string, text: string, mode?: number) {
+export function writeAtomic(file: string, text: string | Buffer, mode?: number) {
   mkdirSync(dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
   const fd = openSync(tmp, "w", mode);
   try {
-    writeSync(fd, text);
+    writeSync(fd, typeof text === "string" ? Buffer.from(text, "utf8") : text);
     fsyncSync(fd);
   } finally {
     closeSync(fd);

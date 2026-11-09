@@ -148,3 +148,46 @@ test("the routes need a signed-in signer, ignore empty messages and drop made-up
   assert.equal((await post(confirmPost, { id: "act_x" }, false)).status, 400);
   assert.equal((await post(confirmPost, { id: "act_x" })).status, 400);
 });
+
+test("buying with a card: the agent proposes a one-time card, confirming makes it under the card rules, and its number is handed over once", async () => {
+  const { services } = await import("../lib/services");
+  const { demoCardProvider } = await import("../lib/card-providers");
+  const { purchases } = await import("../lib/cards");
+  // Without a card provider the agent says so, and nothing waits.
+  mock.method(services, "cardProvider", () => null);
+  modelSays = { reply: "", tool: "buy_with_card", args: { merchant: "Namecheap", merchantUrl: "https://www.namecheap.com", amountUsd: 15, reason: "acme-pay.com domain for a year" } };
+  const none = await runTurn("buy the acme-pay.com domain, $15 at namecheap", [], "maya");
+  assert.equal(none.pending, undefined);
+  assert.match(none.reply, /no card provider/);
+  mock.restoreAll();
+  mock.method(services, "cardProvider", () => demoCardProvider());
+  try {
+    const t = await runTurn("buy the acme-pay.com domain, $15 at namecheap", [], "maya");
+    assert.match(t.pending!.summary, /A one-time card for Namecheap, capped at \$15\.00/);
+    assert.match(t.pending!.detail.join(" "), /shown to you once/);
+    assert.equal(purchases().length, 0, "no card is asked for until confirmed");
+    assert.ok(state().chatPending?.[t.pending!.id], "the waiting request is kept in the business's records, so any instance can confirm it");
+    await assert.rejects(confirm(t.pending!.id, "devon"), /Only the person who asked/);
+    const done = await confirm(t.pending!.id, "maya");
+    assert.equal(done.href, "/cards");
+    assert.match(done.card!.number, /^4000 0000 0000 \d{4}$/, "the number comes back once");
+    const p = purchases()[0];
+    assert.deepEqual([p.merchant, p.amountUsd, p.status, p.requestedBy], ["Namecheap", 15, "issued", "maya"]);
+    assert.ok(!JSON.stringify(state()).includes(done.card!.number), "the number is stored nowhere");
+    await assert.rejects(confirm(t.pending!.id, "maya"), /expired/, "one confirmation, one card");
+
+    // Over the council's card budget for the day ($500 by default): refused by the rules, even though the person confirmed.
+    modelSays = { reply: "", tool: "buy_with_card", args: { merchant: "Big Vendor", amountUsd: 900, reason: "annual seats" } };
+    const big = await runTurn("buy annual seats for $900", [], "maya");
+    await assert.rejects(confirm(big.pending!.id, "maya"), /Refused/);
+    assert.equal(purchases()[0].status, "refused");
+
+    // Missing details or a bad address become a question, not a card.
+    modelSays = { reply: "", tool: "buy_with_card", args: { merchant: "Shop", amountUsd: 10, reason: "" } };
+    assert.equal((await runTurn("buy something", [], "maya")).pending, undefined);
+    modelSays = { reply: "", tool: "buy_with_card", args: { merchant: "Shop", merchantUrl: "http://shop.test", amountUsd: 10, reason: "a thing" } };
+    assert.match((await runTurn("buy it", [], "maya")).reply, /https/);
+  } finally {
+    mock.restoreAll();
+  }
+});

@@ -1,3 +1,5 @@
+import { backupIfDue } from "@/lib/backup";
+import { businessBackupsDue } from "@/lib/business-backup";
 import { secretEquals } from "@/lib/business";
 import { closeOpenCards, closeOpenCardsEverywhere } from "@/lib/cards";
 import { SETTLEMENT_CRON_SECRET } from "@/lib/config";
@@ -13,9 +15,9 @@ import { pollAllBusinesses, pollSettlements } from "@/lib/settlement";
 export const POST = route(async (req) => {
   const bearer = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
   // The same schedule also deletes verification documents at Persona once they have been kept long enough (lib/kyb.ts), and closes
-  // one-time cards whose time is up (lib/cards.ts).
+  // one-time cards whose time is up (lib/cards.ts), and makes the platform backup when one is due (lib/backup.ts).
   if (bearer && secretEquals(bearer, SETTLEMENT_CRON_SECRET)) {
-    return { businesses: await pollAllBusinesses(), retention: await redactDue(), cards: await closeOpenCardsEverywhere() };
+    return { businesses: await pollAllBusinesses(), retention: await redactDue(), cards: await closeOpenCardsEverywhere(), backup: await backupIfDue(), businessBackups: await businessBackupsDue() };
   }
   await requireSigner(req);
   return { results: await pollSettlements(), cards: await closeOpenCards() };

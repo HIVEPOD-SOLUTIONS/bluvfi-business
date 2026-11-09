@@ -8,6 +8,8 @@
  *
  * Exits non-zero if the DAO is incompatible.
  */
+export {}; // a module, so its names do not clash with the other scripts
+
 async function main() {
   const args = process.argv.slice(2);
   const i = args.indexOf("--agent");

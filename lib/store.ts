@@ -47,6 +47,9 @@ export interface State {
   x402Spend: { at: string; url: string; priceUsd: number }[];
   /** Purchases the agent made with one-time cards (lib/cards.ts). Missing in files made before cards existed. */
   cardPurchases?: CardPurchase[];
+  /** Agent chat: what the agent proposed and is waiting for its asker to confirm (lib/agent-chat.ts). Kept here, not in memory, so a
+   * confirm reaching another instance of the app still finds it. Expires after 15 minutes. */
+  chatPending?: Record<string, { by: string; tool: string; args: Record<string, unknown>; at: number }>;
   checkLog: { at: string; verdict: string }[];
   /** The setup-time check of the private AI model: its attested signing keys (lib/aimodel.ts). */
   aiModel?: import("./nearai").ModelCheck;
@@ -171,6 +174,44 @@ export const resetState = () => {
 export const resetAllState = () => all().clear();
 /** False in tests and the CLI demo, which keep nothing on disk. */
 export const persistenceOn = () => !!fileFor(thisSpace());
+
+/**
+ * One business's records in one mode, whichever mode the business is in now (for backups). Null if it has none.
+ */
+export function recordsOf(biz: string, demo: boolean): State | null {
+  const key = spaceKey(biz, demo);
+  const file = fileFor(key);
+  if (all().has(key)) {
+    if (file && fileStamp(file) && fileStamp(file) !== stamps().get(key)) all().set(key, load(key));
+    return all().get(key)!;
+  }
+  if (file && existsSync(file)) {
+    const s = load(key);
+    all().set(key, s);
+    return s;
+  }
+  return null;
+}
+
+/**
+ * Put back one business's records in one mode (a restore), under the same lock every request for those records takes. The file
+ * that was there is kept beside it (<file>.before-restore-<time>), never deleted.
+ */
+export async function replaceRecords(biz: string, demo: boolean, s: State, now = new Date()): Promise<string | undefined> {
+  const key = spaceKey(biz, demo);
+  const file = fileFor(key);
+  return exclusive(`records:${key}`, file, async () => {
+    let kept: string | undefined;
+    if (file && existsSync(file)) {
+      kept = `${file}.before-restore-${now.toISOString().replace(/[-:.]/g, "")}`;
+      writeAtomic(kept, readFileSync(file));
+    }
+    const restored = { ...fresh(), ...s };
+    all().set(key, restored);
+    if (file) writeSealed(key, file, restored);
+    return kept;
+  });
+}
 
 export function persist() {
   const key = thisSpace();

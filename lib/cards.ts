@@ -28,7 +28,7 @@ export type { CardSecrets };
 // ---------- The agent's side: policy first, then a card ----------
 
 /** Dollars as people write them: $42.50, $5,000. */
-const money = (n: number) => `${n.toLocaleString("en-US", { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 })}`;
+const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 })}`;
 const uid = () => `card-${sha256(`${Date.now()}${Math.random()}`).slice(0, 8)}`;
 export const purchases = (): CardPurchase[] => (state().cardPurchases ??= []);
 const find = (id: string) => {

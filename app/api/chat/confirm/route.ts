@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { confirm } from "@/lib/agent-chat";
 import { body, route } from "@/lib/http";
 import { requireSigner } from "@/lib/session";
@@ -6,5 +7,6 @@ import { requireSigner } from "@/lib/session";
 export const POST = route(async (req) => {
   const by = await requireSigner(req);
   const b = await body<{ id?: string }>(req);
-  return await confirm(String(b.id ?? ""), by);
+  // A one-time card's number may be in this answer, shown once: never cache it.
+  return NextResponse.json(await confirm(String(b.id ?? ""), by), { headers: { "cache-control": "no-store" } });
 });

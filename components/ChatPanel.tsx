@@ -3,10 +3,12 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "@/components/Toast";
 import type { Block, Msg, Pending, Turn } from "@/lib/agent-chat";
+import type { CardSecrets } from "@/lib/card-providers";
 
-interface Entry { role: "user" | "assistant"; text: string; blocks?: Block[]; pending?: Pending; done?: { message: string; href?: string } | "cancelled"; error?: string }
+// A one-time card's number lives only in this component's memory, for this one showing, until hidden. It is never stored anywhere.
+interface Entry { role: "user" | "assistant"; text: string; blocks?: Block[]; pending?: Pending; done?: { message: string; href?: string; card?: CardSecrets } | "cancelled"; error?: string }
 
-const IDEAS = ["What is the price of NEAR?", "What does the treasury hold?", "Show my payments this month", "Find a Netflix gift card", "Invest $200 in ETH", "Put $500 into the treasury"];
+const IDEAS = ["What is the price of NEAR?", "What does the treasury hold?", "Show my payments this month", "Find a Netflix gift card", "Invest $200 in ETH", "Put $500 into the treasury", "Get a card to buy a $15 domain"];
 
 /** A conversation. Anything the agent found is shown as a table; anything that would spend waits on a card for you to confirm or cancel. */
 export function ChatPanel() {
@@ -38,7 +40,7 @@ export function ChatPanel() {
       const res = await fetch("/api/chat/confirm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: p.id }) });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) { setLog((l) => l.map((e, k) => (k === i ? { ...e, error: json.error ?? "That did not work." } : e))); return; }
-      toast("Done: now it needs approval");
+      toast(json.card ? "Card ready: copy it now" : "Done: now it needs approval");
       setLog((l) => l.map((e, k) => (k === i ? { ...e, pending: undefined, done: json } : e)));
     } catch { setLog((l) => l.map((e, k) => (k === i ? { ...e, error: "Could not reach the server." } : e))); } finally { setBusy(false); }
   }
@@ -79,6 +81,16 @@ export function ChatPanel() {
               )}
               {e.done === "cancelled" && <p className="mt-2 text-sm" style={{ color: "var(--tx-2)" }}>Cancelled. Nothing was done.</p>}
               {e.done && e.done !== "cancelled" && <p className="mt-2 text-sm pos">{e.done.message} {e.done.href && <Link className="underline" href={e.done.href}>Open it →</Link>}</p>}
+              {e.done && e.done !== "cancelled" && e.done.card && (
+                <div className="mt-2 rounded-xl p-3" style={{ border: "1px solid rgba(10,10,232,.5)" }} aria-live="polite">
+                  <dl className="grid gap-1 mono text-sm">
+                    <div>Number: <span className="select-all">{e.done.card.number}</span></div>
+                    <div>Expires: {e.done.card.expiry} · CVC: <span className="select-all">{e.done.card.cvc}</span></div>
+                  </dl>
+                  <p className="mt-2 text-xs" style={{ color: "var(--tx-2)" }}>Shown once and stored nowhere: copy it into the checkout now. It works only for this purchase, up to its amount.</p>
+                  <button className="btn btn-secondary btn-sm mt-2" onClick={() => setLog((l) => l.map((x, k) => (k === i && x.done && x.done !== "cancelled" ? { ...x, done: { message: x.done.message, href: x.done.href } } : x)))}>Hide it now</button>
+                </div>
+              )}
             </div>
           </div>
         ))}

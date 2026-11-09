@@ -12,6 +12,8 @@ import { CHAIN_LABEL } from "@/lib/chains";
 import type { Balance } from "@/lib/chain";
 import { NEAR_AI_KEY, NEAR_AI_MODEL, NETWORK, missingConfig } from "@/lib/config";
 import { modelStatus } from "@/lib/aimodel";
+import { backupWarning } from "@/lib/backup";
+import { businessBackupWarning } from "@/lib/business-backup";
 import { checkCustody, spendingWalletBand } from "@/lib/custody";
 import { services } from "@/lib/services";
 import { currentPolicy, spentTodayUsd, state } from "@/lib/store";
@@ -110,6 +112,18 @@ async function Overview() {
             {!tenant && missing.map((m) => <li key={m.key}><span className="mono">{m.key}</span> <span style={{ color: "var(--tx-2)" }}>— {m.why}</span></li>)}
           </ul>
           {!cfg().DAO_ACCOUNT && !isDemo() && <p className="mt-3 text-sm"><Link href="/setup" style={{ color: "#8c8cff" }}>Set up a treasury from the browser →</Link> <span style={{ color: "var(--tx-2)" }}>Your wallet creates the DAO and the agent; the settings are written for you.</span></p>}
+        </section>
+      )}
+
+      {!tenant && isOwner((await currentSigner()) ?? "") && backupWarning() && (
+        <section role="alert" className="card mb-4" style={{ borderColor: "rgba(232,168,56,.4)" }}>
+          <strong>Your records are not safely backed up.</strong> <span style={{ color: "var(--tx-1)" }}>{backupWarning()}</span> <Link href="/settings" style={{ color: "#8c8cff" }}>Backups in Settings →</Link>
+        </section>
+      )}
+
+      {tenant && businessBackupWarning(currentBiz()) && (
+        <section role="alert" className="card mb-4" style={{ borderColor: "rgba(232,168,56,.4)" }}>
+          <strong>Backups need attention.</strong> <span style={{ color: "var(--tx-1)" }}>{businessBackupWarning(currentBiz())}</span> <Link href="/settings" style={{ color: "#8c8cff" }}>Backups in Settings →</Link>
         </section>
       )}
 
