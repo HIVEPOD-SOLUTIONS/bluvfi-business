@@ -12,7 +12,7 @@ AI agents are starting to pay invoices and buy services. Nobody can verify what 
 
 ## Try it (no keys, no funds, about a minute)
 
-Needs Node.js 22.12 or newer and npm (the only lockfile is `package-lock.json`).
+Needs Node.js 22.12 or newer and **npm**. The only lockfile is `package-lock.json`, and the patched dependency versions are npm `overrides`, which yarn and pnpm ignore; so an install with yarn or pnpm stops with a message. If you already ran `yarn install`, delete `node_modules` and `yarn.lock`, then run `npm ci`.
 
 ```bash
 npm ci

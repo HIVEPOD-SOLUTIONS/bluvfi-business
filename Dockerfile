@@ -6,6 +6,7 @@ RUN mkdir -p /app/.data && chown -R node:node /app
 WORKDIR /app
 USER node
 COPY --chown=node:node package.json package-lock.json ./
+COPY --chown=node:node scripts/only-npm.cjs ./scripts/only-npm.cjs
 RUN npm ci
 COPY --chown=node:node . .
 RUN npm run build
