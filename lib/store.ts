@@ -50,6 +50,8 @@ export interface State {
   /** Agent chat: what the agent proposed and is waiting for its asker to confirm (lib/agent-chat.ts). Kept here, not in memory, so a
    * confirm reaching another instance of the app still finds it. Expires after 15 minutes. */
   chatPending?: Record<string, { by: string; tool: string; args: Record<string, unknown>; at: number }>;
+  /** Payroll runs from a spreadsheet (lib/payroll.ts). */
+  payrollRuns?: import("./payroll").PayrollRun[];
   checkLog: { at: string; verdict: string }[];
   /** The setup-time check of the private AI model: its attested signing keys (lib/aimodel.ts). */
   aiModel?: import("./nearai").ModelCheck;

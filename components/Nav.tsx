@@ -9,6 +9,7 @@ const ITEMS = [
   { group: "Every day", href: "/", label: "Overview", icon: "◧" },
   { group: "Every day", href: "/payments", label: "Payments", icon: "⇄" },
   { group: "Every day", href: "/vendors", label: "Vendors", icon: "▤" },
+  { group: "Every day", href: "/payroll", label: "Payroll", icon: "☷" },
   { group: "Every day", href: "/bills", label: "Bills", icon: "▦" },
   { group: "Every day", href: "/receivables", label: "Receivables", icon: "↧" },
   { group: "Every day", href: "/cards", label: "Cards", icon: "▭" },
@@ -24,6 +25,7 @@ const ITEMS = [
   { group: "Stay in control", href: "/settings", label: "Settings", icon: "⚙" },
   { group: "Show others", href: "/auditor", label: "Auditor", icon: "✓" },
   { group: "Show others", href: "/proofs", label: "Proofs", icon: "∴" },
+  { group: "Show others", href: "/attack", label: "Attack lab", icon: "⚠" },
   { group: "Show others", href: "/check", label: "Check", icon: "◎" },
   { group: "Show others", href: "/ledger", label: "Ledger", icon: "≡" },
 ];

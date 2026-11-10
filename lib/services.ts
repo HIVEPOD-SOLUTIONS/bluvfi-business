@@ -44,12 +44,20 @@ const live = {
  * put in their place). The demo fixtures are made on first use and shared, so a simulated DAO is the same one for every business in demo.
  */
 let demo: Partial<typeof live> | undefined;
+/** Services a script replaced for demo mode too (`overrideService`). */
+const forced = new Set<string>();
 export const services: typeof live = new Proxy(live, {
   get(target, key: string) {
-    if (isDemo()) {
+    if (isDemo() && !forced.has(key)) {
       demo ??= demoServices(NEAR_AI_MODEL) as Partial<typeof live>;
       if (key in demo) return demo[key as keyof typeof live];
     }
     return target[key as keyof typeof live];
   },
 });
+
+/** Scripts only (npm run fixtures): replace one service everywhere, demo mode included. */
+export function overrideService<K extends keyof typeof live>(key: K, fn: (typeof live)[K]) {
+  live[key] = fn;
+  forced.add(key);
+}

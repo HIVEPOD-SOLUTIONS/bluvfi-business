@@ -1,6 +1,7 @@
 import { checkSettlement } from "./agent";
 import { refreshOpenBills } from "./bills";
 import { businesses, getBusiness } from "./business";
+import { refreshOpenPayroll } from "./payroll";
 import { refreshReceivable } from "./receivables";
 import { state, withRecords } from "./store";
 import { DEFAULT_BIZ, runAs } from "./tenant";
@@ -31,6 +32,11 @@ export async function pollSettlements(): Promise<SettlementPass> {
     } catch (e) {
       out.errors.push(`${r.id}: ${(e as Error).message}`);
     }
+  }
+  try {
+    await refreshOpenPayroll(); // payroll runs waiting on the council, or on NEAR Intents delivering each person's money
+  } catch (e) {
+    out.errors.push(`payroll: ${(e as Error).message}`);
   }
   try {
     await refreshOpenBills(); // bills already paid: has the code been delivered?

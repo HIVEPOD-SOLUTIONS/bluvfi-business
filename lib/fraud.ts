@@ -110,7 +110,7 @@ export function runFraudChecks(inv: Invoice, ctx: FraudContext): CheckResult[] {
   const po = ctx.purchaseOrders.find((p) => p.po === inv.poNumber);
   out.push(
     !po
-      ? { id: "po", label: "Purchase order", verdict: "warn", reason: `No purchase order found for ${inv.poNumber}.` }
+      ? { id: "po", label: "Purchase order", verdict: "warn", reason: inv.poNumber ? `No purchase order found for ${inv.poNumber}.` : "The invoice names no purchase order." }
       : po.vendorName !== inv.vendorName
         ? { id: "po", label: "Purchase order", verdict: "block", reason: `${inv.poNumber} was raised for ${po.vendorName}, not ${inv.vendorName}.` }
         : Math.abs(po.amountUsd - inv.amountUsd) > 0.01

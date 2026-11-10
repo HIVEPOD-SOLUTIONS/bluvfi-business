@@ -5,7 +5,7 @@ import { state } from "./store";
  * put in, what the agent spent on APIs and on one-time cards. Built from the business's own records at the moment it is asked for, so it can
  * never disagree with them.
  */
-export type HistoryCategory = "payment" | "bill" | "investment" | "banking" | "received" | "funding" | "api" | "card";
+export type HistoryCategory = "payment" | "bill" | "investment" | "banking" | "received" | "funding" | "api" | "card" | "payroll";
 export interface HistoryEntry {
   id: string;
   at: string;
@@ -21,7 +21,7 @@ export interface HistoryEntry {
   tx?: string;
 }
 
-export const CATEGORY_LABEL: Record<HistoryCategory, string> = { payment: "Invoice payments", bill: "Bills", investment: "Investments", banking: "Bank cash-outs", received: "Money received", funding: "Funding", api: "API spending", card: "Cards" };
+export const CATEGORY_LABEL: Record<HistoryCategory, string> = { payment: "Invoice payments", bill: "Bills", investment: "Investments", banking: "Bank cash-outs", received: "Money received", funding: "Funding", api: "API spending", card: "Cards", payroll: "Payroll" };
 
 const PAYMENT_STATUS: Record<string, [string, HistoryEntry["tone"]]> = {
   paid: ["Paid", "ok"], approved: ["Approved", "ok"], ready_to_send: ["Waiting to send", "warn"], proposed: ["Waiting for the council", "warn"],
@@ -54,6 +54,17 @@ export function historyEntries(): HistoryEntry[] {
     let host = x.url;
     try { host = new URL(x.url).host; } catch { /* keep the raw text */ }
     out.push({ id: `x402-${i}-${x.at}`, at: x.at, category: "api", title: host, detail: "Paid for an API call (x402)", amountUsd: x.priceUsd, direction: "out", status: "Paid", tone: "ok" });
+  }
+  const PAYROLL: Record<string, [string, HistoryEntry["tone"]]> = {
+    ready: ["Not sent yet", "default"], blocked: ["Blocked", "bad"], proposed: ["Waiting for the council", "warn"], sent: ["On its way", "warn"],
+    paid: ["Paid", "ok"], refunded: ["Refunded", "default"], failed: ["Failed", "bad"], expired: ["Expired", "bad"], rejected: ["Rejected", "default"],
+  };
+  for (const run of s.payrollRuns ?? []) {
+    if (run.status === "draft" || run.status === "cancelled") continue;
+    for (const r of run.rows) {
+      const [status, tone] = PAYROLL[r.status] ?? [r.status, "default"];
+      out.push({ id: `${run.id}-${r.line}`, at: run.sentAt ?? run.createdAt, category: "payroll", title: r.name, detail: `${run.title} · ${r.asset} on ${r.chain}`, amountUsd: r.amountUsd, direction: "out", status, tone, href: "/payroll" });
+    }
   }
   for (const c of s.cardPurchases ?? []) {
     const [status, tone] = CARD_STATUS[c.status] ?? [c.status, "default"];

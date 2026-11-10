@@ -49,7 +49,9 @@ async function main() {
 
   const ok =
     r.normal.status === "paid" && r.fraud.status === "cancelled" && r.lookalike.status === "blocked" && r.check.verdict === "block" &&
-    [r.normal, r.fraud, r.lookalike].every((x) => x.verified.signature.valid && x.verified.pqSignature.valid) && again;
+    [r.normal, r.fraud, r.lookalike].every((x) => x.verified.signature.valid && x.verified.pqSignature.valid) && again &&
+    // The attacks: none may be paid or even cleared, including the two where the AI was fooled into saying pay.
+    r.attacks.map((x) => x.status).join(",") === "blocked,blocked,held" && r.attacks[1].ai.decision === "pay" && r.attacks[2].ai.decision === "pay";
   if (!ok) {
     console.error("\nDEMO FAILED: an outcome or a signature was not what the story expects.");
     process.exit(1);
