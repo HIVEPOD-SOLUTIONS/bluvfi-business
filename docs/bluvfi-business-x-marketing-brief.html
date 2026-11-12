@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 <title>Bluvfi Business: X marketing brief</title>
-<meta name="description" content="X marketing brief, 8 November 2026">
+<meta name="description" content="X marketing brief, 12 November 2026">
 <style>
   :root { --ink: #1c1c1c; --muted: #555; --faint: #888; --blue: #0a0ae8; --gold: #c9a85c; --sage: #8fa876; --beige: #f4f1e6; --line: #e2e0d8; --ok: #2f7d4f; --ok-bg: #e5f2ea; --no: #a33b3b; --no-bg: #f8e3e3; }
   @page { size: letter; margin: 0.75in 0.85in 0.8in; @bottom-left { content: "Bluvfi Business  |  X marketing brief"; font: 9pt Arial, sans-serif; color: #888; } @bottom-right { content: counter(page); font: 9pt Arial, sans-serif; color: #888; } }
@@ -44,7 +44,7 @@
   <h1>X marketing brief</h1>
   <div class="sub">Positioning, messaging, ready-to-post drafts and the claims you can and cannot make.</div>
   <div class="rule"></div>
-  <p>Status update: 8 November 2026</p>
+  <p>Status update: 12 November 2026</p>
   <p class="tag">The AI has judgment, never authority.</p>
 </section>
 
@@ -103,12 +103,21 @@
 <p class="small">Post only after the first real run with Credible (section 5).</p>
 <h3>Stocks</h3>
 <div class="post">US stocks and ETFs on the business's own Backpack account. The treasury funds it with an approved payment, and each trade is capped by the most your council allows for one investment. A limit order only fills within 1% of the price you saw.</div>
+<h3>Attack lab</h3>
+<div class="post">We tried to make our own agent drain the treasury. A prompt injection, an invoice that fools the AI into saying "pay", and a clean forgery that fools it again. None was paid: each was stopped by a different layer, and the agent's key can only propose, never send. Try the three yourself in demo. [link]</div>
+<p class="small">Attach the Attack lab screenshot. Say it runs in demo mode.</p>
+<h3>Payroll</h3>
+<div class="post">Payroll from a spreadsheet: one line per person, each paid in the stablecoin and chain they chose. Every line is checked first (address, sanctions, the shared blocklist), then the council approves the whole run with one vote and NEAR Intents delivers everyone's pay.</div>
+<p class="small">Tested in demo and in tests, not yet on mainnet: do not say "teams are paying with it".</p>
+<h3>Backups</h3>
+<div class="post">Your treasury's records, backed up encrypted to your own bucket with your own passphrase, every day. Restore is one button and keeps what it replaced.</div>
+<p class="small">Tested against a local S3-shaped server, not yet a real bucket. Post after one real run.</p>
 <h3>Price charts</h3>
 <div class="post">Open any coin in Bluvfi Business for a chart from one day to one year, next to what the treasury holds. Live prices, no account needed.</div>
 <h3>Privacy and proofs</h3>
 <div class="post">Not every business wants every payment public. Privacy in Bluvfi Business is optional and per payment, and where a claim has to be proved (a sanctions check, a passport rule) it can be proved in zero knowledge, so the data behind it is not shared.</div>
 <h3>Tests</h3>
-<div class="post">275 automated tests, plus checks that run against the real services (NEAR Intents, NEAR AI, Bitrefill, Backpack, CoinGecko). Where something has not been run for real, the spec says so on the page, not in a footnote.</div>
+<div class="post">295 automated tests, plus checks that run against the real services (NEAR Intents, NEAR AI, Bitrefill, Backpack, CoinGecko). Where something has not been run for real, the spec says so on the page, not in a footnote.</div>
 
 <h2 class="break">5. Claims</h2>
 <p>This is the check before you post. If a claim is not in the first column, do not make it.</p>
@@ -119,7 +128,9 @@
   <tr class="ok"><td>No smart contracts of our own.</td><td>The treasury is a Sputnik DAO, the contract Trezu runs on. Nothing here is deployed by us.</td></tr>
   <tr class="ok"><td>Every decision leaves checkable evidence.</td><td>Policy versions are hashed, the AI's review is signed, records are signed (including a post-quantum signature), and a Check page re-verifies proofs.</td></tr>
   <tr class="ok"><td>Demo mode needs no keys and no funds, and keeps separate records.</td><td>Tested: demo and live records are separate for the same business, and demo flows run with the network switched off.</td></tr>
-  <tr class="ok"><td>275 automated tests, and live-service tests against NEAR Intents, NEAR AI, Bitrefill, Backpack and CoinGecko.</td><td>The spec's reproducibility section. Three live tests skip when a service needs a key or blocks the network, and the spec lists them.</td></tr>
+  <tr class="ok"><td>295 automated tests, and live-service tests against NEAR Intents, NEAR AI, Bitrefill, Backpack and CoinGecko.</td><td>The spec's reproducibility section. Three live tests skip when a service needs a key or blocks the network, and the spec lists them.</td></tr>
+  <tr class="ok"><td>In the Attack lab, none of the three attacks is paid, including when the AI is fooled.</td><td>Run by <code>npm run demo</code> and the tests; the demo fails if any attack is paid. It is a demo: the AI's fooled answers are replayed, not live.</td></tr>
+  <tr class="ok"><td>Payroll is paid by one council vote, each person on their own chain.</td><td>One DAO proposal per 8 people, tested in demo and in the tests. Say "in demo" until it has run on mainnet.</td></tr>
   <tr class="ok"><td>Prices and charts are live; stock prices come from Backpack.</td><td>Read from the real CoinGecko, CoinMarketCap (when keyed) and Backpack.</td></tr>
 </table>
 <h3 class="never">You cannot say</h3>
@@ -142,7 +153,7 @@
 <table>
   <tr><th style="width:30%">They ask</th><th>Reply</th></tr>
   <tr><td>Can the AI steal funds?</td><td>The agent's key can only call add_proposal on the DAO. It can propose a payment; your council has to vote before anything moves, and your policy gate checks it first.</td></tr>
-  <tr><td>Is it audited?</td><td>Not yet. What we can show: 275 automated tests, live checks against the real services where they allow it, and a spec that lists what has not been run for real.</td></tr>
+  <tr><td>Is it audited?</td><td>Not yet. What we can show: 295 automated tests, live checks against the real services where they allow it, and a spec that lists what has not been run for real.</td></tr>
   <tr><td>Do you hold my money?</td><td>No. The treasury is your NEAR DAO. Providers like Credible or Backpack hold funds only in accounts you open with them.</td></tr>
   <tr><td>Why trust the AI's review?</td><td>You do not have to. It is one input. It is signed, so it can be re-checked later, and it cannot approve a payment on its own.</td></tr>
   <tr><td>Does it work with real banks?</td><td>The rupee flow is built to Credible's API. We have not run it against the real Credible yet, because it only answers from allowed IPs. We will post when we have.</td></tr>
