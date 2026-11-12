@@ -1,10 +1,11 @@
 "use client";
 import { useState } from "react";
 import { ErrorLine, useAction } from "@/components/Actions";
+import type { PayoutRoute } from "@/lib/intents-tokens";
 
-interface VendorOption { name: string; domain: string; chain: string; address: string }
+interface VendorOption { name: string; domain: string; chain: string; asset: string; address: string }
 
-export function SubmitInvoice({ vendors }: { vendors: VendorOption[] }) {
+export function SubmitInvoice({ vendors, routes }: { vendors: VendorOption[]; routes: PayoutRoute[] }) {
   const { run, error, loading } = useAction();
   const [f, setF] = useState({
     vendorName: "", vendorDomain: "", invoiceNumber: "", poNumber: "", amountUsd: "", chain: "near",
@@ -42,7 +43,7 @@ export function SubmitInvoice({ vendors }: { vendors: VendorOption[] }) {
             className="input mt-1" required list="vendor-options" value={f.vendorName}
             onChange={(e) => {
               const v = vendors.find((x) => x.name === e.target.value);
-              setF(v ? { ...f, vendorName: v.name, vendorDomain: v.domain, chain: v.chain, payoutAddress: v.address } : { ...f, vendorName: e.target.value });
+              setF(v ? { ...f, vendorName: v.name, vendorDomain: v.domain, chain: v.chain, asset: v.asset, payoutAddress: v.address } : { ...f, vendorName: e.target.value });
             }}
           />
           <datalist id="vendor-options">{vendors.map((v) => <option key={v.name} value={v.name} />)}</datalist>
@@ -53,14 +54,14 @@ export function SubmitInvoice({ vendors }: { vendors: VendorOption[] }) {
         {field("amountUsd", "Amount (USD)", "number", { required: true, min: "0.01", step: "0.01" })}
         <label className="block">
           <span className="label">Chain</span>
-          <select className="input mt-1" value={f.chain} onChange={set("chain")}>
-            {["near", "eth", "base", "arb", "sol"].map((c) => <option key={c}>{c}</option>)}
+          <select className="input mt-1" value={f.chain} onChange={(e) => { const c = e.target.value; const a = routes.find((r) => r.chain === c)?.assets ?? []; setF({ ...f, chain: c, asset: a.includes(f.asset) ? f.asset : a[0] ?? "USDC" }); }}>
+            {routes.map((r) => <option key={r.chain} value={r.chain}>{r.name}</option>)}
           </select>
         </label>
         <label className="block">
           <span className="label">Asset</span>
           <select className="input mt-1" value={f.asset} onChange={set("asset")}>
-            {["USDC", "USDT"].map((c) => <option key={c}>{c}</option>)}
+            {(routes.find((r) => r.chain === f.chain)?.assets ?? []).map((c) => <option key={c}>{c}</option>)}
           </select>
         </label>
         <div className="sm:col-span-2">{field("payoutAddress", "Payout address on the invoice", "text", { required: true })}</div>

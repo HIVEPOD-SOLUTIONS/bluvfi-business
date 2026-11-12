@@ -89,7 +89,7 @@ test("a business in demo can use bills, bank transfers and stocks on fixtures, a
       assert.ok(add.bank?.upiIntent.startsWith("upi://pay"));
       // Backpack: prices and a chart, funding as a payment, and a trade that uses what the simulated treasury paid in.
       const stocks = await listStocks();
-      assert.ok(stocks.length >= 5 && stocks.every((s) => s.priceUsd && s.priceUsd > 0));
+      assert.ok(stocks.length >= 1000 && stocks.every((s) => s.priceUsd && s.priceUsd > 0), `${stocks.length} demo stocks: every one Backpack lists, not a handful`);
       assert.ok((await stockChart("AAPL.US", 30)).points.length >= 25);
       assert.equal((await account()).usdc, 0);
       const fund = await fundAccount({ amountUsd: 500 });

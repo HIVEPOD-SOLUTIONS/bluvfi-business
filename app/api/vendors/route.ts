@@ -1,4 +1,5 @@
 import { propose } from "@/lib/governance";
+import { payoutProblem } from "@/lib/intents-tokens";
 import { currentPolicy, state } from "@/lib/store";
 import { body, route } from "@/lib/http";
 import { requireSigner } from "@/lib/session";
@@ -29,10 +30,13 @@ export const POST = route(async (req) => {
     name: v.name.trim(),
     domain: v.domain.trim().toLowerCase(),
     verifiedContact: { channel: v.verifiedContact.channel, handle: v.verifiedContact.handle.trim() },
-    payout: { chain: v.payout.chain ?? "near", asset: v.payout.asset ?? "USDC", address: v.payout.address.trim() },
+    payout: { chain: String(v.payout.chain ?? "near").trim().toLowerCase(), asset: String(v.payout.asset ?? "USDC").trim().toUpperCase(), address: v.payout.address.trim() },
     paidInvoiceNumbers: s.vendors.find((x) => x.name === v.name)?.paidInvoiceNumbers ?? [],
     lastPaidAt: s.vendors.find((x) => x.name === v.name)?.lastPaidAt,
   };
+  // A payout destination is checked before it is saved: a chain we pay on, an address in that chain's format, and a stablecoin route.
+  const problem = await payoutProblem(vendor.payout.chain, vendor.payout.asset, vendor.payout.address);
+  if (problem) throw new Error(`Payout: ${problem}.`);
   s.vendors = [...s.vendors.filter((x) => x.name !== vendor.name), vendor];
   let proposal;
   if (b.proposeAllowlist && !currentPolicy().vendorAllowlist.includes(vendor.name)) {

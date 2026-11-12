@@ -1,10 +1,12 @@
 "use client";
 import { useState } from "react";
 import { ErrorLine, useAction } from "@/components/Actions";
+import type { PayoutRoute } from "@/lib/intents-tokens";
 
 const EMPTY = { name: "", domain: "", channel: "email", handle: "", chain: "near", asset: "USDC", address: "", allow: true };
 
-export function NewVendor() {
+/** `routes`: every chain the treasury can pay out on and its stablecoins (lib/intents-tokens.ts payoutRoutes). */
+export function NewVendor({ routes }: { routes: PayoutRoute[] }) {
   const { run, error, loading } = useAction();
   const [f, setF] = useState(EMPTY);
   const text = (k: keyof typeof EMPTY, label: string, placeholder = "") => (
@@ -42,14 +44,15 @@ export function NewVendor() {
       {text("handle", "Channel handle", f.channel === "voice" ? "+14155550134" : f.channel === "telegram" ? "123456789" : "billing@northwind.io")}
       <label className="block">
         <span className="label">Pays on</span>
-        <select className="input mt-1" value={f.chain} onChange={(e) => setF({ ...f, chain: e.target.value })}>
-          {["near", "eth", "base", "arb", "sol"].map((c) => <option key={c}>{c}</option>)}
+        <select className="input mt-1" value={f.chain} onChange={(e) => { const c = e.target.value; const a = routes.find((r) => r.chain === c)?.assets ?? []; setF({ ...f, chain: c, asset: a.includes(f.asset) ? f.asset : a[0] ?? "USDC" }); }}>
+          {routes.map((r) => <option key={r.chain} value={r.chain}>{r.name}</option>)}
         </select>
+        <span className="text-xs" style={{ color: "var(--tx-2)" }}>Paying on a chain still needs the council to allow it in the policy.</span>
       </label>
       <label className="block">
         <span className="label">Asset</span>
         <select className="input mt-1" value={f.asset} onChange={(e) => setF({ ...f, asset: e.target.value })}>
-          {["USDC", "USDT"].map((c) => <option key={c}>{c}</option>)}
+          {(routes.find((r) => r.chain === f.chain)?.assets ?? []).map((c) => <option key={c}>{c}</option>)}
         </select>
       </label>
       <div className="sm:col-span-2">{text("address", "Payout address", "northwind.near")}</div>

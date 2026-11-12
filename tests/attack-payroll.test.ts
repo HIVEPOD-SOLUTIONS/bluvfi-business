@@ -54,18 +54,18 @@ beforeEach(() => {
   state().blocklist = state().blocklist.filter((b) => b.id !== "b1");
 });
 
-test("payroll sheet: columns by name, chain names people use, quoted fields, and every problem reported by line", () => {
-  const ok = parsePayrollCsv('﻿Employee,Amount (USD),Network,Stablecoin,Wallet\n"Okafor, Ada","$4,200",Base,usdc,0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed\nBruno,3800,Solana,,7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV');
+test("payroll sheet: columns by name, chain names people use, quoted fields, and every problem reported by line", async () => {
+  const ok = await parsePayrollCsv('﻿Employee,Amount (USD),Network,Stablecoin,Wallet\n"Okafor, Ada","$4,200",Base,usdc,0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed\nBruno,3800,Solana,,7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV');
   assert.deepEqual(ok.errors, []);
   assert.deepEqual(ok.rows.map((r) => [r.name, r.amountUsd, r.chain, r.asset]), [["Okafor, Ada", 4200, "base", "USDC"], ["Bruno", 3800, "sol", "USDC"]]);
 
-  const bad = parsePayrollCsv("name,amount,chain,asset,address\nA,abc,base,USDC,0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed\nB,10,base,USDC,not-an-address\nC,10,dogechain,USDC,x\nD,10,base,USDT,0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed\nE,10,near,USDC,Has Spaces.near");
+  const bad = await parsePayrollCsv("name,amount,chain,asset,address\nA,abc,base,USDC,0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed\nB,10,base,USDC,not-an-address\nC,10,dogechain,USDC,x\nD,10,base,USDT,0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed\nE,10,near,USDC,Has Spaces.near");
   assert.equal(bad.errors.length, 5);
   assert.match(bad.errors[0], /^Line 2 \(A\): "abc" is not an amount/);
   assert.match(bad.errors[1], /Line 3 \(B\): "not-an-address" is not a Base address/);
   assert.match(bad.errors[2], /"dogechain" is not a chain we pay on/);
   assert.match(bad.errors[3], /USDT on Base is not a route/);
-  assert.match(parsePayrollCsv("who,how much\nA,1").errors[0], /must name the columns/);
+  assert.match((await parsePayrollCsv("who,how much\nA,1")).errors[0], /must name the columns/);
 });
 
 test("payroll checks every person: the council's allowed chains, the shared blocklist, the same address twice; a blocked line stops the run", async () => {

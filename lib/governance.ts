@@ -1,6 +1,6 @@
 import { cfg } from "./business";
 import { describeTiers } from "./verify-tiers";
-import { ASSET_ID } from "./chains";
+import { chainName, PAYOUT_ASSETS, PAYOUT_CHAIN_KEYS } from "./chains";
 import { TREZU_APP_URL } from "./config";
 import { approvalThreshold, signerNames } from "./team";
 import { canonical, sha256 } from "./crypto";
@@ -17,8 +17,9 @@ import type { PolicyProposal } from "./types";
  *  - Otherwise: M-of-N named signers (each signs in with their own token), an application-level multisig.
  * Either way policy only changes through approvals, and every version is hashed.
  */
-const KNOWN_CHAINS = new Set(Object.keys(ASSET_ID).map((k) => k.split(":")[0]));
-const KNOWN_ASSETS = new Set(Object.keys(ASSET_ID).map((k) => k.split(":")[1]));
+/** Any chain and stablecoin the treasury can pay out on (lib/chains.ts). Allowing one is the council's choice. */
+const KNOWN_CHAINS = new Set(PAYOUT_CHAIN_KEYS);
+const KNOWN_ASSETS = new Set(PAYOUT_ASSETS);
 
 /** Rejects a policy that could not work or would silently disable a rule. */
 export function validateChanges(c: PolicyProposal["changes"]) {
@@ -31,7 +32,7 @@ export function validateChanges(c: PolicyProposal["changes"]) {
   if (c.dailyLimitUsd < c.perPaymentLimitUsd) throw new Error("The daily limit cannot be below the per-payment limit.");
   if (!c.allowedChains.length || !c.allowedAssets.length) throw new Error("Allow at least one chain and one asset.");
   const badChain = c.allowedChains.find((x) => !KNOWN_CHAINS.has(x));
-  if (badChain) throw new Error(`Unknown chain "${badChain}". Supported: ${[...KNOWN_CHAINS].join(", ")}.`);
+  if (badChain) throw new Error(`Unknown chain "${badChain}". Supported: ${[...KNOWN_CHAINS].map((c) => `${c} (${chainName(c)})`).join(", ")}.`);
   const badAsset = c.allowedAssets.find((x) => !KNOWN_ASSETS.has(x));
   if (badAsset) throw new Error(`Unknown asset "${badAsset}". Supported: ${[...KNOWN_ASSETS].join(", ")}.`);
   if (c.privacyFloor !== undefined && !["public", "basic", "advanced"].includes(c.privacyFloor)) throw new Error("The privacy floor must be public, basic or advanced.");

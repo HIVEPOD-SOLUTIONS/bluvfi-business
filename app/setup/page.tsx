@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { tenantPage } from "@/lib/who";
-import { Logo } from "@/components/Nav";
 import { NEAR_RPC_URL, PRIVY_APP_ID } from "@/lib/config";
 import { AGENT_FUNDING_NEAR, DAO_DEPOSIT_NEAR, FACTORY, announceSetupCode, setupStatus } from "@/lib/setup";
 import { SetupWizard } from "./SetupWizard";
@@ -12,7 +11,6 @@ function Setup() {
   if (s.needsCode) announceSetupCode();
   return (
     <div className="mx-auto max-w-2xl pt-6">
-      <div className="mb-6"><Logo /></div>
       <div className="card">
         <h1>Set up your treasury</h1>
         <p className="mt-1" style={{ color: "var(--tx-1)" }}>

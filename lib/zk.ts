@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { canonical, sha256 } from "./crypto";
+import { PAYOUT_ASSETS, PAYOUT_CHAIN_KEYS } from "./chains";
 import type { Invoice, Policy } from "./types";
 
 /**
@@ -17,8 +18,8 @@ export const ZK_DIR = process.env.BLUVFI_ZK_DIR ?? join(process.cwd(), ".data", 
 export const VK_FILE = join(process.cwd(), "zk", "verification-key.json");
 export const SYSTEM = "o1js (Kimchi proof system)";
 
-export const CHAINS = ["near", "eth", "arb", "base", "sol"];
-export const ASSETS = ["USDC", "USDT"];
+export const CHAINS = PAYOUT_CHAIN_KEYS;
+export const ASSETS = PAYOUT_ASSETS;
 const code = (list: string[], v: string) => (list.includes(v) ? list.indexOf(v) : 31);
 const mask = (list: string[], allowed: string[]) => allowed.reduce((m, v) => (list.includes(v) ? m | (1 << list.indexOf(v)) : m), 0);
 const cents = (usd: number) => Math.round(usd * 100);

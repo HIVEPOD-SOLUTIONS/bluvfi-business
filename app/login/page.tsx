@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Logo } from "@/components/Nav";
 import { DEMO, PRIVY_APP_ID, PRIVY_LOGIN, SIGNERS, SIGNUP_OPEN } from "@/lib/config";
 import { LoginForm } from "./LoginForm";
 import { PrivyLogin } from "./PrivyLogin";
@@ -10,7 +9,6 @@ export default function Login() {
   const configured = SIGNERS.length > 0 || PRIVY_LOGIN;
   return (
     <div className="mx-auto max-w-md pt-10">
-      <div className="mb-6"><Logo /></div>
       <div className="card">
         <h1>Sign in</h1>
         <p className="mt-1" style={{ color: "var(--tx-1)" }}>Approving payments and changing policy needs a signer: sign in with your email, or with your personal signer token.</p>

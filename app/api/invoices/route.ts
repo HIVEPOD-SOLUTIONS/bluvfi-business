@@ -1,5 +1,6 @@
 import { missingHere } from "@/lib/business";
 import { processInvoice } from "@/lib/agent";
+import { payoutProblem } from "@/lib/intents-tokens";
 import { body, route } from "@/lib/http";
 import type { Confidentiality, Invoice } from "@/lib/types";
 
@@ -10,6 +11,8 @@ export const POST = route(async (req) => {
   if (!Number.isFinite(i.amountUsd) || (i.amountUsd as number) <= 0) throw new Error("amountUsd must be a positive number");
   const blocking = missingHere().filter((m) => m.key === "BLUVFI_MASTER_KEY" || m.key === "TREASURY_ACCOUNT");
   if (blocking.length) throw new Error(`Setup incomplete: ${blocking.map((m) => m.key).join(", ")}`);
+  const problem = await payoutProblem(String(i.chain).trim().toLowerCase(), String(i.asset).trim().toUpperCase(), i.payoutAddress.trim());
+  if (problem) throw new Error(`Payout: ${problem}.`);
   const conf: Confidentiality = b.confidentiality === "public" || b.confidentiality === "advanced" ? b.confidentiality : "basic";
   const inv: Invoice = {
     id: `inv-${Date.now()}`,
@@ -19,8 +22,8 @@ export const POST = route(async (req) => {
     invoiceNumber: i.invoiceNumber,
     poNumber: i.poNumber ?? "",
     amountUsd: i.amountUsd as number,
-    asset: i.asset,
-    chain: i.chain,
+    asset: String(i.asset).trim().toUpperCase(),
+    chain: String(i.chain).trim().toLowerCase(),
     payoutAddress: i.payoutAddress.trim(),
     text: i.text,
     receivedAt: new Date().toISOString(),

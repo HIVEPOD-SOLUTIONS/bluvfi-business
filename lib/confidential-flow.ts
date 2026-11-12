@@ -1,5 +1,6 @@
 import { cfg } from "./business";
 import { ASSET_ID, NEAR_USDC_CONTRACT } from "./chains";
+import { payoutAssetId } from "./intents-tokens";
 import {
   authenticate, confidentialQuote, confidentialStatus, daoDerivedKey, findMpcSignature, generateIntent, intentHash, prepareLogin, refreshTokens, shieldQuote, signProposal, submitIntent,
   type GeneratedIntent, type Tokens,
@@ -102,10 +103,10 @@ const raw = (usd: number) => BigInt(Math.round(usd * 1e6)).toString();
 /** A confidential quote for a payout: USDC from the shielded balance, paid out on the vendor's chain. */
 export async function quoteConfidentialPayout(inv: Invoice, deadlineMs: number): Promise<Quote> {
   const dao = enabled();
-  const destination = ASSET_ID[`${inv.chain}:${inv.asset}`];
+  const destination = await payoutAssetId(inv.chain, inv.asset);
   if (!destination) throw new Error(`No NEAR Intents route for ${inv.asset} on ${inv.chain}`);
   const q = await confidentialQuote(await confidentialSession(), { account: dao, originAsset: ASSET_ID["near:USDC"], destinationAsset: destination, amountOutRaw: raw(inv.amountUsd), recipient: inv.payoutAddress, deadlineMs });
-  return { depositAddress: q.depositAddress, amountIn: q.amountIn, amountOut: q.amountOut, deadline: q.deadline, timeWhenInactive: q.deadline, source: "1click", confidential: true };
+  return { depositAddress: q.depositAddress, amountIn: q.amountIn, amountOut: q.amountOut, deadline: q.deadline, timeWhenInactive: q.deadline, source: "1click", confidential: true, destinationAsset: destination };
 }
 
 /** The intent that funds a confidential quote, and the hash the council's proposal asks the MPC signer to sign. */

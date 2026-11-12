@@ -1,4 +1,3 @@
-import { Logo } from "@/components/Nav";
 
 export const dynamic = "force-dynamic";
 
@@ -7,7 +6,6 @@ export default async function PassportDone({ searchParams }: { searchParams: Pro
   const failed = (await searchParams).failed;
   return (
     <div className="mx-auto max-w-md pt-10">
-      <div className="mb-6"><Logo /></div>
       <div className="card">
         <h1>{failed ? "The passport check did not finish" : "Thank you, the check is done"}</h1>
         <p className="mt-2" style={{ color: "var(--tx-1)" }}>

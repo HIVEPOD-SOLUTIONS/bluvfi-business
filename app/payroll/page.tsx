@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ActionButton } from "@/components/Actions";
 import { Badge, Empty, PageHead } from "@/components/ui";
 import { cfg } from "@/lib/business";
-import { CHAIN_LABEL } from "@/lib/chains";
+import { chainName } from "@/lib/chains";
 import { PER_PROPOSAL, payrollRuns, SAMPLE_CSV, type PayrollRow, type PayrollRun } from "@/lib/payroll";
 import { isDemo } from "@/lib/tenant";
 import { tenantPage } from "@/lib/who";
@@ -43,7 +43,7 @@ function Run({ r, dao }: { r: PayrollRun; dao: boolean }) {
                   <td>{x.line}</td>
                   <td>{x.name}</td>
                   <td className="amount">{usd(x.amountUsd)}</td>
-                  <td>{x.asset} on {CHAIN_LABEL[x.chain]}</td>
+                  <td>{x.asset} on {chainName(x.chain)}</td>
                   <td className="mono text-xs break-all">{x.address}</td>
                   <td>{flagged.length ? flagged.map((c) => <div key={c.id} className={c.verdict === "block" ? "neg" : ""} style={c.verdict === "warn" ? { color: "#e8a838" } : undefined}>{c.verdict === "block" ? "✕" : "!"} {c.reason}</div>) : <span className="pos">✓ all passed</span>}</td>
                   <td><Badge tone={ROW[x.status][1]}>{ROW[x.status][0]}</Badge>{x.note && <div className="text-xs mt-1" style={{ color: "var(--tx-2)" }}>{x.note}</div>}</td>

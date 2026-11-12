@@ -1,7 +1,8 @@
 import { cfg, secretEquals } from "./business";
 import { currentBiz, DEFAULT_BIZ } from "./tenant";
 import { createHmac } from "node:crypto";
-import { ASSET_ID, NEAR_USDC_CONTRACT } from "./chains";
+import { ASSET_ID, chainName, INTENTS_ASSET_ID, NEAR_USDC_CONTRACT } from "./chains";
+import { payoutAssetId } from "./intents-tokens";
 import { ONECLICK_BASE, ONECLICK_DRY, ONECLICK_JWT, PUBLIC_BASE_URL, X402_PAYER_TOKEN, X402_PAYER_URL, X402_TESTNET } from "./config";
 import type { CallbackRecord, Channel, Confidentiality, Invoice, Quote } from "./types";
 
@@ -23,6 +24,8 @@ interface QuoteInput {
   confidentiality?: Confidentiality;
   /** How long the quote's deadline is from now. Default 30 minutes. */
   deadlineMs?: number;
+  /** MEMO: one shared deposit address plus a memo, which some origin chains (Stellar, for one) require. */
+  depositMode?: "MEMO";
 }
 
 /** A real (non-dry) NEAR Intents 1Click quote on mainnet. Returns the deposit address to send to. */
@@ -46,9 +49,15 @@ async function oneClickQuote(q: QuoteInput): Promise<Quote> {
       deadline: new Date(Date.now() + (q.deadlineMs ?? 30 * 60_000)).toISOString(),
       // Privacy is a per-payment choice. If 1Click rejects the field the request fails and nothing is silently downgraded.
       ...(q.confidentiality && q.confidentiality !== "public" ? { confidentiality: q.confidentiality } : {}),
+      ...(q.depositMode ? { depositMode: q.depositMode } : {}),
     }),
   });
-  if (!res.ok) throw new Error(`1Click quote failed (${res.status}): ${(await res.text().catch(() => "")).slice(0, 200)}`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    let reason = text;
+    try { reason = String((JSON.parse(text) as { message?: unknown }).message ?? text); } catch { /* not JSON: keep the text */ }
+    throw new Error(`1Click quote failed (${res.status}): ${reason.replace(/\s+/g, " ").slice(0, 200)}`);
+  }
   const j = (await res.json()) as { signature?: string; quote?: { amountIn?: string; amountInFormatted?: string; amountOutFormatted?: string; depositAddress?: string; depositMemo?: string; deadline?: string; timeWhenInactive?: string } };
   if (ONECLICK_DRY && j.quote) return { depositAddress: "(dry run: no deposit address)", amountIn: j.quote.amountInFormatted ?? "", amountInRaw: j.quote.amountIn, amountOut: j.quote.amountOutFormatted ?? "", source: "1click-dry" };
   if (!j.quote?.depositAddress) throw new Error("1Click returned no deposit address");
@@ -68,16 +77,16 @@ async function oneClickQuote(q: QuoteInput): Promise<Quote> {
 const toRaw = (usd: number) => BigInt(Math.round(usd * 1e6)).toString();
 
 /** Outgoing payout: the treasury pays USDC on NEAR, the vendor receives the invoice asset on its chain. */
-export function quotePayout(inv: Invoice, confidentiality: Confidentiality, deadlineMs?: number): Promise<Quote> {
+export async function quotePayout(inv: Invoice, confidentiality: Confidentiality, deadlineMs?: number): Promise<Quote> {
   if (inv.allocation) {
     // An investment: spend exactly this much USDC and keep what it buys in the treasury's own NEAR Intents balance.
     if (!cfg().TREASURY_ACCOUNT) throw new Error("TREASURY_ACCOUNT is not set");
     return oneClickQuote({ originAsset: ASSET_ID["near:USDC"], destinationAsset: inv.allocation.assetId, amountOut: toRaw(inv.amountUsd), exactInput: true, recipientType: "INTENTS", recipient: cfg().TREASURY_ACCOUNT, refundTo: cfg().TREASURY_ACCOUNT, confidentiality, deadlineMs });
   }
-  const dest = ASSET_ID[`${inv.chain}:${inv.asset}`];
-  if (!dest) throw new Error(`No NEAR Intents route for ${inv.asset} on ${inv.chain}`);
+  const dest = await payoutAssetId(inv.chain, inv.asset);
+  if (!dest) throw new Error(`No NEAR Intents route for ${inv.asset} on ${chainName(inv.chain)}`);
   if (!cfg().TREASURY_ACCOUNT) throw new Error("TREASURY_ACCOUNT is not set");
-  return oneClickQuote({
+  return { ...(await oneClickQuote({
     originAsset: ASSET_ID["near:USDC"],
     destinationAsset: dest,
     amountOut: toRaw(inv.amountUsd),
@@ -85,14 +94,20 @@ export function quotePayout(inv: Invoice, confidentiality: Confidentiality, dead
     refundTo: cfg().TREASURY_ACCOUNT,
     confidentiality,
     deadlineMs,
-  });
+  })), destinationAsset: dest };
 }
 
-/** Incoming payment: a client pays USDC from `fromChain`, the treasury receives USDC on NEAR. */
-export function quoteReceivable(amountUsd: number, fromChain: string, refundTo: string, payTo: string): Promise<Quote> {
-  const origin = ASSET_ID[`${fromChain}:USDC`];
-  if (!origin) throw new Error(`No NEAR Intents route for USDC on ${fromChain}`);
-  return oneClickQuote({ originAsset: origin, destinationAsset: ASSET_ID["near:USDC"], amountOut: toRaw(amountUsd), recipient: payTo, refundTo });
+/**
+ * Incoming payment: the treasury receives exactly this much USDC on NEAR. `from` is a chain (the client pays USDC
+ * there) or a NEAR Intents asset id the caller has already checked against 1Click's token list (lib/intents-tokens.ts),
+ * so a client can pay with any token on any chain NEAR Intents supports; 1Click works out how much of it to send.
+ */
+export function quoteReceivable(amountUsd: number, from: string, refundTo: string, payTo: string): Promise<Quote> {
+  const origin = INTENTS_ASSET_ID.test(from) ? from : ASSET_ID[`${from}:USDC`];
+  if (!origin) throw new Error(`No NEAR Intents route for USDC on ${from}`);
+  const ask = (depositMode?: "MEMO") => oneClickQuote({ originAsset: origin, destinationAsset: ASSET_ID["near:USDC"], amountOut: toRaw(amountUsd), recipient: payTo, refundTo, depositMode });
+  // Some chains only take deposits to a shared address with a memo; 1Click says so, and the quote then carries the memo to show.
+  return ask().catch((e: Error) => (/incorrect depositMode/i.test(e.message) ? ask("MEMO") : Promise.reject(e)));
 }
 
 /**
@@ -270,7 +285,7 @@ export async function payX402(url: string, maxPriceUsd: number, request: { metho
  */
 export async function quoteForWidget(request: Record<string, unknown>, amountUsd: number, payTo: string): Promise<Record<string, unknown> & { depositAddress?: string; depositMemo?: string; amountInFormatted?: string; deadline?: string }> {
   const originAsset = String(request.originAsset ?? "");
-  if (!/^nep(141|245):/.test(originAsset)) throw new Error("The widget sent no origin asset");
+  if (!INTENTS_ASSET_ID.test(originAsset)) throw new Error("The widget sent no origin asset");
   const dry = request.dry !== false;
   const body = {
     dry,

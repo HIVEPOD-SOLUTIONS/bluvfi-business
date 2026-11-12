@@ -1,3 +1,4 @@
+import { sameAddress } from "./chains";
 import type { BlocklistEntry, CheckRequest, CheckResult, Invoice, PurchaseOrder, Vendor, Verdict } from "./types";
 import { hasVendorTiers, standing, vendorRequirement, type VerificationTiers } from "./verify-tiers";
 
@@ -84,7 +85,7 @@ export function runFraudChecks(inv: Invoice, ctx: FraudContext): CheckResult[] {
     out.push({ id: "payout_changed", label: "Payout details", verdict: "allow", reason: `The address was issued by ${inv.issuedBy}'s own system for this order, not copied from a document.` });
   } else if (vendor) {
     const p = vendor.payout;
-    const same = p.address.toLowerCase() === inv.payoutAddress.toLowerCase() && p.chain === inv.chain;
+    const same = sameAddress(p.address, inv.payoutAddress) && p.chain === inv.chain;
     out.push({
       id: "payout_changed",
       label: "Payout details",

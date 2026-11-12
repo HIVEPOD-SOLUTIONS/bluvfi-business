@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { cfg } from "./business";
-import { ASSET_ID, CHAIN_LABEL, NEAR_USDC_CONTRACT } from "./chains";
+import { chainName, NEAR_USDC_CONTRACT, payoutChainFromName } from "./chains";
+import { payoutProblem } from "./intents-tokens";
 import { PUBLIC_BASE_URL, TREZU_APP_URL } from "./config";
 import { addDaoProposal, checkCustody, payoutWindowMs, trezuDescription } from "./custody";
 import { services } from "./services";
@@ -68,12 +69,6 @@ const find = (id: string) => {
 
 // ---------- The spreadsheet ----------
 
-const CHAIN_ALIASES: Record<string, string> = { near: "near", ethereum: "eth", eth: "eth", base: "base", arbitrum: "arb", arb: "arb", solana: "sol", sol: "sol" };
-const ADDRESS: Record<string, RegExp> = {
-  eth: /^0x[0-9a-fA-F]{40}$/, base: /^0x[0-9a-fA-F]{40}$/, arb: /^0x[0-9a-fA-F]{40}$/,
-  sol: /^[1-9A-HJ-NP-Za-km-z]{32,44}$/,
-  near: /^(?=.{2,64}$)(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/,
-};
 const COLUMNS: Record<string, keyof Pick<PayrollRow, "name" | "amountUsd" | "chain" | "asset" | "address">> = {
   name: "name", employee: "name", payee: "name",
   amount: "amountUsd", amount_usd: "amountUsd", "amount (usd)": "amountUsd", usd: "amountUsd",
@@ -98,8 +93,11 @@ function splitLine(line: string): string[] {
   return out.map((s) => s.trim());
 }
 
-/** Read the CSV. Problems come back by line number, in plain words, so the person can fix the sheet. */
-export function parsePayrollCsv(text: string): { rows: Omit<PayrollRow, "checks" | "verdict" | "status">[]; errors: string[] } {
+/**
+ * Read the CSV. Problems come back by line number, in plain words, so the person can fix the sheet. Each person can be paid on
+ * any chain and stablecoin the treasury pays out on (lib/chains.ts); the council's policy still decides which are allowed.
+ */
+export async function parsePayrollCsv(text: string): Promise<{ rows: Omit<PayrollRow, "checks" | "verdict" | "status">[]; errors: string[] }> {
   const lines = text.replace(/^﻿/, "").split(/\r?\n/).map((l, i) => ({ l, n: i + 1 })).filter((x) => x.l.trim());
   const errors: string[] = [];
   if (!lines.length) return { rows: [], errors: ["The file is empty"] };
@@ -112,16 +110,15 @@ export function parsePayrollCsv(text: string): { rows: Omit<PayrollRow, "checks"
     const cells = splitLine(l);
     const get = (k: string) => cells[head.indexOf(k as never)] ?? "";
     const name = get("name").slice(0, 80);
-    const chain = CHAIN_ALIASES[get("chain").toLowerCase()] ?? get("chain").toLowerCase();
+    const chain = payoutChainFromName(get("chain"));
     const asset = (get("asset") || "USDC").toUpperCase();
     const address = get("address");
     const amount = Number(get("amountUsd").replace(/[$,\s]/g, ""));
     const problems: string[] = [];
     if (!name) problems.push("no name");
     if (!(amount > 0) || amount > 1_000_000) problems.push(`"${get("amountUsd")}" is not an amount in USD`);
-    if (!CHAIN_LABEL[chain]) problems.push(`"${get("chain")}" is not a chain we pay on (NEAR, Ethereum, Base, Arbitrum, Solana)`);
-    else if (!ADDRESS[chain].test(address)) problems.push(`"${address}" is not a ${CHAIN_LABEL[chain]} address`);
-    if (CHAIN_LABEL[chain] && !ASSET_ID[`${chain}:${asset}`]) problems.push(`${asset} on ${CHAIN_LABEL[chain]} is not a route NEAR Intents offers here`);
+    const route = await payoutProblem(chain, asset, address);
+    if (route) problems.push(route.startsWith(`"${chain}"`) ? `"${get("chain")}" is not a chain we pay on` : route);
     if (problems.length) errors.push(`Line ${n}${name ? ` (${name})` : ""}: ${problems.join("; ")}`);
     else rows.push({ line: n, name, amountUsd: Math.round(amount * 100) / 100, chain, asset, address });
   }
@@ -135,8 +132,8 @@ async function checkRow(r: Omit<PayrollRow, "checks" | "verdict" | "status">, se
   const policy = currentPolicy();
   const out: CheckResult[] = [];
   out.push(policy.allowedChains.includes(r.chain)
-    ? { id: "chain", label: "Allowed chain", verdict: "allow", reason: `${CHAIN_LABEL[r.chain]} is allowed.` }
-    : { id: "chain", label: "Allowed chain", verdict: "block", reason: `The council's policy does not allow paying on ${CHAIN_LABEL[r.chain]}.` });
+    ? { id: "chain", label: "Allowed chain", verdict: "allow", reason: `${chainName(r.chain)} is allowed.` }
+    : { id: "chain", label: "Allowed chain", verdict: "block", reason: `The council's policy does not allow paying on ${chainName(r.chain)}.` });
   out.push(policy.allowedAssets.includes(r.asset)
     ? { id: "asset", label: "Allowed asset", verdict: "allow", reason: `${r.asset} is allowed.` }
     : { id: "asset", label: "Allowed asset", verdict: "block", reason: `The council's policy does not allow paying in ${r.asset}.` });
@@ -169,7 +166,7 @@ const worstOf = (cs: CheckResult[]): Verdict => (cs.some((c) => c.verdict === "b
 /** Read a CSV and check every person. Nothing is paid or proposed: that is a separate step a signer takes. */
 export async function createPayrollRun(csv: string, title: string, by: string): Promise<PayrollRun> {
   requireSignerName(by);
-  const { rows, errors } = parsePayrollCsv(csv);
+  const { rows, errors } = await parsePayrollCsv(csv);
   if (errors.length) throw new Error(errors.slice(0, 8).join(". ") + (errors.length > 8 ? `. And ${errors.length - 8} more.` : ""));
   const seen = new Map<string, string>();
   const checked: PayrollRow[] = [];
@@ -252,7 +249,7 @@ export async function sendPayrollRun(id: string, by: string): Promise<PayrollRun
     const description = trezuDescription({
       proposal_action: "custom",
       title: `Payroll: ${run.title}${groups.length > 1 ? ` (part ${gi + 1} of ${groups.length})` : ""}, ${group.length} ${group.length === 1 ? "person" : "people"}, ${usd(total)}`,
-      notes: `Proposed by the Bluvfi Business agent from a payroll sheet checked against the policy, the OFAC sanctions list and the shared blocklist. One approval pays everyone below; NEAR Intents delivers each person's money on their own chain. ${group.map((r) => `${r.name}: ${usd(r.amountUsd)} in ${r.asset} on ${CHAIN_LABEL[r.chain]} to ${r.address}`).join("; ")}.`,
+      notes: `Proposed by the Bluvfi Business agent from a payroll sheet checked against the policy, the OFAC sanctions list and the shared blocklist. One approval pays everyone below; NEAR Intents delivers each person's money on their own chain. ${group.map((r) => `${r.name}: ${usd(r.amountUsd)} in ${r.asset} on ${chainName(r.chain)} to ${r.address}`).join("; ")}.`,
       url: PUBLIC_BASE_URL ? `${PUBLIC_BASE_URL}/payroll` : "",
       // Funds sent to a deposit address after it stops working can be lost: the council should not approve after this.
       depositValidUntil: validUntil,
@@ -290,7 +287,7 @@ export async function refreshPayrollRun(id: string): Promise<PayrollRun> {
   }
   for (const r of run.rows.filter((x) => x.status === "sent")) {
     const s = await services.swapStatus(r.quote!.depositAddress, r.quote!.depositMemo);
-    if (s === "SUCCESS") Object.assign(r, { status: "paid", note: `Delivered in ${r.asset} on ${CHAIN_LABEL[r.chain]}.` });
+    if (s === "SUCCESS") Object.assign(r, { status: "paid", note: `Delivered in ${r.asset} on ${chainName(r.chain)}.` });
     else if (s === "REFUNDED") Object.assign(r, { status: "refunded", note: "NEAR Intents could not deliver and refunded the treasury." });
     else if (s === "FAILED") Object.assign(r, { status: "failed", note: "NEAR Intents could not deliver this payout." });
     else r.note = `On its way (${s.toLowerCase().replace(/_/g, " ")}).`;

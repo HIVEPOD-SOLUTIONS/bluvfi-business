@@ -8,7 +8,7 @@ import { NextStep } from "@/components/NextStep";
 import Link from "next/link";
 import { ActionButton, KillSwitch } from "@/components/Actions";
 import { Badge, Empty, PageHead, PaymentCard, Stat, usd, when } from "@/components/ui";
-import { CHAIN_LABEL } from "@/lib/chains";
+import { chainName } from "@/lib/chains";
 import type { Balance } from "@/lib/chain";
 import { DEMO_AI_MODEL, NEAR_AI_KEY, NEAR_AI_MODEL, NETWORK, missingConfig } from "@/lib/config";
 import { modelStatus } from "@/lib/aimodel";
@@ -25,7 +25,7 @@ function BalanceList({ balances }: { balances: Balance[] }) {
     <ul className="mt-2 divide-y" style={{ borderColor: "var(--bd)" }}>
       {balances.map((b) => (
         <li key={b.asset} className="flex items-center justify-between py-2.5" style={{ borderColor: "var(--bd)" }}>
-          <span>{CHAIN_LABEL[b.chain]} <span className="label ml-1">{b.asset}</span></span>
+          <span>{chainName(b.chain)} <span className="label ml-1">{b.asset}</span></span>
           <span className="amount">{b.usd ? usd(b.amount) : b.amount.toFixed(2)}</span>
         </li>
       ))}

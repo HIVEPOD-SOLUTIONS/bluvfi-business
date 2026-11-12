@@ -21,7 +21,7 @@ export function PayrollUpload({ sample }: { sample: string }) {
     >
       <h2>Upload a payroll sheet</h2>
       <p className="text-sm" style={{ color: "var(--tx-1)" }}>
-        One line per person: <span className="mono">name,amount,chain,asset,address</span>. Amounts in USD. Chains: NEAR, Ethereum, Base, Arbitrum, Solana; each person picks their own chain and stablecoin. Nothing is sent yet: every line is checked first.
+        One line per person: <span className="mono">name,amount,chain,asset,address</span>. Amounts in USD. Chains: any the treasury pays out on (NEAR, Ethereum, Base, Arbitrum, Solana, BNB Chain, Polygon, Optimism, Avalanche, Tron, TON, Stellar and more), in USDC, USDT or another stablecoin NEAR Intents delivers there; each person picks their own. The council&apos;s policy decides which are allowed. Nothing is sent yet: every line is checked first.
       </p>
       <label className="block"><span className="label">Name of this run</span>
         <input className="input mt-1" value={title} maxLength={80} placeholder="November salaries" onChange={(e) => setTitle(e.target.value)} />

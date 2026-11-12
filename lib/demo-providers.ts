@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { state } from "./store";
 import { currentBiz } from "./tenant";
 
@@ -137,10 +139,26 @@ export function demoCredible(area: "onramp" | "offramp", method: string, path: s
 export const resetDemoBank = () => accounts.clear();
 
 // ---------- Backpack Exchange ----------
-const STOCKS: [string, string, number][] = [["AAPL", "Apple Inc.", 228], ["MSFT", "Microsoft Corp.", 431], ["NVDA", "NVIDIA Corp.", 142], ["TSLA", "Tesla Inc.", 251], ["SPY", "SPDR S&P 500 ETF", 589], ["QQQ", "Invesco QQQ Trust", 502]];
+/**
+ * Every US stock and ETF Backpack lists, with a recent price, from the copy saved in fixtures/backpack-stocks.json
+ * (Backpack's /api/v1/securities and External tickers). Demo trades stay fractional (0.01 share) so a small demo buy fills.
+ */
+const FALLBACK: [string, string, number][] = [["AAPL", "Apple Inc.", 228], ["MSFT", "Microsoft Corp.", 431], ["NVDA", "NVIDIA Corp.", 142], ["TSLA", "Tesla Inc.", 251], ["SPY", "SPDR S&P 500 ETF", 589], ["QQQ", "Invesco QQQ Trust", 502]];
+let savedStocks: [string, string, number][] | undefined;
+function stocksList(): [string, string, number][] {
+  if (savedStocks) return savedStocks;
+  try {
+    const rows = (JSON.parse(readFileSync(join(process.cwd(), "fixtures", "backpack-stocks.json"), "utf8")) as { stocks: [string, string, number][] }).stocks;
+    savedStocks = rows.filter((r) => /^[A-Z0-9.]{1,10}$/.test(r[0]) && r[2] > 0).map(([t, n, p]): [string, string, number] => [t, n, p]);
+  } catch {
+    savedStocks = [];
+  }
+  if (!savedStocks.length) savedStocks = FALLBACK;
+  return savedStocks;
+}
 /** A steady, slightly moving price: the same answer for the same minute. */
 export function demoStockPrice(asset: string, atMs = Date.now()): number {
-  const base = STOCKS.find((s) => `${s[0]}.US` === asset)?.[2] ?? 100;
+  const base = stocksList().find((s) => `${s[0]}.US` === asset)?.[2] ?? 100;
   return Math.round(base * (1 + 0.012 * Math.sin(atMs / 3_600_000 + unit(asset) * 6)) * 100) / 100;
 }
 const wallets = new Map<string, { cash: number; shares: Record<string, number>; credited: Set<string> }>();
@@ -149,11 +167,11 @@ const wallet = () => { const k = currentBiz(); if (!wallets.has(k)) wallets.set(
 export const resetDemoStocks = () => { wallets.clear(); fills.clear(); };
 
 export function demoBackpackPublic(path: string, params: Record<string, string | number | boolean | undefined>): unknown {
-  if (path === "/api/v1/securities") return STOCKS.map(([t, name]) => ({ asset: `${t}.US`, name, sessions: [{ minQuantity: "0.01", stepSize: "0.01" }] }));
-  if (path === "/api/v1/tickers") return STOCKS.map(([t]) => ({ symbol: `${t}.US_USDC`, lastPrice: String(demoStockPrice(`${t}.US`)), priceChangePercent: String(Math.round((unit(t, Math.floor(Date.now() / 86_400_000)) - 0.5) * 0.05 * 10_000) / 10_000) }));
+  if (path === "/api/v1/securities") return stocksList().map(([t, name]) => ({ asset: `${t}.US`, name, sessions: [{ minQuantity: "0.01", stepSize: "0.01" }] }));
+  if (path === "/api/v1/tickers") return stocksList().map(([t]) => ({ symbol: `${t}.US_USDC`, lastPrice: String(demoStockPrice(`${t}.US`)), priceChangePercent: String(Math.round((unit(t, Math.floor(Date.now() / 86_400_000)) - 0.5) * 0.05 * 10_000) / 10_000) }));
   if (path === "/api/v1/market-sessions") return [{ name: "demo", startTime: "00:00:00", endTime: "23:59:59", startWeekday: 1, endWeekday: 7, timezone: "America/New_York" }];
   if (path === "/api/v1/market-holidays") return [];
-  if (path === "/api/v1/markets") return STOCKS.map(([t]) => ({ symbol: `${t}.US_USDC`, rwaMarketType: "STOCK", marketType: "SPOT" }));
+  if (path === "/api/v1/markets") return stocksList().map(([t]) => ({ symbol: `${t}.US_USDC`, rwaMarketType: "STOCK", marketType: "SPOT" }));
   if (path === "/api/v1/klines") {
     const asset = String(params.symbol ?? "").replace(/_USDC$/, "");
     const hourly = params.interval === "1h";

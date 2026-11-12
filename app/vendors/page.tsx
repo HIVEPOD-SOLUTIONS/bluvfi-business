@@ -1,6 +1,7 @@
 import { Badge, Empty, PageHead, when } from "@/components/ui";
 import { tenantPage } from "@/lib/who";
-import { CHAIN_LABEL } from "@/lib/chains";
+import { chainName } from "@/lib/chains";
+import { payoutRoutes } from "@/lib/intents-tokens";
 import { currentPolicy, state } from "@/lib/store";
 import { KybControl } from "@/components/Kyb";
 import { kybEnabled } from "@/lib/kyb";
@@ -9,7 +10,8 @@ import { NewPurchaseOrder, NewVendor } from "./Forms";
 
 export const dynamic = "force-dynamic";
 
-function Vendors() {
+async function Vendors() {
+  const routes = await payoutRoutes();
   const s = state();
   const allow = currentPolicy().vendorAllowlist;
   return (
@@ -18,7 +20,7 @@ function Vendors() {
         title="Vendors"
         sub="Who you pay, where they get paid, and the channel you already trust for confirming changes. The agent compares every invoice against this record."
       />
-      <NewVendor />
+      <NewVendor routes={routes} />
       <h2 className="mt-8 mb-3">Vendor records</h2>
       {s.vendors.length === 0 ? (
         <Empty title="No vendors yet" hint="Add the vendors you pay. Invoices from unknown vendors are always held for a human." />
@@ -32,7 +34,7 @@ function Vendors() {
               </div>
               <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
                 <dt style={{ color: "var(--tx-2)" }}>Domain</dt><dd>{v.domain}</dd>
-                <dt style={{ color: "var(--tx-2)" }}>Pays to</dt><dd className="mono break-all">{v.payout.address} ({CHAIN_LABEL[v.payout.chain] ?? v.payout.chain}, {v.payout.asset})</dd>
+                <dt style={{ color: "var(--tx-2)" }}>Pays to</dt><dd className="mono break-all">{v.payout.address} ({chainName(v.payout.chain)}, {v.payout.asset})</dd>
                 <dt style={{ color: "var(--tx-2)" }}>Verified contact</dt><dd className="break-all">{v.verifiedContact.channel}: {v.verifiedContact.handle}</dd>
                 <dt style={{ color: "var(--tx-2)" }}>Last paid</dt><dd>{v.lastPaidAt ? when(v.lastPaidAt) : "Never"}</dd>
               </dl>

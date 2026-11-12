@@ -36,7 +36,21 @@ export function writeAtomic(file: string, text: string | Buffer, mode?: number) 
   } finally {
     closeSync(fd);
   }
-  renameSync(tmp, file);
+  // On Windows a rename over a file fails for a moment while another program (antivirus, the search indexer, a reader)
+  // has it open. Retry briefly, as graceful-fs does, instead of failing the write; on Linux this never triggers.
+  for (let i = 0; ; i++) {
+    try {
+      renameSync(tmp, file);
+      return;
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (i >= 40 || (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")) {
+        rmSync(tmp, { force: true });
+        throw e;
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+    }
+  }
 }
 
 const lockDir = (file: string) => `${file}.lock`;

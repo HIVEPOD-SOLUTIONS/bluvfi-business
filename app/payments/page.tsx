@@ -1,11 +1,13 @@
 import { Empty, PageHead, PaymentCard } from "@/components/ui";
 import { tenantPage } from "@/lib/who";
 import { state } from "@/lib/store";
+import { payoutRoutes } from "@/lib/intents-tokens";
 import { SubmitInvoice } from "./SubmitInvoice";
 
 export const dynamic = "force-dynamic";
 
-function Payments() {
+async function Payments() {
+  const routes = await payoutRoutes();
   const { payments, vendors } = state();
   return (
     <>
@@ -15,7 +17,7 @@ function Payments() {
       ) : (
         <div className="grid gap-3">{payments.map((p) => <PaymentCard key={p.id} p={p} />)}</div>
       )}
-      <SubmitInvoice vendors={vendors.map((v) => ({ name: v.name, domain: v.domain, chain: v.payout.chain, address: v.payout.address }))} />
+      <SubmitInvoice routes={routes} vendors={vendors.map((v) => ({ name: v.name, domain: v.domain, chain: v.payout.chain, asset: v.payout.asset, address: v.payout.address }))} />
     </>
   );
 }

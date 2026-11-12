@@ -527,7 +527,7 @@ function proposalFor(p: Payment, amount: string, memo: string, evidence: string)
       : `Proposed by the Bluvfi Business agent. ${p.invoice.amountUsd} USD in ${p.invoice.asset} on ${p.invoice.chain}. AI recommends ${p.ai.decision} (risk ${p.ai.riskScore}/100); every policy and fraud check passed.`,
     url: PUBLIC_BASE_URL ? `${PUBLIC_BASE_URL}/payments/${p.id}` : "",
     recipient: priv ? "" : p.invoice.payoutAddress,
-    destinationNetwork: priv ? "" : ASSET_ID[`${p.invoice.chain}:${p.invoice.asset}`] ?? "",
+    destinationNetwork: priv ? "" : p.quote!.destinationAsset ?? ASSET_ID[`${p.invoice.chain}:${p.invoice.asset}`] ?? "",
     depositAddress: dep,
     // Funds sent to the deposit address after it stops working can be lost: the council should not approve after this.
     depositValidUntil: p.quote!.timeWhenInactive ?? p.quote!.deadline ?? "",

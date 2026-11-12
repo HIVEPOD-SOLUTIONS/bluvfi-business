@@ -5,6 +5,7 @@ import type { Balance } from "./chain";
 import { ed25519KeyFromSeed, sha256 } from "./crypto";
 import type { CounterpartySignals } from "./fraud";
 import type { Judged, NearAiBundle } from "./nearai";
+import { savedIntentsToken } from "./intents-tokens";
 import { verifyNearAiBundle } from "./nearai";
 import { buildRequest, requestHash, type JudgeFacts } from "./nearai-core";
 import type { CallbackRecord, Invoice, Quote } from "./types";
@@ -84,8 +85,12 @@ export const demoServices = (model: string) => ({
     { chain: "near", asset: "NEAR", amount: 12.5, usd: false },
   ],
   quotePayout: async (inv: Invoice): Promise<Quote> => quote(`pay:${inv.invoiceNumber}`, inv.amountUsd),
-  quoteReceivable: async (amountUsd: number, fromChain: string, _refundTo: string, payTo: string): Promise<Quote> => {
-    const q = quote(`recv:${fromChain}:${payTo}:${amountUsd}`, amountUsd);
+  quoteReceivable: async (amountUsd: number, from: string, _refundTo: string, payTo: string): Promise<Quote> => {
+    // `from` is a chain (USDC) or a NEAR Intents asset id: price a token that is not a dollar from the saved token list.
+    const token = savedIntentsToken(from);
+    const fromChain = token?.blockchain ?? from;
+    let q = quote(`recv:${from}:${payTo}:${amountUsd}`, amountUsd);
+    if (token?.price && !/^(USDC|USDT|USDT0|DAI|USD1|USDG)$/i.test(token.symbol)) q = { ...q, amountIn: (amountUsd * 1.002 / token.price).toFixed(Math.min(token.decimals, 8)) };
     // On an EVM chain the made-up deposit address looks like one (nobody holds a key for it), so the checks on a real address run as they do live.
     return ["base", "arb", "eth"].includes(fromChain) ? { ...q, depositAddress: `0x${sha256(`demo-evm:${q.depositAddress}`).slice(0, 40)}` } : q;
   },

@@ -241,6 +241,8 @@ export interface CallbackRecord {
 /** A real 1Click quote. The treasury sends amountIn to depositAddress before the deadline. */
 export interface Quote {
   depositAddress: string;
+  /** A payout: the NEAR Intents asset the payee receives (shown in the DAO proposal). */
+  destinationAsset?: string;
   /** Required by some origin chains; must be sent with the deposit and passed to the status call. */
   depositMemo?: string;
   amountIn: string;
@@ -354,7 +356,7 @@ export interface Receivable {
   /** "funding": money the business puts into its own treasury from another chain or token, not an invoice to a client. */
   kind?: "invoice" | "funding";
   status: "open" | "paid";
-  deposit?: { chain: string; address: string; memo?: string; amountIn: string; deadline?: string };
+  deposit?: { chain: string; address: string; memo?: string; amountIn: string; deadline?: string; /** What the client sends (USDC when absent). */ symbol?: string };
   /** An INR bank transfer (UPI) that buys the USDC for this funding: Credible's order and where it stands (lib/banking.ts). */
   bank?: { provider: "credible"; orderId: string; status: string; inr: number; upiIntent: string; upiQr: string; expiresAt: string; checkedAt?: string };
   /** What 1Click last said about the deposit: a failed or expired one clears `deposit` so the client can start again. */

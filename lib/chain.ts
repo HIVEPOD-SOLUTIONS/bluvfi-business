@@ -89,13 +89,14 @@ async function evmSignals(address: string): Promise<CounterpartySignals> {
 
 /** Public on-chain facts about a payee. Returns undefined when the chain is unsupported or the RPC fails. */
 export async function lookupSignals(address: string, chain?: string): Promise<CounterpartySignals | undefined> {
-  const key = address.toLowerCase();
+  const lower = address.toLowerCase();
+  const key = `${chain ?? ""}:${lower}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.s;
   try {
-    const isEvm = /^0x[0-9a-f]{40}$/i.test(address);
-    const isNear = chain === "near" || /\.near$/.test(key) || /^[0-9a-f]{64}$/.test(key);
-    const s = isEvm ? await evmSignals(address) : isNear ? await nearSignals(key) : undefined;
+    const isEvm = /^0x[0-9a-f]{40}$/i.test(address) && (!chain || chain === "eth");
+    const isNear = chain === "near" || (!chain && (/\.near$/.test(lower) || /^[0-9a-f]{64}$/.test(lower)));
+    const s = isEvm ? await evmSignals(address) : isNear ? await nearSignals(lower) : undefined;
     if (s) cache.set(key, { at: Date.now(), s });
     return s;
   } catch {

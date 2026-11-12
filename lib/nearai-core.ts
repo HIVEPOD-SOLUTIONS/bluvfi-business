@@ -1,3 +1,4 @@
+import { sameAddress } from "./chains";
 import { ed25519Verify, sha256 } from "./crypto";
 import type { AiJudgment, Invoice, SignedDecision, VerifiedPanel } from "./types";
 
@@ -154,7 +155,7 @@ export function computeFacts(
   const po = pos.find((p) => p.po === inv.poNumber);
   return {
     knownVendor: !!v,
-    payoutChanged: !!v && (v.payout.address.toLowerCase() !== inv.payoutAddress.toLowerCase() || v.payout.chain !== inv.chain),
+    payoutChanged: !!v && (!sameAddress(v.payout.address, inv.payoutAddress) || v.payout.chain !== inv.chain),
     poMatches: !!po && po.vendorName === inv.vendorName && Math.abs(po.amountUsd - inv.amountUsd) < 0.01,
     amountUsd: inv.amountUsd,
   };

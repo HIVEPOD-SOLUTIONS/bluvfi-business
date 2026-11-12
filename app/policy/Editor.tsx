@@ -1,4 +1,5 @@
 "use client";
+import { chainName, PAYOUT_ASSETS, PAYOUT_CHAIN_KEYS } from "@/lib/chains";
 import { useState } from "react";
 import { ActionButton, ErrorLine, useAction } from "@/components/Actions";
 import { LEVELS, PRIVACY_PROFILES, type PrivacyProfile } from "@/lib/privacy";
@@ -71,9 +72,11 @@ export function PolicyEditor({ policy, signer }: { policy: Policy; signer: strin
       <label className="block"><span className="label">Most for one investment (USD)</span>
         <input className="input mt-1" type="number" min="0" value={f.investMaxUsd} onChange={(e) => setF({ ...f, investMaxUsd: e.target.value })} /></label>
       <label className="block"><span className="label">Allowed chains</span>
-        <input className="input mt-1" value={f.allowedChains} onChange={(e) => setF({ ...f, allowedChains: e.target.value })} /></label>
+        <input className="input mt-1" value={f.allowedChains} onChange={(e) => setF({ ...f, allowedChains: e.target.value })} />
+        <span className="text-xs" style={{ color: "var(--tx-2)" }}>Any of: {PAYOUT_CHAIN_KEYS.map((c) => `${c} (${chainName(c)})`).join(", ")}. A vendor or a payroll line on a chain not listed here is blocked.</span></label>
       <label className="block"><span className="label">Allowed assets</span>
-        <input className="input mt-1" value={f.allowedAssets} onChange={(e) => setF({ ...f, allowedAssets: e.target.value })} /></label>
+        <input className="input mt-1" value={f.allowedAssets} onChange={(e) => setF({ ...f, allowedAssets: e.target.value })} />
+        <span className="text-xs" style={{ color: "var(--tx-2)" }}>Any of: {PAYOUT_ASSETS.join(", ")}.</span></label>
       <label className="block sm:col-span-2"><span className="label">Who needs privacy: treasury type</span>
         <select className="input mt-1" value={f.privacyProfile} onChange={(e) => {
           const p = e.target.value as PrivacyProfile | "";
