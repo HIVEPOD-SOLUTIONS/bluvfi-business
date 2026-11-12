@@ -7,7 +7,7 @@ import { createGrant, openWithKey, revokeGrant } from "../lib/audit";
 import { handleTelegramReply, handleVoiceDigit } from "../lib/channels";
 import { ed25519Verify, mlDsaVerify } from "../lib/crypto";
 import { detectInjection, levenshtein } from "../lib/fraud";
-import { missingConfig } from "../lib/config";
+import { missingConfig, NEAR_AI_MODEL } from "../lib/config";
 import { proxy } from "../proxy";
 import { limited } from "../lib/ratelimit";
 import { quotePayout, twilioSignatureValid } from "../lib/rails";
@@ -56,7 +56,7 @@ test("the AI signature really verifies, and tampering with the response breaks i
 
 test("signature text must match the kind: provider_tee includes the model id, gateway does not, and the raw response bytes are what is hashed", async () => {
   const a = await processInvoice(invoice());
-  assert.ok(a.verified.signature.text.startsWith("zai-org/GLM-5.1-FP8:"));
+  assert.ok(a.verified.signature.text.startsWith(`${NEAR_AI_MODEL}:`));
   assert.equal(a.verified.signature.valid, true);
   behaviour.kind = "gateway";
   const g = await processInvoice(invoice({ invoiceNumber: "INV-G", poNumber: "PO-2", amountUsd: 900 }));

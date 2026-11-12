@@ -24,7 +24,14 @@ const env = (key: keyof typeof DEMO_DEFAULTS) => process.env[key] ?? (DEMO ? DEM
 
 export const NEAR_AI_KEY = process.env.NEAR_AI_API_KEY ?? "";
 export const NEAR_AI_BASE = process.env.NEAR_AI_BASE_URL ?? "https://cloud-api.near.ai/v1";
-export const NEAR_AI_MODEL = process.env.NEAR_AI_MODEL ?? "zai-org/GLM-5.1-FP8";
+/**
+ * The canonical model id. NEAR AI Cloud renames models and keeps the old names as aliases; we ask for no aliasing
+ * (lib/nearai.ts), so an old name is refused with a 400 instead of quietly attesting a different model.
+ */
+export const DEFAULT_NEAR_AI_MODEL = "z-ai/glm-5.3-flash";
+export const NEAR_AI_MODEL = process.env.NEAR_AI_MODEL || DEFAULT_NEAR_AI_MODEL;
+/** The model name the demo's recorded reviews were made for. Fixed, so a model set in .env.local never breaks the demo replays. */
+export const DEMO_AI_MODEL = DEFAULT_NEAR_AI_MODEL;
 
 export const NEAR_RPC_URL = process.env.NEAR_RPC_URL ?? (NETWORK === "testnet" ? "https://test.rpc.fastnear.com" : "https://rpc.mainnet.near.org");
 /** Archival NEAR RPC: old blocks, to tell whether a payee's contract code changed recently. */

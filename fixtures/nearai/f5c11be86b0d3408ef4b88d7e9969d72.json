@@ -1,8 +1,8 @@
 {
-  "model": "zai-org/GLM-5.1-FP8",
-  "nonce": "fb008855ee4e3af66e362022c5baa8d07df58b8853a9ff59ed228801c6e33268",
+  "model": "z-ai/glm-5.3-flash",
+  "nonce": "286b56cd9487c6ed1e7081fd6e35c3dc78626d6035c43da88662e82c3bc905dd",
   "requestBody": {
-    "model": "zai-org/GLM-5.1-FP8",
+    "model": "z-ai/glm-5.3-flash",
     "temperature": 0,
     "messages": [
       {
@@ -60,14 +60,14 @@
     "model_attestations": [
       {
         "signing_address": "c7cfb60818532bb0c0607d8d3ce0403b555301a6616e4d5ec56d1cb4529f3ed0",
-        "request_nonce": "fb008855ee4e3af66e362022c5baa8d07df58b8853a9ff59ed228801c6e33268"
+        "request_nonce": "286b56cd9487c6ed1e7081fd6e35c3dc78626d6035c43da88662e82c3bc905dd"
       }
     ]
   },
-  "rawResponse": "{\"id\":\"chatcmpl-demo-829dc0f1e07c\",\"object\":\"chat.completion\",\"model\":\"zai-org/GLM-5.1-FP8\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"decision\\\":\\\"pay\\\",\\\"riskScore\\\":4,\\\"summary\\\":\\\"Routine refund of an overpayment, already approved by the CFO.\\\",\\\"reasons\\\":[\\\"Refund\\\",\\\"Pre-approved\\\"]}\"},\"finish_reason\":\"stop\"}]}",
+  "rawResponse": "{\"id\":\"chatcmpl-demo-f5c11be86b0d\",\"object\":\"chat.completion\",\"model\":\"z-ai/glm-5.3-flash\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"decision\\\":\\\"pay\\\",\\\"riskScore\\\":4,\\\"summary\\\":\\\"Routine refund of an overpayment, already approved by the CFO.\\\",\\\"reasons\\\":[\\\"Refund\\\",\\\"Pre-approved\\\"]}\"},\"finish_reason\":\"stop\"}]}",
   "signatureResponse": {
-    "text": "zai-org/GLM-5.1-FP8:829dc0f1e07c1be18f65f597ebdf6de91fca2319f9ac0bb59cf144da46c21984:4f73109aab7f9e9535a06f54b256408eff5ec9251f5de3898594b5c94be6e285",
-    "signature": "1797124d2f04a3a85ded6a1dc6d1d955d8bf69d04bc8755dda19bee1ff4c102aa99215a9c84d494aeff569fb39d0ec88cca5c8fa8cb781de3b57d2042067af08",
+    "text": "z-ai/glm-5.3-flash:f5c11be86b0d3408ef4b88d7e9969d72b20135cc5c371a49903ee85a5d038f7b:cc87e963546a4d9ef7da653cb8cf2903d28a8852c295e4a03b8c50cb2e7aaceb",
+    "signature": "e3914dd8d642a5a75d7d996a8668a9dde6730b11d0e745fa944dd8f42ea2cefb57f761c379039fcd98e50e6c7eed97748eff42cba3ad7afbcd8ed321e5ce2e00",
     "signing_address": "c7cfb60818532bb0c0607d8d3ce0403b555301a6616e4d5ec56d1cb4529f3ed0",
     "signature_kind": "provider_tee"
   },

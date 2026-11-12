@@ -26,6 +26,15 @@ const headers = (extra: Record<string, string> = {}) => ({
 });
 const timeout = () => AbortSignal.timeout(60_000);
 const norm = (s: string) => s.toLowerCase().replace(/^0x/, "");
+/** NEAR AI's own reason for a refusal (for example a renamed model), so the error says what to fix, not just the status. */
+async function failure(what: string, res: Response): Promise<Error> {
+  const text = await res.text().catch(() => "");
+  let reason = "";
+  try { reason = String((JSON.parse(text) as { error?: { message?: unknown } }).error?.message ?? ""); } catch { reason = ""; }
+  reason = reason.replace(/\s+/g, " ").trim().slice(0, 240);
+  const hint = /alias of/.test(reason) ? " Set NEAR_AI_MODEL to the canonical name it gives." : "";
+  return new Error(`NEAR AI ${what} failed: ${res.status}${reason ? ` (${reason})` : ""}${hint}`);
+}
 
 type Report = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -94,12 +103,12 @@ export async function fetchNearAi(requestBody: unknown): Promise<NearAiBundle> {
     structured = false;
     chatRes = await chat(requestBody);
   }
-  if (!chatRes.ok) throw new Error(`NEAR AI chat failed: ${chatRes.status}`);
+  if (!chatRes.ok) throw await failure("chat", chatRes);
   const rawResponse = Buffer.from(await chatRes.arrayBuffer()).toString("utf8");
   const chatId = (JSON.parse(rawResponse) as { id: string }).id;
 
   const sigRes = await fetch(`${NEAR_AI_BASE}/signature/${encodeURIComponent(chatId)}?${new URLSearchParams({ signing_algo: ALGO })}`, { headers: headers(), signal: timeout() });
-  if (!sigRes.ok) throw new Error(`NEAR AI signature failed: ${sigRes.status}`);
+  if (!sigRes.ok) throw await failure("signature", sigRes);
   const signatureResponse = (await sigRes.json()) as NearAiBundle["signatureResponse"];
   return { model: NEAR_AI_MODEL, nonce, requestBody, attestationReport, rawResponse, signatureResponse, recordedAt: new Date().toISOString(), source: "live", structured };
 }
@@ -109,7 +118,7 @@ async function fetchAttestation(nonce: string): Promise<Report> {
     `${NEAR_AI_BASE}/attestation/report?${new URLSearchParams({ model: NEAR_AI_MODEL, provider: "near", include_tls_fingerprint: "false", signing_algo: ALGO, nonce })}`,
     { headers: headers(), signal: timeout() }
   );
-  if (!attRes.ok) throw new Error(`NEAR AI attestation failed: ${attRes.status}`);
+  if (!attRes.ok) throw await failure("attestation", attRes);
   return (await attRes.json()) as Report;
 }
 

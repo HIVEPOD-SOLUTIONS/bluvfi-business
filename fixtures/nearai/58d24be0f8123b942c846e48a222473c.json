@@ -1,8 +1,8 @@
 {
-  "model": "zai-org/GLM-5.1-FP8",
-  "nonce": "abea8fb9e48f2627e695ce58bd00306a445e3c1737bb38b2b93bd59694e5bffc",
+  "model": "z-ai/glm-5.3-flash",
+  "nonce": "cbf17398011fdca49406e1436d15aca0edaa89fc24d9c2bf28f993ed0151976d",
   "requestBody": {
-    "model": "zai-org/GLM-5.1-FP8",
+    "model": "z-ai/glm-5.3-flash",
     "temperature": 0,
     "messages": [
       {
@@ -60,14 +60,14 @@
     "model_attestations": [
       {
         "signing_address": "c7cfb60818532bb0c0607d8d3ce0403b555301a6616e4d5ec56d1cb4529f3ed0",
-        "request_nonce": "abea8fb9e48f2627e695ce58bd00306a445e3c1737bb38b2b93bd59694e5bffc"
+        "request_nonce": "cbf17398011fdca49406e1436d15aca0edaa89fc24d9c2bf28f993ed0151976d"
       }
     ]
   },
-  "rawResponse": "{\"id\":\"chatcmpl-demo-6a94679ba595\",\"object\":\"chat.completion\",\"model\":\"zai-org/GLM-5.1-FP8\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"decision\\\":\\\"block\\\",\\\"riskScore\\\":94,\\\"summary\\\":\\\"Payout details changed and the invoice contains hidden instructions telling the reader to skip its rules and not contact finance.\\\",\\\"reasons\\\":[\\\"Payout address differs from the vendor's record\\\",\\\"Hidden instruction to ignore rules\\\",\\\"Asks to keep the change from the finance team\\\"]}\"},\"finish_reason\":\"stop\"}]}",
+  "rawResponse": "{\"id\":\"chatcmpl-demo-58d24be0f812\",\"object\":\"chat.completion\",\"model\":\"z-ai/glm-5.3-flash\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"decision\\\":\\\"block\\\",\\\"riskScore\\\":94,\\\"summary\\\":\\\"Payout details changed and the invoice contains hidden instructions telling the reader to skip its rules and not contact finance.\\\",\\\"reasons\\\":[\\\"Payout address differs from the vendor's record\\\",\\\"Hidden instruction to ignore rules\\\",\\\"Asks to keep the change from the finance team\\\"]}\"},\"finish_reason\":\"stop\"}]}",
   "signatureResponse": {
-    "text": "zai-org/GLM-5.1-FP8:6a94679ba595520d158cc8ca5e872ed560c1715ddea2687a6fa99908c879e7f3:fa8d479b01f09686a5088c5bee6af3e55baea0679061a4d4ea2148fa9301cb57",
-    "signature": "d67a15fc14921dbaf49470d72bf2556f7d6cc85a0513bcbe295f8a06231a3606623663dabd72279d9e9d3809851ee057f73a0a8cf699bdaf0d4e9bb859a0d802",
+    "text": "z-ai/glm-5.3-flash:58d24be0f8123b942c846e48a222473c949ebaf812f78c7523310d9ff905690f:f730e127b5704072b6bbc7ef43823234873a5e2950c83eb750d7d01b687c261a",
+    "signature": "1c2e282a981be2565bbd0f19421d6b2fe565a10a6d036e83326edb91780c5d03ee24fee8d5ee346428bb3c7f84579f0f3e0e6f4f69e64bc13af8a8fada675f05",
     "signing_address": "c7cfb60818532bb0c0607d8d3ce0403b555301a6616e4d5ec56d1cb4529f3ed0",
     "signature_kind": "provider_tee"
   },

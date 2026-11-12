@@ -15,12 +15,14 @@ async function main() {
   const { demoBundle, fixturePath, saveFixture } = await import("../lib/demo");
   const { fetchNearAi, verifyNearAiBundle } = await import("../lib/nearai");
   const { buildRequest } = await import("../lib/nearai-core");
-  const { NEAR_AI_KEY, NEAR_AI_MODEL } = await import("../lib/config");
+  const { DEMO_AI_MODEL, NEAR_AI_KEY, NEAR_AI_MODEL } = await import("../lib/config");
   if (record && !NEAR_AI_KEY) throw new Error("Set NEAR_AI_API_KEY to record real reviews.");
+  // Demo mode replays reviews made for DEMO_AI_MODEL, so a recording must ask that same model.
+  if (record && NEAR_AI_MODEL !== DEMO_AI_MODEL) throw new Error(`Set NEAR_AI_MODEL=${DEMO_AI_MODEL} to record the demo reviews.`);
 
   const written: string[] = [];
   overrideService("judge", async (redactedText, facts) => {
-    const body = buildRequest(NEAR_AI_MODEL, redactedText, facts);
+    const body = buildRequest(DEMO_AI_MODEL, redactedText, facts);
     const number = Object.keys(DEMO_JUDGMENTS).find((n) => redactedText.includes(`Invoice ${n}`));
     if (!number) throw new Error("Unknown demo invoice");
     const bundle = record ? { ...(await fetchNearAi(body)), source: "recorded" as const } : demoBundle(body, DEMO_JUDGMENTS[number]);

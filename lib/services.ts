@@ -1,7 +1,7 @@
 import { configuredCardProvider, type CardProvider } from "./card-providers";
 import { confidentialPayoutStatus, quoteConfidentialPayout } from "./confidential-flow";
 import { lookupSignals, spendingWalletBalances, treasuryBalances } from "./chain";
-import { NEAR_AI_MODEL } from "./config";
+import { DEMO_AI_MODEL, NEAR_AI_MODEL } from "./config";
 import { refreshPayout, submitPayout } from "./custody";
 import { demoServices } from "./demo";
 import { judgeWithNearAi } from "./nearai";
@@ -49,7 +49,7 @@ const forced = new Set<string>();
 export const services: typeof live = new Proxy(live, {
   get(target, key: string) {
     if (isDemo() && !forced.has(key)) {
-      demo ??= demoServices(NEAR_AI_MODEL) as Partial<typeof live>;
+      demo ??= demoServices(DEMO_AI_MODEL) as Partial<typeof live>;
       if (key in demo) return demo[key as keyof typeof live];
     }
     return target[key as keyof typeof live];

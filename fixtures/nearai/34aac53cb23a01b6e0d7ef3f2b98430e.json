@@ -1,8 +1,8 @@
 {
-  "model": "zai-org/GLM-5.1-FP8",
-  "nonce": "4b56235775a4303e247dab91593eb7e3e2d71ed965a924c72dabd66d7cd00ec9",
+  "model": "z-ai/glm-5.3-flash",
+  "nonce": "1afc634e26cfb676237aa72729a460e3babe82c886f7cf2ddcaf5e5efeea4492",
   "requestBody": {
-    "model": "zai-org/GLM-5.1-FP8",
+    "model": "z-ai/glm-5.3-flash",
     "temperature": 0,
     "messages": [
       {
@@ -60,14 +60,14 @@
     "model_attestations": [
       {
         "signing_address": "c7cfb60818532bb0c0607d8d3ce0403b555301a6616e4d5ec56d1cb4529f3ed0",
-        "request_nonce": "4b56235775a4303e247dab91593eb7e3e2d71ed965a924c72dabd66d7cd00ec9"
+        "request_nonce": "1afc634e26cfb676237aa72729a460e3babe82c886f7cf2ddcaf5e5efeea4492"
       }
     ]
   },
-  "rawResponse": "{\"id\":\"chatcmpl-demo-e9f05fc0ae60\",\"object\":\"chat.completion\",\"model\":\"zai-org/GLM-5.1-FP8\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"decision\\\":\\\"block\\\",\\\"riskScore\\\":97,\\\"summary\\\":\\\"Vendor name imitates Northwind Cloud and the text pretends to be a system message demanding immediate approval.\\\",\\\"reasons\\\":[\\\"Lookalike of a known vendor\\\",\\\"Fake system message\\\",\\\"No matching purchase order\\\"]}\"},\"finish_reason\":\"stop\"}]}",
+  "rawResponse": "{\"id\":\"chatcmpl-demo-34aac53cb23a\",\"object\":\"chat.completion\",\"model\":\"z-ai/glm-5.3-flash\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"decision\\\":\\\"block\\\",\\\"riskScore\\\":97,\\\"summary\\\":\\\"Vendor name imitates Northwind Cloud and the text pretends to be a system message demanding immediate approval.\\\",\\\"reasons\\\":[\\\"Lookalike of a known vendor\\\",\\\"Fake system message\\\",\\\"No matching purchase order\\\"]}\"},\"finish_reason\":\"stop\"}]}",
   "signatureResponse": {
-    "text": "zai-org/GLM-5.1-FP8:e9f05fc0ae608a2218b3506a026665feeacb2dadd0c73b07765b94767863ab83:069f4112595ab345bb4c6cdb5012a4b8f16db80bc325cdfa6945b3085c9b401d",
-    "signature": "5d08fb362880ea61f276837fa5ef9a2311418924f9b668a83f2857be5b1612539995d590c7e32512f12fa687d34dfc6619d9983130a87839f12ad1070924ec0d",
+    "text": "z-ai/glm-5.3-flash:34aac53cb23a01b6e0d7ef3f2b98430e1ae86038fc983a987bad84b88fb12d76:dde56e50f430ec162d18a51f01f411c14122535ebccae9de9688238afda2f923",
+    "signature": "53fe2bb71cc9ec8fd3103a8eab5af2a6674ceb894ef70c262e9c6388e874df68ecc29e411ad1ae8f1b67bd01bd046315631b06748782a7a7b45b58809d4dae07",
     "signing_address": "c7cfb60818532bb0c0607d8d3ce0403b555301a6616e4d5ec56d1cb4529f3ed0",
     "signature_kind": "provider_tee"
   },

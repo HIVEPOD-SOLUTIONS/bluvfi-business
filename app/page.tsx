@@ -10,7 +10,7 @@ import { ActionButton, KillSwitch } from "@/components/Actions";
 import { Badge, Empty, PageHead, PaymentCard, Stat, usd, when } from "@/components/ui";
 import { CHAIN_LABEL } from "@/lib/chains";
 import type { Balance } from "@/lib/chain";
-import { NEAR_AI_KEY, NEAR_AI_MODEL, NETWORK, missingConfig } from "@/lib/config";
+import { DEMO_AI_MODEL, NEAR_AI_KEY, NEAR_AI_MODEL, NETWORK, missingConfig } from "@/lib/config";
 import { modelStatus } from "@/lib/aimodel";
 import { backupWarning } from "@/lib/backup";
 import { businessBackupWarning } from "@/lib/business-backup";
@@ -229,7 +229,7 @@ async function Overview() {
           <Badge tone={ai.checked ? (ai.passed > 0 ? "ok" : "bad") : "warn"}>{ai.checked ? `${ai.passed} of ${ai.total} instance${ai.total === 1 ? "" : "s"} attested` : "Not checked yet"}</Badge>
         </div>
         <p className="mt-1 text-sm" style={{ color: "var(--tx-1)" }}>
-          {NEAR_AI_MODEL} on NEAR AI Cloud, inside a TEE. Checking it fetches the hardware attestation with a fresh nonce, verifies the Intel TDX quote, NVIDIA&apos;s signed GPU verdict
+          {NEAR_AI_MODEL} on NEAR AI Cloud, inside a TEE{isDemo() && NEAR_AI_MODEL !== DEMO_AI_MODEL ? ` (the demo replays reviews recorded for ${DEMO_AI_MODEL})` : ""}. Checking it fetches the hardware attestation with a fresh nonce, verifies the Intel TDX quote, NVIDIA&apos;s signed GPU verdict
           and the binding of each signing key to that hardware, then registers the keys that pass. Every payment still checks its own attestation; this tells you the model is genuine before it reviews anything.
         </p>
         {ai.checked && (

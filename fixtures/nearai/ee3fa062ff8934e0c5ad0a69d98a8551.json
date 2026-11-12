@@ -1,8 +1,8 @@
 {
-  "model": "zai-org/GLM-5.1-FP8",
-  "nonce": "1c61ec22d2836e3a8ef9ac9514a7b62d0acc8f74715c435c8eeadac5b959e705",
+  "model": "z-ai/glm-5.3-flash",
+  "nonce": "eb6a33faf984cfe9091a488bcdcbd3f86755a78833300058a3130462e3a870d6",
   "requestBody": {
-    "model": "zai-org/GLM-5.1-FP8",
+    "model": "z-ai/glm-5.3-flash",
     "temperature": 0,
     "messages": [
       {
@@ -11,7 +11,7 @@
       },
       {
         "role": "user",
-        "content": "<invoice>\nTreasury Operations\nInvoice TO-0003\nQuarterly treasury reconciliation services: 4,900.00 USDC\nPayable to [WALLET]. Thank you for your business.\n</invoice>\nFacts: {\"knownVendor\":false,\"payoutChanged\":false,\"poMatches\":false,\"amountUsd\":4900}"
+        "content": "<invoice>\nNorthwind Cloud Ltd\nInvoice NW-0991\nManaged hosting, September: 1,240.00 USDC\nPay to our usual Base address. Thank you!\n</invoice>\nFacts: {\"knownVendor\":true,\"payoutChanged\":false,\"poMatches\":true,\"amountUsd\":1240}"
       }
     ],
     "response_format": {
@@ -60,14 +60,14 @@
     "model_attestations": [
       {
         "signing_address": "c7cfb60818532bb0c0607d8d3ce0403b555301a6616e4d5ec56d1cb4529f3ed0",
-        "request_nonce": "1c61ec22d2836e3a8ef9ac9514a7b62d0acc8f74715c435c8eeadac5b959e705"
+        "request_nonce": "eb6a33faf984cfe9091a488bcdcbd3f86755a78833300058a3130462e3a870d6"
       }
     ]
   },
-  "rawResponse": "{\"id\":\"chatcmpl-demo-150b56bad4d7\",\"object\":\"chat.completion\",\"model\":\"zai-org/GLM-5.1-FP8\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"decision\\\":\\\"pay\\\",\\\"riskScore\\\":5,\\\"summary\\\":\\\"Ordinary reconciliation services invoice.\\\",\\\"reasons\\\":[\\\"Ordinary services\\\",\\\"Normal amount\\\"]}\"},\"finish_reason\":\"stop\"}]}",
+  "rawResponse": "{\"id\":\"chatcmpl-demo-ee3fa062ff89\",\"object\":\"chat.completion\",\"model\":\"z-ai/glm-5.3-flash\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"decision\\\":\\\"pay\\\",\\\"riskScore\\\":8,\\\"summary\\\":\\\"Routine hosting invoice from a known vendor; amount matches the purchase order.\\\",\\\"reasons\\\":[\\\"Known vendor\\\",\\\"Matches PO-0991\\\"]}\"},\"finish_reason\":\"stop\"}]}",
   "signatureResponse": {
-    "text": "zai-org/GLM-5.1-FP8:150b56bad4d771733ade055a88aa8b211576f1486cc0dd2c65eff2473c72f32c:17ce2d5a5e309c3b9b572aa1a3d900754cab062d9763d71cd1c623e18126a12c",
-    "signature": "d0c038b01ff587d75887910bca902ee1562f595e41d9f5761c62de4c889210c8f1e5e9083485ea6804f14e44fbf7e40a2cc34fc120d59892296da64a66343a0a",
+    "text": "z-ai/glm-5.3-flash:ee3fa062ff8934e0c5ad0a69d98a8551ee18b7e7b2ecfa2f299655361a8e3ec8:9f4ca507628ba6e6328131259d91d10fa27a397c80ecfa1ecee86b66515467f1",
+    "signature": "d262302515ffe831c5b459f4e774d2aa769df60e434db256a0781353139515818625d80ee2e59f92551ced4fb7fb8a7726e43b07988cab6aee32556c98a8160b",
     "signing_address": "c7cfb60818532bb0c0607d8d3ce0403b555301a6616e4d5ec56d1cb4529f3ed0",
     "signature_kind": "provider_tee"
   },
