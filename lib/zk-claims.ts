@@ -80,13 +80,16 @@ export const attesters = (): AttesterConfig[] =>
   });
 export const attestThreshold = () => Math.max(1, Math.min(3, Number(process.env.ZK_ATTEST_THRESHOLD ?? 1) || 1));
 
-async function ask(a: AttesterConfig, request: object): Promise<string | undefined> {
+/** One attester's answer: its signature, or why it did not sign (shown in the error, so an operator can see the cause). */
+async function ask(a: AttesterConfig, request: object): Promise<{ signature?: string; why?: string }> {
   try {
     const r = await fetch(`${a.url}/attest`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${a.token}` }, body: JSON.stringify(request), signal: AbortSignal.timeout(60_000) });
-    const j = (await r.json().catch(() => ({}))) as { publicKey?: string; signature?: string };
-    return r.ok && j.publicKey === a.publicKey && j.signature ? j.signature : undefined;
-  } catch {
-    return undefined;
+    const j = (await r.json().catch(() => ({}))) as { publicKey?: string; signature?: string; error?: string };
+    if (!r.ok) return { why: `HTTP ${r.status}${j.error ? `: ${String(j.error).slice(0, 200)}` : ""}` };
+    if (j.publicKey !== a.publicKey) return { why: "it answered with a different key than the one configured" };
+    return j.signature ? { signature: j.signature } : { why: "it returned no signature" };
+  } catch (e) {
+    return { why: (e as Error).message.slice(0, 200) };
   }
 }
 
@@ -99,14 +102,15 @@ async function attested(message: unknown[], request: object): Promise<{ issuers:
   const key = await issuerKey();
   const mine = Signature.create(key, message as never).toBase58();
   const configured = attesters();
-  const theirs = await Promise.all(configured.map((a) => ask(a, request)));
+  const answers = await Promise.all(configured.map((a) => ask(a, request)));
+  const theirs = answers.map((x) => x.signature);
   const own = key.toPublicKey().toBase58();
   const issuers = [own, ...configured.map((a) => a.publicKey)];
   const signatures = [mine, ...theirs.map((s) => s ?? mine)]; // a missing signature is a wrong one for that slot: it will not count
   while (issuers.length < 3) { issuers.push(own); signatures.push(mine); }
   const threshold = attestThreshold();
   const signed = 1 + theirs.filter(Boolean).length;
-  if (signed < threshold) throw new Error(`${threshold} issuers must sign but only ${signed} did: ${configured.map((a, i) => `${a.url} ${theirs[i] ? "signed" : "did not"}`).join(", ") || "no attesters are configured (ZK_ATTESTERS)"}`);
+  if (signed < threshold) throw new Error(`${threshold} issuers must sign but only ${signed} did: ${configured.map((a, i) => `${a.url} ${theirs[i] ? "signed" : `did not (${answers[i].why})`}`).join(", ") || "no attesters are configured (ZK_ATTESTERS)"}`);
   return { issuers, signatures, threshold };
 }
 

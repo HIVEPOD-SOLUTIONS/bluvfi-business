@@ -3,6 +3,7 @@ import "./setup-zk";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { after, beforeEach, test } from "node:test";
 import { createBusiness, setBusinessKyb } from "../lib/business";
 import { buildIndex } from "../lib/sanctions";
@@ -42,17 +43,20 @@ async function startAttester(): Promise<string> {
     let raw = "";
     req.on("data", (c) => (raw += c));
     req.on("end", async () => {
-      const send = (code: number, b: unknown) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(b)); };
+      // No keep-alive: a pooled socket from an earlier test's attester must never carry this test's request.
+      const send = (code: number, b: unknown) => { res.writeHead(code, { "content-type": "application/json", connection: "close" }); res.end(JSON.stringify(b)); };
       if (req.headers.authorization !== "Bearer attester-token-0123456789") return send(401, { error: "no" });
       try { send(200, await attest(JSON.parse(raw), ATT_SECRET, sources)); } catch (e) { send(422, { error: (e as Error).message }); }
     });
   });
-  await new Promise<void>((ok) => attServer!.listen(47871, "127.0.0.1", ok));
-  process.env.ZK_ATTESTERS = `http://127.0.0.1:47871|attester-token-0123456789|${attKey}`;
+  // A fresh port each time (the OS picks one), so no request can reach a previous test's server.
+  await new Promise<void>((ok) => attServer!.listen(0, "127.0.0.1", ok));
+  const port = (attServer.address() as AddressInfo).port;
+  process.env.ZK_ATTESTERS = `http://127.0.0.1:${port}|attester-token-0123456789|${attKey}`;
   process.env.ZK_ATTEST_THRESHOLD = "2";
   return attKey;
 }
-const stopAttester = () => { attServer?.close(); attServer = undefined; delete process.env.ZK_ATTESTERS; delete process.env.ZK_ATTEST_THRESHOLD; };
+const stopAttester = () => { attServer?.close(); attServer?.closeAllConnections(); attServer = undefined; delete process.env.ZK_ATTESTERS; delete process.env.ZK_ATTEST_THRESHOLD; };
 after(() => stopAttester());
 
 beforeEach(() => { install(); seed(); stopAttester(); sources.inquiry = async () => ({ status: "approved", note: "" }); sources.readBalances = async () => [{ usd: true, amount: 5_000 }]; });
