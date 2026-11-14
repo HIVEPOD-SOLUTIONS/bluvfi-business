@@ -6,7 +6,8 @@ Before an agent moves money, Bluvfi Business checks the payee, applies a human-s
 
 | | |
 |---|---|
-| Demo video (X post) | [x.com/bluvfi/status/2121563724196589858](https://x.com/bluvfi/status/2121563724196589858) |
+| Demo post (X) | [x.com/bluvfi/status/2121642687979835642](https://x.com/bluvfi/status/2121642687979835642) |
+| Livestream demo (X) | [x.com/bluvfi/status/2121563724196589858](https://x.com/bluvfi/status/2121563724196589858) |
 | Hosted app | [bluvfi-biz.bluvfi.xyz](https://bluvfi-biz.bluvfi.xyz) |
 | Try it in one minute, no keys | `npm ci && npm run demo` ([steps below](#try-it-no-keys-no-funds-about-a-minute)) |
 | NEAR stack | NEAR AI Cloud, NEAR Intents (1Click), Chain Signatures, Sputnik DAO / Trezu, function-call keys, meta transactions, OutLayer, Agent Market, Aurora ([details](#near-tech-used-and-why)) |
@@ -20,7 +21,7 @@ How this repository meets each rule in [HACKATHON.md](https://nearhackathon.com/
 | Rule | Where it is met |
 |---|---|
 | Public repository (Procedure 1, Q-014) | This repository, public through judging |
-| Demo post on X with a video (Procedure 2, Q-012) | [x.com/bluvfi/status/2121563724196589858](https://x.com/bluvfi/status/2121563724196589858) |
+| Demo post on X with a video (Procedure 2, Q-012) | [x.com/bluvfi/status/2121642687979835642](https://x.com/bluvfi/status/2121642687979835642) (the full [livestream demo](https://x.com/bluvfi/status/2121563724196589858)) |
 | Hosted demo, kept up through judging (Q-012) | [bluvfi-biz.bluvfi.xyz](https://bluvfi-biz.bluvfi.xyz) |
 | Reproducible README, "do X, see Y" steps (Q-012, Q-017) | [Try it](#try-it-no-keys-no-funds-about-a-minute): `npm run demo` with no `.env` file, then `npm run demo:ui` for the web app. [Tests](#tests): `npm test` |
 | Code written in the window (Q-001, Q-004) | The first commit, `dc95082`, is dated 2026-11-01, after the 2026-10-19 announcement. There is no pre-hackathon code |
