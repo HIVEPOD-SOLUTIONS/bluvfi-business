@@ -7,6 +7,7 @@ Before an agent moves money, Bluvfi Business checks the payee, applies a human-s
 | | |
 |---|---|
 | Demo video (X post) | [x.com/bluvfi/status/2121563724196589858](https://x.com/bluvfi/status/2121563724196589858) |
+| Hosted app | [bluvfi-biz.bluvfi.xyz](https://bluvfi-biz.bluvfi.xyz) |
 | Try it in one minute, no keys | `npm ci && npm run demo` ([steps below](#try-it-no-keys-no-funds-about-a-minute)) |
 | NEAR stack | NEAR AI Cloud, NEAR Intents (1Click), Chain Signatures, Sputnik DAO / Trezu, function-call keys, meta transactions, OutLayer, Agent Market, Aurora ([details](#near-tech-used-and-why)) |
 | Tracks | `security` (main), `realworld`, `business`, `privacy`, `agents`, `defi`, `thesis`, `open` |
@@ -20,6 +21,7 @@ How this repository meets each rule in [HACKATHON.md](https://nearhackathon.com/
 |---|---|
 | Public repository (Procedure 1, Q-014) | This repository, public through judging |
 | Demo post on X with a video (Procedure 2, Q-012) | [x.com/bluvfi/status/2121563724196589858](https://x.com/bluvfi/status/2121563724196589858) |
+| Hosted demo, kept up through judging (Q-012) | [bluvfi-biz.bluvfi.xyz](https://bluvfi-biz.bluvfi.xyz) |
 | Reproducible README, "do X, see Y" steps (Q-012, Q-017) | [Try it](#try-it-no-keys-no-funds-about-a-minute): `npm run demo` with no `.env` file, then `npm run demo:ui` for the web app. [Tests](#tests): `npm test` |
 | Code written in the window (Q-001, Q-004) | The first commit, `dc95082`, is dated 2026-11-01, after the 2026-10-19 announcement. There is no pre-hackathon code |
 | Baseline and diff (Q-003) | Tags `v0-first-ui` (first commit) and `hackathon-submission` (submitted state): [diff](https://github.com/HIVEPOD-SOLUTIONS/bluvfi-business/compare/v0-first-ui...hackathon-submission), [history](https://github.com/HIVEPOD-SOLUTIONS/bluvfi-business/commits/hackathon-submission) |
