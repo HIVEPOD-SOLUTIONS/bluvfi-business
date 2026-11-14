@@ -3,9 +3,10 @@ import { currentBiz, isDemo } from "./tenant";
 import { deserialize } from "borsh";
 import { Account, JsonRpcProvider, KeyPair, SCHEMA, teraToGas, type KeyPairString } from "near-api-js";
 import { ASSET_ID, NEAR_USDC_CONTRACT } from "./chains";
-import { APPROVAL_THRESHOLD_SIGNERS, NEAR_RPC_URL, OUTLAYER_BASE, PUBLIC_BASE_URL, RELAYER_ACCOUNT, RELAYER_PRIVATE_KEY, SPENDING_WALLET_LOW_USD, SPENDING_WALLET_TARGET_USD, TREZU_APP_URL } from "./config";
+import { NEAR_RPC_URL, OUTLAYER_BASE, PUBLIC_BASE_URL, RELAYER_ACCOUNT, RELAYER_PRIVATE_KEY, SPENDING_WALLET_LOW_USD, SPENDING_WALLET_TARGET_USD, TREZU_APP_URL } from "./config";
 import { canonical, sha256 } from "./crypto";
 import { currentPolicy, state } from "./store";
+import { approvalThreshold } from "./team";
 import { REQUIRE_CUSTODIAN_LIMITS } from "./config";
 import type { CustodyRecord, Payment, Quote, TopUp } from "./types";
 
@@ -765,8 +766,10 @@ export function demoDao() {
       p.votes[member] = action === "VoteApprove" ? "Approve" : "Reject";
       const yes = Object.values(p.votes).filter((v) => v === "Approve").length;
       const no = Object.values(p.votes).filter((v) => v === "Reject").length;
-      if (yes >= APPROVAL_THRESHOLD_SIGNERS) p.status = "Approved";
-      else if (no >= APPROVAL_THRESHOLD_SIGNERS) p.status = "Rejected";
+      // The business's own threshold, capped at its team size: a business with one owner is not left waiting for a second vote that can never come.
+      const need = approvalThreshold();
+      if (yes >= need) p.status = "Approved";
+      else if (no >= need) p.status = "Rejected";
       return p;
     },
   };

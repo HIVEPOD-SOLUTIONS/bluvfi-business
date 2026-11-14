@@ -11,6 +11,7 @@ import { COOKIE, issueSession, privySubject } from "../lib/session";
 import { services } from "../lib/services";
 import { currentPolicy, resetAllState, state } from "../lib/store";
 import { isDemo, modeOf, resetModes, runAs, setMode } from "../lib/tenant";
+import { demoTreasuryVote } from "../lib/agent";
 
 beforeEach(() => { resetAllState(); resetRegistry(); resetModes(); });
 
@@ -145,7 +146,13 @@ test("the first switch to demo loads the demo story with the business's own sign
   const story = runAs(a.id, () => state().payments.map((p) => [p.invoice.invoiceNumber, p.status]));
   assert.ok(story.length >= 7, `the story's payments: ${JSON.stringify(story)}`);
   assert.deepEqual(Object.fromEntries(story.filter(([n]) => n === "AL-2207" || n === "NW-1043")), { "AL-2207": "blocked", "NW-1043": "blocked" });
-  assert.equal(runAs(a.id, () => state().payments.find((p) => p.invoice.invoiceNumber === "NW-0991")?.approvedBy), "ada@acme.test", "the business's own signer approved, not maya");
+  const byNumber = (n: string) => runAs(a.id, () => state().payments.find((p) => p.invoice.invoiceNumber === n)!);
+  assert.equal(byNumber("NW-0991").approvedBy, "ada@acme.test", "the business's own signer approved, not maya");
+  // A business with one owner: the simulated DAO needs one vote, not a second that could never come.
+  assert.equal(byNumber("NW-0991").status, "paid", "last month's invoice settled on the owner's vote");
+  assert.equal(byNumber("NW-1042").status, "proposed", "this month's waits for the owner's vote");
+  await runAs(a.id, () => demoTreasuryVote(byNumber("NW-1042").id, "ada@acme.test", true));
+  assert.equal(byNumber("NW-1042").status, "paid", "the owner's one vote executes it");
   // A demo record changed by hand survives switching away and back: the story is not loaded twice.
   runAs(a.id, () => { state().vendors.push({ name: "Added in demo", paidInvoiceNumbers: [] } as never); });
   setTreasury(a.id, { custody: "manual", treasury: "acme.near" });
