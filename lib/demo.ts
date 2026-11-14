@@ -58,7 +58,9 @@ async function judge(model: string, redactedText: string, facts: JudgeFacts): Pr
   const body = buildRequest(model, redactedText, facts);
   const file = fixturePath(body);
   if (!existsSync(file)) throw new Error("demo mode only replays recorded reviews, and there is none for this invoice");
-  return verifyNearAiBundle(JSON.parse(readFileSync(file, "utf8")) as NearAiBundle);
+  const bundle = JSON.parse(readFileSync(file, "utf8")) as NearAiBundle;
+  if (requestHash(bundle.requestBody) !== requestHash(body)) throw new Error("the recorded review is for a different request than this invoice's");
+  return verifyNearAiBundle(bundle);
 }
 
 /** Public facts a chain lookup would return for the demo addresses. Unknown addresses look brand new. */

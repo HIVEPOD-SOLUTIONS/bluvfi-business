@@ -11,4 +11,4 @@ export const POST = route(async (req) => {
   const b = await body<{ message?: string; history?: Msg[] }>(req);
   const history = (Array.isArray(b.history) ? b.history : []).filter((m): m is Msg => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string").slice(-8);
   return await runTurn(String(b.message ?? ""), history, by);
-});
+}, undefined, { lock: false }); // runTurn takes the records lock itself, after the model call

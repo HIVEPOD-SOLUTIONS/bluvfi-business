@@ -247,10 +247,11 @@ async function bodyOf(res: Response): Promise<unknown> {
   }
 }
 
-export async function payX402(url: string, maxPriceUsd: number, request: { method?: string; body?: string } = {}): Promise<X402Result> {
+export async function payX402(url: string, maxPriceUsd: number, request: { method?: string; body?: string } = {}, fetcher: (url: string, init: RequestInit) => Promise<Response> = fetch): Promise<X402Result> {
   // Many paid APIs (Bluvfi Business Check among them) are POST with a JSON body: the same request is sent again with the payment.
   const init: RequestInit = { method: request.method ?? "GET", ...(request.body !== undefined ? { body: request.body, headers: { "content-type": "application/json" } } : {}) };
-  const first = await fetch(url, { ...init, signal: AbortSignal.timeout(15_000) });
+  const first = await fetcher(url, { ...init, redirect: "manual", signal: AbortSignal.timeout(15_000) });
+  if (first.status >= 300 && first.status < 400) return { ok: false, status: first.status, priceUsd: 0, note: "The API answered with a redirect, which is not followed, so nothing was paid." };
   if (first.status !== 402) return { ok: first.ok, status: first.status, priceUsd: 0, body: await bodyOf(first), note: "No payment required." };
   const required = await x402Requirements(first);
   // An API may offer several ways to pay (a chain each): take the first this agent is willing to pay in.
@@ -272,7 +273,7 @@ export async function payX402(url: string, maxPriceUsd: number, request: { metho
   const { paymentHeader } = (await signed.json()) as { paymentHeader?: string };
   if (!paymentHeader) throw new Error("x402 payer returned no payment header");
   // v1 servers read X-PAYMENT, v2 servers PAYMENT-SIGNATURE; the same value goes in both.
-  const paid = await fetch(url, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), "X-PAYMENT": paymentHeader, "PAYMENT-SIGNATURE": paymentHeader }, signal: AbortSignal.timeout(30_000) });
+  const paid = await fetcher(url, { ...init, redirect: "manual", headers: { ...(init.headers as Record<string, string> | undefined), "X-PAYMENT": paymentHeader, "PAYMENT-SIGNATURE": paymentHeader }, signal: AbortSignal.timeout(30_000) });
   return { ok: paid.ok, status: paid.status, priceUsd, body: await bodyOf(paid), paymentHeader, note: paid.ok ? "Paid and delivered." : "Paid but the API did not deliver." };
 }
 

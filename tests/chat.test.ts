@@ -78,7 +78,7 @@ test("a request that would spend only makes a card, and confirming runs the save
   const t = await runTurn("buy a $25 netflix card, receipt to finance@acme.test", [], "maya");
   assert.ok(t.pending, "a card waits");
   assert.match(t.pending!.summary, /Order Netflix USA 25 USD/);
-  assert.ok(t.pending!.detail.join(" ").includes("f***@acme.test"), "the card does not repeat the whole email");
+  assert.ok(t.pending!.detail.join(" ").includes("to finance@acme.test: check it is right"), "the card shows where the code goes, so a wrong address can be caught before confirming");
   assert.equal(state().payments.length, 0, "nothing was ordered yet");
   await assert.rejects(confirm(t.pending!.id, "devon"), /Only the person who asked/);
   const done = await confirm(t.pending!.id, "maya");

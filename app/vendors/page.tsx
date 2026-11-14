@@ -1,3 +1,4 @@
+import { ActionButton } from "@/components/Actions";
 import { Badge, Empty, PageHead, when } from "@/components/ui";
 import { tenantPage } from "@/lib/who";
 import { chainName } from "@/lib/chains";
@@ -38,6 +39,15 @@ async function Vendors() {
                 <dt style={{ color: "var(--tx-2)" }}>Verified contact</dt><dd className="break-all">{v.verifiedContact.channel}: {v.verifiedContact.handle}</dd>
                 <dt style={{ color: "var(--tx-2)" }}>Last paid</dt><dd>{v.lastPaidAt ? when(v.lastPaidAt) : "Never"}</dd>
               </dl>
+              {v.pendingChange && (
+                <div role="status" className="mt-3 rounded-lg p-3 text-sm" style={{ background: "rgba(232,168,56,.12)" }}>
+                  <div><strong>Change waiting for a second signer</strong> (by {v.pendingChange.by}, {when(v.pendingChange.at)}): pay to <span className="mono break-all">{v.pendingChange.payout.address}</span> ({chainName(v.pendingChange.payout.chain)}, {v.pendingChange.payout.asset}); confirm changes on {v.pendingChange.verifiedContact.channel}: {v.pendingChange.verifiedContact.handle}. Payments use the details above until it is confirmed.</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <ActionButton url="/api/vendors" payload={{ confirmChange: v.name }} small variant="primary" done="Change confirmed" confirm={`Pay ${v.name} at ${v.pendingChange.payout.address} from now on? Check this with ${v.name} on a channel you already trust first.`}>Confirm the change</ActionButton>
+                    <ActionButton url="/api/vendors" payload={{ discardChange: v.name }} small variant="ghost" done="Change discarded">Discard it</ActionButton>
+                  </div>
+                </div>
+              )}
               {(kybEnabled() || passportEnabled()) && <KybControl kind="vendor" vendor={v.name} kyb={v.kyb} passport={v.passport} personaOn={kybEnabled()} passportOn={passportEnabled()} label="Verify this vendor" />}
             </div>
           ))}

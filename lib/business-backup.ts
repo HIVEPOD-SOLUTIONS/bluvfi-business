@@ -1,11 +1,10 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
-import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { join } from "node:path";
 import { backupName, backupTime, DATA_DIR, prune, s3Destination, type Destination } from "./backup";
 import { businesses, getBusiness, saveRegistry, type Business, type BusinessBackupConfig } from "./business";
 import { decrypt, encrypt } from "./crypto";
+import { assertPublicUrl, publicFetch } from "./net-guard";
 import { exclusive } from "./shared-file";
 import { dataKey, recordsOf, replaceRecords, type State } from "./store";
 import { DEFAULT_BIZ } from "./tenant";
@@ -28,14 +27,6 @@ const SCRYPT = { N: 1 << 14, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 
 export interface BackupSettingsInput { endpoint?: string; bucket?: string; region?: string; prefix?: string; accessKeyId?: string; secretAccessKey?: string; passphrase?: string }
 
-const PRIVATE_V4 = [/^10\./, /^127\./, /^0\./, /^169\.254\./, /^192\.168\./, /^172\.(1[6-9]|2\d|3[01])\./, /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./];
-const privateAddress = (ip: string) => {
-  const v4 = ip.startsWith("::ffff:") ? ip.slice(7) : ip;
-  if (isIP(v4) === 4) return PRIVATE_V4.some((r) => r.test(v4));
-  const v6 = ip.toLowerCase();
-  return v6 === "::1" || v6 === "::" || /^f[cd]/.test(v6) || /^fe[89ab]/.test(v6);
-};
-
 /** The bucket must be on the public internet: never this server, its network, or a cloud metadata address. */
 export async function assertPublicEndpoint(endpoint: string): Promise<void> {
   let url: URL;
@@ -46,11 +37,7 @@ export async function assertPublicEndpoint(endpoint: string): Promise<void> {
   }
   if (url.protocol !== "https:" && process.env.BLUVFI_ALLOW_PRIVATE_BACKUP_ENDPOINTS !== "1") throw new Error("The bucket's endpoint must start with https://");
   if (process.env.BLUVFI_ALLOW_PRIVATE_BACKUP_ENDPOINTS === "1") return; // tests, against a local stand-in
-  const host = url.hostname.replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal") || host.endsWith(".local")) throw new Error("The bucket's endpoint must be a public address");
-  const addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true }).catch(() => []);
-  if (!addresses.length) throw new Error(`The bucket's endpoint ${host} could not be found`);
-  if (addresses.some((a) => privateAddress(a.address))) throw new Error("The bucket's endpoint must be a public address");
+  await assertPublicUrl(endpoint, "The bucket's endpoint");
 }
 
 /** What the Settings page may show: never the secret key or the passphrase. */
@@ -77,6 +64,9 @@ export async function setBackupSettings(id: string, input: BackupSettingsInput):
   const passphrase = input.passphrase ?? "";
   if (!endpoint || !bucket || !accessKeyId || (!secret && !was) || (!passphrase && !was)) throw new Error("Give the endpoint, bucket, access key id, secret key and a passphrase");
   await assertPublicEndpoint(endpoint);
+  // The registry may have been re-read while the address was checked: change the business as it is now.
+  const live = getBusiness(id);
+  if (!live) throw new Error("Unknown business");
   if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket)) throw new Error("That is not a bucket name (3 to 63 lowercase letters, digits, dots and dashes)");
   if (!/^[a-z0-9-]{2,30}$/.test(region)) throw new Error("The region is a short name such as us-east-1, or auto for Cloudflare R2");
   if (!/^[A-Za-z0-9._/-]{0,100}$/.test(prefix) || prefix.split("/").includes("..")) throw new Error("The folder in the bucket may use letters, digits, dots, dashes and slashes");
@@ -84,7 +74,7 @@ export async function setBackupSettings(id: string, input: BackupSettingsInput):
   if (secret && (secret.length < 8 || secret.length > 256)) throw new Error("That is not a secret key");
   if (passphrase && (passphrase.length < 12 || passphrase.length > 200)) throw new Error("The passphrase needs at least 12 characters");
   const key = dataKey();
-  b.backup = {
+  live.backup = {
     endpoint, bucket, region, prefix: prefix.endsWith("/") || !prefix ? prefix : `${prefix}/`, accessKeyId,
     secretAccessKey: secret ? encrypt(secret, key) : was!.secretAccessKey,
     passphrase: passphrase ? encrypt(passphrase, key) : was!.passphrase,
@@ -102,7 +92,7 @@ export function clearBackupSettings(id: string) {
 
 /** The business's own folder in its bucket: one per business, so two businesses sharing a bucket never touch each other's files. */
 function destination(id: string, c: BusinessBackupConfig): Destination {
-  return s3Destination({ endpoint: c.endpoint, bucket: c.bucket, region: c.region, accessKeyId: c.accessKeyId, secretAccessKey: decrypt(c.secretAccessKey, dataKey()), prefix: `${c.prefix}${id}/` });
+  return s3Destination({ endpoint: c.endpoint, bucket: c.bucket, region: c.region, accessKeyId: c.accessKeyId, secretAccessKey: decrypt(c.secretAccessKey, dataKey()), prefix: `${c.prefix}${id}/` }, (url, init) => publicFetch(url, { ...init, allowPrivate: process.env.BLUVFI_ALLOW_PRIVATE_BACKUP_ENDPOINTS === "1" }));
 }
 
 // ---------- The backup file ----------
@@ -131,7 +121,7 @@ export function openBusinessBackup(body: Buffer, passphrase: string): BusinessBu
   try {
     const d = createDecipheriv("aes-256-gcm", scryptSync(passphrase, Buffer.from(saltHex, "hex"), 32, SCRYPT), raw.subarray(0, 12));
     d.setAuthTag(raw.subarray(12, 28));
-    return JSON.parse(gunzipSync(Buffer.concat([d.update(raw.subarray(28)), d.final()])).toString("utf8")) as BusinessBundle;
+    return JSON.parse(gunzipSync(Buffer.concat([d.update(raw.subarray(28)), d.final()]), { maxOutputLength: 512 * 1024 * 1024 }).toString("utf8")) as BusinessBundle;
   } catch {
     throw new Error("This backup does not open with that passphrase (or it is damaged)");
   }
@@ -160,12 +150,14 @@ function setStatus(id: string, status: NonNullable<BusinessBackupConfig["status"
 }
 
 /** Back up one business now: upload, read back and open with the passphrase, then delete old ones. */
-export async function runBusinessBackup(id: string, now = new Date()) {
+export async function runBusinessBackup(id: string, now = new Date(), opts: { onlyIfDue?: boolean } = {}) {
   // Locked across instances too, so two instances never back up the same business at once.
   return exclusive(`business-backup:${id}`, join(DATA_DIR, `business-backup-${id}`), async () => {
     const b = getBusiness(id);
     if (!b?.backup) throw new Error("This business has no backup bucket set up");
     const prev = b.backup.status ?? {};
+    // Decided inside the lock: another instance may have just made today's backup.
+    if (opts.onlyIfDue && prev.lastOkAt && now.getTime() - Date.parse(prev.lastOkAt) < EVERY_HOURS * 3_600_000) return prev;
     try {
       await assertPublicEndpoint(b.backup.endpoint);
       const d = destination(id, b.backup);
@@ -193,6 +185,35 @@ export async function listBusinessBackups(id: string): Promise<{ name: string; a
     .sort((a, b) => (a.at < b.at ? 1 : -1));
 }
 
+/**
+ * What a restore may change. A backup is opened with the owner's own passphrase from the owner's own bucket, so one owner
+ * could also hand-make one; and an old one would bring back payments that have since been paid. So a restore never takes:
+ * the policy history (only approvals change policy), a payment older than the one there now (paid stays paid, an open
+ * proposal stays tracked), or fewer reserved invoice numbers; and it turns the kill switch on until a signer has looked.
+ */
+function safeRestore(backup: State, now: State | null): State {
+  if (!now) return { ...backup, killSwitch: true, killLog: [{ at: new Date().toISOString(), by: "restore", on: true }, ...(backup.killLog ?? [])] };
+  const current = new Map(now.payments.map((p) => [p.id, p]));
+  const fromBackup = backup.payments.filter((p) => !current.has(p.id));
+  const vendors = backup.vendors.map((v) => {
+    const mine = now.vendors.find((x) => x.name === v.name);
+    return mine ? { ...v, paidInvoiceNumbers: [...new Set([...mine.paidInvoiceNumbers, ...v.paidInvoiceNumbers])], payout: mine.payout, verifiedContact: mine.verifiedContact, pendingChange: mine.pendingChange } : v;
+  });
+  for (const mine of now.vendors) if (!vendors.some((v) => v.name === mine.name)) vendors.push(mine);
+  return {
+    ...backup,
+    policies: now.policies,
+    proposals: now.proposals,
+    payments: [...now.payments, ...fromBackup],
+    sealed: { ...backup.sealed, ...now.sealed },
+    vendors,
+    blocklist: [...now.blocklist, ...backup.blocklist.filter((b) => !now.blocklist.some((x) => x.value === b.value))],
+    payrollRuns: [...(now.payrollRuns ?? []), ...(backup.payrollRuns ?? []).filter((r) => !(now.payrollRuns ?? []).some((x) => x.id === r.id))],
+    killSwitch: true,
+    killLog: [{ at: new Date().toISOString(), by: "restore", on: true }, ...now.killLog],
+  };
+}
+
 /** Put a backup's records back (live and demo, whichever it holds). Profile and settings are left as they are now. */
 export async function restoreBusinessBackup(id: string, name: string, now = new Date()): Promise<{ createdAt: string; restored: string[]; kept: string[] }> {
   const b = getBusiness(id);
@@ -206,7 +227,7 @@ export async function restoreBusinessBackup(id: string, name: string, now = new 
   for (const demo of [false, true]) {
     const s = demo ? bundle.records.demo : bundle.records.live;
     if (!s) continue;
-    const k = await replaceRecords(id, demo, s, now);
+    const k = await replaceRecords(id, demo, safeRestore(s, recordsOf(id, demo)), now);
     restored.push(demo ? "demo" : "live");
     if (k) kept.push(k);
   }
@@ -224,7 +245,7 @@ export async function businessBackupsDue(now = new Date()): Promise<Record<strin
     // After a failure, try again once an hour rather than on every tick.
     if (s?.error && s.lastAttemptAt && (!s.lastOkAt || s.lastAttemptAt > s.lastOkAt) && now.getTime() - Date.parse(s.lastAttemptAt) < 3_600_000) continue;
     try {
-      out[b.id] = (await runBusinessBackup(b.id, now)).lastName;
+      out[b.id] = (await runBusinessBackup(b.id, now, { onlyIfDue: true })).lastName ?? "";
     } catch (e) {
       out[b.id] = `failed: ${(e as Error).message}`;
     }

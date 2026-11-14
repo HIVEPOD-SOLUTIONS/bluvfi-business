@@ -95,3 +95,21 @@ test("payroll takes the chain names people write, on any payout chain, and check
   assert.match(bad.errors[0], /is not a Tron address/);
   assert.match(bad.errors[1], /"Dogecoin" is not a chain we pay on/);
 });
+
+test("one signer cannot redirect an existing vendor's money: the change waits for a second signer", async () => {
+  const as = async (who: string) => `${COOKIE}=${encodeURIComponent((await issueSession(who))!)}`;
+  const post = async (who: string, b: unknown) => {
+    const res = await vendorPost(new Request("https://x.example/api/vendors", { method: "POST", headers: { "content-type": "application/json", cookie: await as(who) }, body: JSON.stringify(b) }), undefined) as Response;
+    return (await res.json()) as { error?: string; vendors?: { name: string; payout: { address: string }; pendingChange?: { by: string } }[] };
+  };
+  const vendor = (address: string) => ({ vendor: { name: "Quill Legal LLP", domain: "quill.example", verifiedContact: { channel: "email", handle: "ap@quill.example" }, payout: { chain: "eth", asset: "USDC", address } } });
+  const NEW = "0x1111111111111111111111111111111111111111";
+  await post("maya", vendor(EVM));
+  const changed = await post("maya", vendor(NEW));
+  const q = changed.vendors!.find((v) => v.name === "Quill Legal LLP")!;
+  assert.equal(q.payout.address, EVM, "payments still go to the old address");
+  assert.equal(q.pendingChange?.by, "maya");
+  assert.match((await post("maya", { confirmChange: "Quill Legal LLP" })).error!, /different signer/);
+  const ok = await post("devon", { confirmChange: "Quill Legal LLP" });
+  assert.equal(ok.vendors!.find((v) => v.name === "Quill Legal LLP")!.payout.address, NEW);
+});

@@ -5,8 +5,11 @@ const RULES: [RegExp, string][] = [
   [/[\w.+-]+@[\w-]+\.[\w.-]+/g, "[EMAIL]"],
   [/\+?\d[\d\s().-]{8,}\d/g, "[PHONE]"],
   [/\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b/g, "[IBAN]"],
-  [/\b0x[a-fA-F0-9]{40}\b/g, "[WALLET]"],
-  [/\b[a-z0-9_-]+\.near\b/g, "[WALLET]"],
+  [/\b0x[a-fA-F0-9]{40,64}\b/g, "[WALLET]"],
+  [/\b(?:[a-z0-9_-]+\.)+near\b/g, "[WALLET]"], // NEAR accounts, sub-accounts included (pay.acme.near)
+  [/\b[a-f0-9]{64}\b/g, "[WALLET]"], // NEAR implicit accounts
+  [/\bbc1[a-z0-9]{25,62}\b/g, "[WALLET]"], // Bitcoin (bech32)
+  [/\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g, "[WALLET]"], // Solana, Tron and other base58 addresses
   [/@[A-Za-z0-9_]{4,}/g, "[HANDLE]"],
 ];
 

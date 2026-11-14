@@ -21,12 +21,15 @@ export const behaviour = {
   swap: "SUCCESS",
   tamper: false,
   kind: "provider_tee" as "provider_tee" | "gateway",
+  /** False: the review is signed, but its hardware evidence (NVIDIA here) did not verify. */
+  hardware: true,
+  riskScore: 5,
 };
 
 export async function fakeJudge(redacted: string, facts: JudgeFacts): Promise<Judged> {
   if (behaviour.ai === "down") throw new Error("NEAR AI chat failed: 503");
   const body = buildRequest(NEAR_AI_MODEL, redacted, facts);
-  const judgment = { decision: behaviour.ai, riskScore: 5, summary: "Looks routine.", reasons: [] as string[] };
+  const judgment = { decision: behaviour.ai, riskScore: behaviour.riskScore, summary: "Looks routine.", reasons: [] as string[] };
   const content = JSON.stringify(judgment);
   const raw = JSON.stringify({ id: "chat-1", choices: [{ message: { content } }] });
   // The signed text covers the exact response bytes; tampering changes the bytes after signing.
@@ -47,7 +50,7 @@ export async function fakeJudge(redacted: string, facts: JudgeFacts): Promise<Ju
       signingAddress: MODEL_KEY.publicKeyHex,
       attestation: {
         model: NEAR_AI_MODEL, nonce: NONCE, signingAddress: MODEL_KEY.publicKeyHex, signingAlgo: "ed25519",
-        gpuEvidence: { arch: "HOPPER", nonce: NONCE, verified: true, note: "" },
+        gpuEvidence: { arch: "HOPPER", nonce: NONCE, verified: behaviour.hardware, note: behaviour.hardware ? "" : "NRAS could not be reached" },
         cpuEvidence: { type: "intel-tdx", reportData: MODEL_KEY.publicKeyHex + NONCE, verified: true, note: "" },
         source: "live",
       },
@@ -61,6 +64,8 @@ export function install() {
   behaviour.swap = "SUCCESS";
   behaviour.tamper = false;
   behaviour.kind = "provider_tee";
+  behaviour.hardware = true;
+  behaviour.riskScore = 5;
   sentCallbacks.length = 0;
   quoteCalls.length = 0;
   depositsSubmitted.length = 0;

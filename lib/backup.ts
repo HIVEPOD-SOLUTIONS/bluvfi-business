@@ -29,7 +29,9 @@ const STATUS_FILE = join(DATA_DIR, "backup-status.json");
 const EVERY_HOURS = Number(env("BLUVFI_BACKUP_EVERY_HOURS") || 24);
 const KEEP_DAYS = Number(env("BLUVFI_BACKUP_KEEP_DAYS") || 30);
 const MIN_KEEP = 3;
+/** v1: base64 JSON (still read). v2: binary, about the size of the data in memory instead of four times it. */
 const FORMAT = "bluvfi-backup-v1";
+const FORMAT_V2 = "bluvfi-backup-v2";
 const NAME = /^bluvfi-backup-(\d{8}T\d{9}Z)\.enc$/;
 
 // ---------- Destinations ----------
@@ -86,12 +88,18 @@ export function signS3(
   return { ...all, authorization: `AWS4-HMAC-SHA256 Credential=${c.accessKeyId}/${scope}, SignedHeaders=${names.join(";")}, Signature=${signature}` };
 }
 
-export function s3Destination(c: S3Config): Destination {
+/** No backup this app makes comes near this; a bigger answer is refused rather than read into memory. */
+const MAX_DOWNLOAD = 1024 * 1024 * 1024;
+
+/** `fetcher`: how requests are sent. A business's own bucket uses lib/net-guard.ts publicFetch (checked at connect time). */
+export function s3Destination(c: S3Config, fetcher: (url: URL, init: RequestInit) => Promise<Response> = fetch): Destination {
   const base = c.endpoint.replace(/\/+$/, "");
   const objectUrl = (name: string) => new URL(`${base}/${rfc3986(c.bucket)}/${`${c.prefix}${name}`.split("/").map(rfc3986).join("/")}`);
   const send = async (method: string, url: URL, body?: Buffer) => {
     const hash = sha256Hex(body ?? "");
-    const res = await fetch(url, { method, headers: signS3(method, url, body ? { "content-type": "application/octet-stream" } : {}, hash, c), body: body ? new Uint8Array(body) : undefined, signal: AbortSignal.timeout(120_000) });
+    const res = await fetcher(url, { method, redirect: "manual", headers: signS3(method, url, body ? { "content-type": "application/octet-stream" } : {}, hash, c), body: body ? new Uint8Array(body) : undefined, signal: AbortSignal.timeout(120_000) });
+    if (res.status >= 300 && res.status < 400) throw new Error(`S3 ${method} answered with a redirect (${res.status}), which is not followed`);
+    if (Number(res.headers.get("content-length") ?? 0) > MAX_DOWNLOAD) throw new Error(`S3 ${method} answer is larger than ${MAX_DOWNLOAD / 1024 / 1024} MB`);
     if (!res.ok && !(method === "DELETE" && res.status === 404)) {
       const text = await res.text().catch(() => "");
       const code = /<Code>([^<]+)<\/Code>/.exec(text)?.[1];
@@ -152,6 +160,9 @@ export const backupsConfigured = () => !!(env("BLUVFI_BACKUP_DIR") || env("BLUVF
 
 interface FileEntry { path: string; size: number; sha256: string; data: string }
 interface Bundle { format: typeof FORMAT; createdAt: string; source: string; files: FileEntry[] }
+/** One file of an opened backup, its bytes checked against its SHA-256. */
+export interface OpenedFile { path: string; size: number; sha256: string; bytes: Buffer }
+export interface Opened { format: string; createdAt: string; source: string; files: OpenedFile[] }
 
 const backupKey = () => {
   if (!/^[0-9a-f]{64}$/i.test(MASTER_KEY)) throw new Error("BLUVFI_MASTER_KEY is not set, so there is nothing to encrypt a backup with");
@@ -161,15 +172,15 @@ const backupKey = () => {
 const keyId = (key: string) => sha256Hex(`bluvfi-backup-key-id:${key}`).slice(0, 12);
 const toPosix = (p: string) => p.split(sep).join("/");
 
-/** AES-256-GCM over the compressed bytes: base64 of iv (12) | tag (16) | ciphertext. */
-function seal(plain: Buffer, keyHex: string): string {
+/** AES-256-GCM over the compressed bytes: iv (12) | tag (16) | ciphertext. (v1 backups held the same, as base64.) */
+function sealRaw(plain: Buffer, keyHex: string): Buffer {
   const iv = randomBytes(12);
   const c = createCipheriv("aes-256-gcm", Buffer.from(keyHex, "hex"), iv);
   const ct = Buffer.concat([c.update(plain), c.final()]);
-  return Buffer.concat([iv, c.getAuthTag(), ct]).toString("base64");
+  return Buffer.concat([iv, c.getAuthTag(), ct]);
 }
-function unseal(sealed: string, keyHex: string): Buffer {
-  const raw = Buffer.from(sealed, "base64");
+function unseal(sealed: string | Buffer, keyHex: string): Buffer {
+  const raw = typeof sealed === "string" ? Buffer.from(sealed, "base64") : sealed;
   const d = createDecipheriv("aes-256-gcm", Buffer.from(keyHex, "hex"), raw.subarray(0, 12));
   d.setAuthTag(raw.subarray(12, 28));
   return Buffer.concat([d.update(raw.subarray(28)), d.final()]);
@@ -179,22 +190,23 @@ function unseal(sealed: string, keyHex: string): Buffer {
  * Everything to back up: the data folder, without locks, half-written temp files, the public OFAC cache, the backup status, and
  * the zero-knowledge proving-key cache (zk/cache: tens of MB that o1js rebuilds by itself in about 20 s).
  */
-function collect(): FileEntry[] {
+function collect(): OpenedFile[] {
   const root = resolve(DATA_DIR);
   if (!existsSync(root)) return [];
   const skipDir = env("BLUVFI_BACKUP_DIR") ? resolve(env("BLUVFI_BACKUP_DIR")) : "";
-  const out: FileEntry[] = [];
+  const out: OpenedFile[] = [];
   const walk = (dir: string) => {
     for (const name of readdirSync(dir).sort()) {
       const full = join(dir, name);
-      if (name.endsWith(".lock") || name.endsWith(".tmp") || full === skipDir) continue;
+      // Locks, temp files and the safety copies a restore leaves beside the records (.before-restore-*) are not backed up.
+      if (name.endsWith(".lock") || name.endsWith(".tmp") || name.includes(".before-restore-") || full === skipDir) continue;
       if (dir === root && (name === "sanctions.json" || name === "backup-status.json")) continue;
       if (dir === join(root, "zk") && name === "cache") continue;
       const st = statSync(full);
       if (st.isDirectory()) walk(full);
       else if (st.isFile()) {
         const data = readFileSync(full);
-        out.push({ path: toPosix(relative(root, full)), size: data.length, sha256: sha256Hex(data), data: data.toString("base64") });
+        out.push({ path: toPosix(relative(root, full)), size: data.length, sha256: sha256Hex(data), bytes: data });
       }
     }
   };
@@ -214,28 +226,43 @@ export const backupTime = (name: string): number => {
 export function makeBackup(now = new Date()): { name: string; body: Buffer; files: number; bytes: number } {
   const files = collect();
   // Paths inside are relative to the data folder, so a backup restores into whatever folder holds the records now.
-  const bundle: Bundle = { format: FORMAT, createdAt: now.toISOString(), source: toPosix(resolve(DATA_DIR)), files };
+  // v2: a length-prefixed JSON header (paths, sizes, checksums) then every file's bytes, gzipped and sealed as binary.
+  const header = Buffer.from(JSON.stringify({ format: FORMAT_V2, createdAt: now.toISOString(), source: toPosix(resolve(DATA_DIR)), files: files.map(({ bytes: _b, ...m }) => (void _b, m)) }));
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(header.length);
   const key = backupKey();
-  const sealed = seal(gzipSync(JSON.stringify(bundle)), key);
-  return { name: backupName(now), body: Buffer.from(`${FORMAT}\n${keyId(key)}\n${sealed}\n`), files: files.length, bytes: files.reduce((a, f) => a + f.size, 0) };
+  const sealed = sealRaw(gzipSync(Buffer.concat([len, header, ...files.map((f) => f.bytes)])), key);
+  return { name: backupName(now), body: Buffer.concat([Buffer.from(`${FORMAT_V2}\n${keyId(key)}\n`), sealed]), files: files.length, bytes: files.reduce((a, f) => a + f.size, 0) };
 }
 
 /** Open a backup and check every file in it against its SHA-256. Throws, with the reason, if anything is wrong. */
-export function openBackup(body: Buffer): Bundle {
-  const [format, id, sealed] = body.toString("utf8").trim().split("\n");
-  if (format !== FORMAT || !sealed) throw new Error("This is not a Bluvfi Business backup (or it is cut short)");
+export function openBackup(body: Buffer): Opened {
+  const nl1 = body.indexOf(10);
+  const nl2 = nl1 < 0 ? -1 : body.indexOf(10, nl1 + 1);
+  const format = nl1 < 0 ? "" : body.subarray(0, nl1).toString("utf8");
+  if ((format !== FORMAT && format !== FORMAT_V2) || nl2 < 0) throw new Error("This is not a Bluvfi Business backup (or it is cut short)");
+  const id = body.subarray(nl1 + 1, nl2).toString("utf8");
   const key = backupKey();
   if (id !== keyId(key)) throw new Error("This backup was made with a different BLUVFI_MASTER_KEY. Set the master key it was made with to read it.");
-  let bundle: Bundle;
+  let opened: Opened;
   try {
-    bundle = JSON.parse(gunzipSync(unseal(sealed, key)).toString("utf8")) as Bundle;
+    if (format === FORMAT) {
+      const bundle = JSON.parse(gunzipSync(unseal(body.subarray(nl2 + 1).toString("utf8").trim(), key)).toString("utf8")) as Bundle;
+      opened = { ...bundle, files: bundle.files.map((f) => ({ path: f.path, size: f.size, sha256: f.sha256, bytes: Buffer.from(f.data, "base64") })) };
+    } else {
+      const plain = gunzipSync(unseal(body.subarray(nl2 + 1), key));
+      const hlen = plain.readUInt32BE(0);
+      const head = JSON.parse(plain.subarray(4, 4 + hlen).toString("utf8")) as Omit<Opened, "files"> & { files: Omit<OpenedFile, "bytes">[] };
+      let at = 4 + hlen;
+      opened = { ...head, files: head.files.map((f) => ({ ...f, bytes: plain.subarray(at, (at += f.size)) })) };
+    }
   } catch {
     throw new Error("This backup is damaged: it does not decrypt");
   }
-  for (const f of bundle.files) {
-    if (sha256Hex(Buffer.from(f.data, "base64")) !== f.sha256) throw new Error(`This backup is damaged: ${f.path} does not match its checksum`);
+  for (const f of opened.files) {
+    if (sha256Hex(f.bytes) !== f.sha256) throw new Error(`This backup is damaged: ${f.path} does not match its checksum`);
   }
-  return bundle;
+  return opened;
 }
 
 // ---------- Running, keeping, restoring ----------
@@ -290,11 +317,12 @@ export async function prune(d: Destination, now = Date.now()): Promise<number> {
 }
 
 /** Make one backup and send it to every destination. Runs once at a time across every instance of the app. */
-export async function runBackup(now = new Date()): Promise<BackupStatus> {
+export async function runBackup(now = new Date(), opts: { onlyIfDue?: boolean } = {}): Promise<BackupStatus> {
   const dests = destinations();
   if (!dests.length) throw new Error("No backup destination is set: BLUVFI_BACKUP_DIR or BLUVFI_BACKUP_S3_*");
   mkdirSync(DATA_DIR, { recursive: true });
   return exclusive("backup", STATUS_FILE, async () => {
+    if (opts.onlyIfDue && !isDue(now)) return backupStatus(); // another instance just made it
     const b = makeBackup(now);
     const results: NonNullable<BackupStatus["results"]> = [];
     for (const d of dests) {
@@ -322,13 +350,17 @@ export async function runBackup(now = new Date()): Promise<BackupStatus> {
   });
 }
 
+const isDue = (now: Date) => {
+  const last = backupStatus().lastOkAt;
+  return !last || now.getTime() - Date.parse(last) >= EVERY_HOURS * 3_600_000;
+};
+
 /** Run a backup if one is due (none yet, or the last good one is older than BLUVFI_BACKUP_EVERY_HOURS). Never throws. */
 export async function backupIfDue(now = new Date()): Promise<{ ran: boolean; status?: BackupStatus; error?: string }> {
   if (!backupsConfigured() || !(EVERY_HOURS > 0)) return { ran: false };
-  const last = backupStatus().lastOkAt;
-  if (last && now.getTime() - Date.parse(last) < EVERY_HOURS * 3_600_000) return { ran: false };
+  if (!isDue(now)) return { ran: false };
   try {
-    return { ran: true, status: await runBackup(now) };
+    return { ran: true, status: await runBackup(now, { onlyIfDue: true }) };
   } catch (e) {
     return { ran: true, error: (e as Error).message };
   }
@@ -373,13 +405,22 @@ export function restoreBackup(body: Buffer, opts: { to?: string; force?: boolean
     if (holdsRecords) {
       if (!opts.force) throw new Error(`${DATA_DIR} already holds records. Stop the app, then run again with --force: the current folder is moved aside, not deleted.`);
       movedAside = `${dataDir}.before-restore-${stamp(opts.now ?? new Date())}`;
-      renameSync(dataDir, movedAside);
+      try {
+        renameSync(dataDir, movedAside);
+      } catch (e) {
+        // A mount point (a Docker volume) cannot be renamed: move what is in it into a folder inside it instead.
+        if (!["EBUSY", "EXDEV", "EPERM", "EACCES"].includes((e as NodeJS.ErrnoException).code ?? "")) throw e;
+        const inside = join(dataDir, `.before-restore-${stamp(opts.now ?? new Date())}`);
+        mkdirSync(inside);
+        for (const n of readdirSync(dataDir)) if (join(dataDir, n) !== inside) renameSync(join(dataDir, n), join(inside, n));
+        movedAside = inside;
+      }
     }
   }
   for (const f of bundle.files) {
     const target = join(into, ...f.path.split("/"));
     mkdirSync(dirname(target), { recursive: true });
-    writeAtomic(target, Buffer.from(f.data, "base64"));
+    writeAtomic(target, f.bytes);
   }
   return { files: bundle.files.length, createdAt: bundle.createdAt, movedAside, into };
 }

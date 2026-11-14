@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { POST as payRoute } from "../app/api/pay/[id]/route";
 import { createFundingLink } from "../lib/fund";
 import { intentsTokens, payFromChains } from "../lib/intents-tokens";
+import { state } from "../lib/store";
 
 const pay = (id: string, b: unknown) =>
   payRoute(new Request(`https://x.example/api/pay/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }), { params: Promise.resolve({ id }) }) as Promise<Response>;
@@ -22,15 +23,20 @@ test("a client can pay a link in Bitcoin; the treasury still receives USDC, and 
   const link = createFundingLink(500);
   const btc = (await intentsTokens()).find((t) => t.blockchain === "btc" && t.symbol === "BTC")!;
   const res = await pay(link.id, { fromAsset: btc.assetId, refundTo: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq" });
-  const out = (await res.json()) as { quote: { amountIn: string }; receivable: { deposit: { chain: string; symbol: string } } };
-  assert.equal(out.receivable.deposit.chain, "btc");
-  assert.equal(out.receivable.deposit.symbol, "BTC");
+  const out = (await res.json()) as { quote: { amountIn: string }; receivable: { id: string } };
+  const stored = state().receivables.find((r) => r.id === link.id)!.deposit!;
+  assert.equal(stored.chain, "btc");
+  assert.equal(stored.symbol, "BTC");
+  assert.equal((out.receivable as Record<string, unknown>).deposit, undefined, "the answer never shows the stored deposit");
   assert.ok(Number(out.quote.amountIn) > 0 && Number(out.quote.amountIn) < 1, `about $500 of BTC, not 500 BTC: ${out.quote.amountIn}`);
 
   const bad = await pay(link.id, { fromAsset: "nep141:evil.near", refundTo: "x" });
   assert.match(((await bad.json()) as { error: string }).error, /does not take that token/);
 
   // The older form (a chain, meaning USDC there) still works for the bank and card funding flows.
-  const usdc = (await (await pay(link.id, { fromChain: "base", refundTo: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed" })).json()) as { receivable: { deposit: { symbol: string } } };
-  assert.equal(usdc.receivable.deposit.symbol, "USDC");
+  await pay(link.id, { fromChain: "base", refundTo: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed" });
+  const r = state().receivables.find((x) => x.id === link.id)!;
+  assert.equal(r.deposit!.symbol, "USDC");
+  // The Bitcoin deposit given out before is still tracked: someone may already have sent to it.
+  assert.equal(r.earlier?.[0]?.symbol, "BTC");
 });

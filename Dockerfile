@@ -19,4 +19,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD wget -qO- "http://127.0.0.1:${PORT}/api/health" >/dev/null || exit 1
 # BLUVFI_DEMO=1 serves the hosted demo (fixtures, no keys, no funds); otherwise the mainnet app.
-CMD ["sh", "-c", "if [ \"$BLUVFI_DEMO\" = 1 ]; then npm run demo:serve; else npm start; fi"]
+# exec: the app itself receives docker stop's SIGTERM, instead of a shell that ignores it until it is killed.
+CMD ["sh", "-c", "if [ \"$BLUVFI_DEMO\" = 1 ]; then exec npm run demo:serve; else exec npm start; fi"]

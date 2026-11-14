@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { exclusive, fileStamp, writeAtomic } from "./shared-file";
+import { assertLockHeld, exclusive, fileStamp, writeAtomic } from "./shared-file";
 import { DEMO, KYB_ENABLED, MASTER_KEY, PASSPORT_ENABLED } from "./config";
 import { deriveKey } from "./crypto";
 import { openText, sealText } from "./vault";
@@ -8,6 +8,7 @@ import { DEFAULT_POLICY_BODY, makePolicy } from "./policy";
 import { services } from "./services";
 import { currentBiz, DEFAULT_BIZ, isDemo } from "./tenant";
 import type { CounterpartySignals } from "./fraud";
+import { invoiceKey } from "./types";
 import type { BlocklistEntry, CardPurchase, Payment, Policy, PolicyProposal, PurchaseOrder, Receivable, TopUp, Vendor, ViewGrant } from "./types";
 
 export interface State {
@@ -159,11 +160,21 @@ export function withRecords<T>(fn: () => Promise<T> | T, waitMs?: number): Promi
   const key = thisSpace();
   return exclusive(`records:${key}`, fileFor(key), async () => {
     refreshState();
+    let out: T;
     try {
-      return await fn();
-    } finally {
-      persist();
+      out = await fn();
+    } catch (e) {
+      // What the request changed before failing is still saved (a payout already sent must be on record), but a failure
+      // to save never hides the error that stopped it.
+      try {
+        persist();
+      } catch (saveError) {
+        throw new Error(`${(e as Error).message} (and the records could not be saved: ${(saveError as Error).message})`);
+      }
+      throw e;
     }
+    persist();
+    return out;
   }, waitMs);
 }
 /** Test helper: empty records for the current business. */
@@ -224,26 +235,44 @@ export function persist() {
 }
 
 function writeSealed(key: string, file: string, s: State) {
+  assertLockHeld(file);
   writeAtomic(file, sealText(JSON.stringify(s)));
   stamps().set(key, fileStamp(file));
 }
 
 export const currentPolicy = () => state().policies[state().policies.length - 1];
 
-/** Paid or reserved today (a payment waiting for its deposit counts, so limits cannot be bypassed in parallel). */
+/**
+ * Paid or reserved today (a payment waiting for its deposit counts, so limits cannot be bypassed in parallel). A payment counts
+ * on the day it was committed (handed to the custodian or approved to send), not the day it arrived, so a backlog approved
+ * today counts against today. Payroll proposed today counts too.
+ */
 export const spentTodayUsd = () => {
   const today = new Date().toISOString().slice(0, 10);
-  return state().payments
-    .filter((p) => (p.status === "paid" || p.status === "ready_to_send" || p.status === "proposed") && p.createdAt.startsWith(today))
+  const payments = state().payments
+    .filter((p) => (p.status === "paid" || p.status === "ready_to_send" || p.status === "proposed") && (p.committedAt ?? p.createdAt).startsWith(today))
     .reduce((s, p) => s + p.invoice.amountUsd, 0);
+  const payroll = (state().payrollRuns ?? [])
+    .filter((r) => r.sentAt?.startsWith(today))
+    .flatMap((r) => r.rows)
+    .filter((r) => r.status === "proposed" || r.status === "sent" || r.status === "paid")
+    .reduce((s, r) => s + r.amountUsd, 0);
+  return payments + payroll;
 };
+
+const LIVE_STATUSES = new Set(["paid", "approved", "ready_to_send", "proposed", "awaiting_approval", "held"]);
+/** Is this vendor's invoice already in a payment that is paid or still on its way (not cancelled or blocked)? */
+export const invoiceInFlight = (vendorName: string, invoiceNumber: string, except?: string) =>
+  state().payments.some((p) => p.id !== except && LIVE_STATUSES.has(p.status) && p.invoice.vendorName === vendorName && invoiceKey(p.invoice.invoiceNumber) === invoiceKey(invoiceNumber));
 
 const live = new Map<string, CounterpartySignals>();
 
 /** Fetch public on-chain facts ahead of the (synchronous) fraud checks. */
 export async function prefetchCounterparty(address: string, chain?: string) {
   const s = await services.lookupSignals(address, chain);
+  // A failed or unsupported lookup must not leave an older answer (perhaps for another chain) in use.
   if (s) live.set(address.toLowerCase(), s);
+  else live.delete(address.toLowerCase());
 }
 
 const screened = new Map<string, import("./fraud").SanctionsResult>();
@@ -275,4 +304,5 @@ export const fraudContext = () => ({
   kybEnabled: KYB_ENABLED,
   passportEnabled: PASSPORT_ENABLED,
   tiers: currentPolicy(),
+  inFlight: (vendorName: string, invoiceNumber: string) => invoiceInFlight(vendorName, invoiceNumber),
 });

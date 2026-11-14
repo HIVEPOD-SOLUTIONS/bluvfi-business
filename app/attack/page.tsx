@@ -74,7 +74,7 @@ async function AttackLab() {
       <PageHead
         title="Attack lab"
         sub="Try to make the agent drain the treasury. Each attack goes through the real pipeline, and each is stopped by a different layer, even when the AI itself is fooled."
-        right={isDemo() ? <ActionButton url="/api/attack" variant="primary" done="Attacks run: nothing was paid">Run the attacks</ActionButton> : <Badge>Demo mode only</Badge>}
+        right={isDemo() ? <ActionButton url="/api/attack" variant="primary" done="Attacks run: each result is below">Run the attacks</ActionButton> : <Badge>Demo mode only</Badge>}
       />
       {!isDemo() && <p role="status" className="card mb-4 text-sm" style={{ color: "var(--tx-1)" }}>The Attack lab runs in demo mode, so a live business never fills its records with attacks. Switch to demo on the Settings page to try it.</p>}
       <div className="grid gap-4">

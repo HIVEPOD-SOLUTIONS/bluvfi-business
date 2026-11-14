@@ -82,6 +82,11 @@ export interface Vendor {
   payout: { chain: string; asset: string; address: string };
   lastPaidAt?: string;
   paidInvoiceNumbers: string[];
+  /**
+   * A change to where this vendor is paid, or to the channel that confirms changes, made by one signer and waiting for a
+   * second. Until then every payment uses the details above.
+   */
+  pendingChange?: { payout: { chain: string; asset: string; address: string }; verifiedContact: { channel: Channel; handle: string }; by: string; at: string };
 }
 
 export interface Policy {
@@ -217,6 +222,9 @@ export interface VerifiedPanel {
   policyCheckPq?: import("./pqcheck").PqPolicyCheck;
 }
 
+/** An invoice number as compared for duplicates: case, spaces and dashes do not make a new invoice. */
+export const invoiceKey = (n: string) => n.normalize("NFKC").toUpperCase().replace(/[\s\-_./#]+/g, "");
+
 export type PaymentStatus =
   | "paid"
   | "approved"
@@ -233,6 +241,8 @@ export interface CallbackRecord {
   sentAt: string;
   message: string;
   status: "pending" | "confirmed" | "denied";
+  /** The signer who recorded the vendor's answer by hand (not an automated channel): they may not also approve the payment. */
+  recordedBy?: string;
   answer?: string;
   answeredAt?: string;
   delivered: "telegram" | "voice" | "manual" | "demo";
@@ -305,6 +315,8 @@ export interface TopUp {
 
 export interface Payment {
   id: string;
+  /** When it was handed to the custodian or approved to send: the day it counts against the daily limit. */
+  committedAt?: string;
   invoice: Invoice;
   rail: Rail;
   status: PaymentStatus;
@@ -357,6 +369,8 @@ export interface Receivable {
   kind?: "invoice" | "funding";
   status: "open" | "paid";
   deposit?: { chain: string; address: string; memo?: string; amountIn: string; deadline?: string; /** What the client sends (USDC when absent). */ symbol?: string };
+  /** Earlier deposit addresses given out for this link that may still receive money: each is checked until it is paid, refunded or expired. */
+  earlier?: NonNullable<Receivable["deposit"]>[];
   /** An INR bank transfer (UPI) that buys the USDC for this funding: Credible's order and where it stands (lib/banking.ts). */
   bank?: { provider: "credible"; orderId: string; status: string; inr: number; upiIntent: string; upiQr: string; expiresAt: string; checkedAt?: string };
   /** What 1Click last said about the deposit: a failed or expired one clears `deposit` so the client can start again. */

@@ -537,8 +537,31 @@ function proposalFor(p: Payment, amount: string, memo: string, evidence: string)
     ai_signer: p.verified.signature.signingAddress,
     ai_signature: p.verified.signature.signature,
     policy: `v${p.verified.policyVersion}:${p.verified.policyHash}`,
+    // Which payment this is, so the agent can find a proposal it filed even if the call that filed it timed out.
+    bluvfi_ref: proposalRef(p.id),
   });
   return { kind, description };
+}
+
+const proposalRef = (paymentId: string) => `bluvfi:${paymentId}`;
+/** Does this proposal description carry exactly this payment's reference (one of its " <br>"-separated lines)? */
+const carriesRef = (description: string, ref: string) => description.split(" <br>").some((line) => line.trim() === `* Bluvfi Ref: ${ref}`);
+
+/**
+ * A proposal on the DAO for this payment that could still pay (open, approved, or failed and so perhaps run again), among the
+ * last 100. Undefined if there is none.
+ */
+async function proposalForPayment(paymentId: string): Promise<{ id: number; status: string } | undefined> {
+  const ref = proposalRef(paymentId);
+  const live = (status: string) => status === "InProgress" || status === "Approved" || status === "Failed";
+  if (isDemo()) {
+    const hit = Object.values(demoDao().list()).reverse().find((x) => carriesRef(x.description, ref) && live(x.status));
+    return hit && { id: hit.id, status: hit.status };
+  }
+  const last = await viewDao<number>("get_last_proposal_id");
+  const list = await viewDao<{ id: number; description: string; status: string }[]>("get_proposals", { from_index: Math.max(0, last - 100), limit: 100 });
+  const hit = [...list].reverse().find((x) => carriesRef(x.description, ref) && live(x.status));
+  return hit && { id: hit.id, status: hit.status };
 }
 
 /**
@@ -597,7 +620,18 @@ async function submitConfidential(p: Payment, evidence: string): Promise<Custody
 
 async function submitSputnik(p: Payment, amount: string, memo: string, evidence: string): Promise<CustodyRecord> {
   const { kind, description } = proposalFor(p, amount, memo, evidence);
-  const id = await addDaoProposal(kind, description);
+  // Never file a second proposal for one payment: an earlier attempt may have reached the DAO even though its call failed.
+  const before = await proposalForPayment(p.id).catch(() => undefined);
+  if (before) throw new Error(`Proposal #${before.id} for this payment is already on the DAO (${before.status}), from an earlier attempt. Vote on it in Trezu, or have it removed, before proposing again.`);
+  let id: number;
+  try {
+    id = await addDaoProposal(kind, description);
+  } catch (e) {
+    // A timeout does not mean it failed: look for it before calling it held.
+    const landed = await proposalForPayment(p.id).catch(() => undefined);
+    if (!landed) throw e;
+    id = landed.id;
+  }
   return {
     backend: "sputnik",
     ref: String(id),
@@ -716,6 +750,9 @@ export function demoDao() {
       const id = ++dao.lastId;
       dao.proposals[id] = { id, status: "InProgress", kind, votes: {}, description };
       return id;
+    },
+    list() {
+      return dao.proposals;
     },
     get(id: number): DaoProposal {
       const p = dao.proposals[id];

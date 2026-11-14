@@ -28,11 +28,11 @@ async function PayPage({ params }: { params: Promise<{ id: string }> }) {
             <AuroraPayLoader id={r.id} apiKey={AURORA_API_KEY} payTo={r.payTo} amountUsd={r.amountUsd} />
             <details className="mt-4 text-sm">
               <summary style={{ color: "var(--tx-1)" }}>Or pay manually to a deposit address</summary>
-              <PayWidget id={r.id} paid={false} deposit={r.deposit ?? null} note={r.settlement?.note} chains={chains} />
+              <PayWidget id={r.id} paid={false} deposit={null} note={undefined} chains={chains} />
             </details>
           </>
         ) : (
-          <PayWidget id={r.id} paid={r.status === "paid"} deposit={r.deposit ?? null} note={r.settlement?.note} chains={chains} />
+          <PayWidget id={r.id} paid={r.status === "paid"} deposit={null} note={undefined} chains={chains} />
         )}
       </div>
       <p className="mt-4 text-sm" style={{ color: "var(--tx-2)" }}>

@@ -1,4 +1,5 @@
 import { sameAddress } from "./chains";
+import { invoiceKey } from "./types";
 import type { BlocklistEntry, CheckRequest, CheckResult, Invoice, PurchaseOrder, Vendor, Verdict } from "./types";
 import { hasVendorTiers, standing, vendorRequirement, type VerificationTiers } from "./verify-tiers";
 
@@ -40,6 +41,8 @@ export interface FraudContext {
   passportEnabled?: boolean;
   /** The council's tiered-verification rules from the policy in force (lib/verify-tiers.ts). */
   tiers?: VerificationTiers;
+  /** Another payment of this vendor's invoice that is paid or still on its way to being paid (not cancelled or blocked). */
+  inFlight?: (vendorName: string, invoiceNumber: string) => boolean;
 }
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -99,12 +102,14 @@ export function runFraudChecks(inv: Invoice, ctx: FraudContext): CheckResult[] {
   }
 
   // 2. Duplicate invoice.
-  const dup = ctx.vendors.some((v) => v.name === inv.vendorName && v.paidInvoiceNumbers.includes(inv.invoiceNumber));
+  // Compared by key (case, spaces and dashes ignored), and against payments still waiting too, not only paid ones.
+  const paid = ctx.vendors.some((v) => v.name === inv.vendorName && v.paidInvoiceNumbers.some((n) => invoiceKey(n) === invoiceKey(inv.invoiceNumber)));
+  const waiting = !paid && !!ctx.inFlight?.(inv.vendorName, inv.invoiceNumber);
   out.push({
     id: "duplicate",
     label: "Duplicate invoice",
-    verdict: dup ? "block" : "allow",
-    reason: dup ? `Invoice ${inv.invoiceNumber} has already been paid.` : "Invoice number has not been paid before.",
+    verdict: paid || waiting ? "block" : "allow",
+    reason: paid ? `Invoice ${inv.invoiceNumber} has already been paid.` : waiting ? `Invoice ${inv.invoiceNumber} is already in another payment that has not been cancelled. Cancel that one first if this is a correction.` : "Invoice number has not been paid before.",
   });
 
   // 3. Amount vs purchase order.

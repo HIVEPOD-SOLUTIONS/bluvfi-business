@@ -37,7 +37,7 @@ export const PAYOUT_CHAINS: { key: string; address: RegExp; example: string }[] 
   { key: "ton", address: /^((EQ|UQ|Ef|Uf|kQ|0Q)[A-Za-z0-9_-]{46}|-?[01]:[0-9a-fA-F]{64})$/, example: "UQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqEt1" },
   { key: "stellar", address: /^G[A-Z2-7]{55}$/, example: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN" },
   { key: "sui", address: /^0x[0-9a-fA-F]{64}$/, example: "0x" + "a".repeat(64) },
-  { key: "aptos", address: /^0x[0-9a-fA-F]{1,64}$/, example: "0x" + "a".repeat(64) },
+  { key: "aptos", address: /^0x[0-9a-fA-F]{64}$/, example: "0x" + "a".repeat(64) },
 ];
 export const PAYOUT_CHAIN_KEYS = PAYOUT_CHAINS.map((c) => c.key);
 /** The stablecoins a payout may be made in. APPEND ONLY, for the same reason as the chains. */

@@ -1,6 +1,6 @@
 import { approve, demoTreasuryVote, processInvoice, publicCheck, resolveCallback } from "./agent";
 import { makePolicy, DEFAULT_POLICY_BODY } from "./policy";
-import { resetState } from "./store";
+import { resetState, state } from "./store";
 import type { AiJudgment, Invoice, Payment } from "./types";
 
 /**
@@ -175,6 +175,16 @@ export async function runDemo(opts: { vendorReplies: boolean; log?: (line: strin
  */
 export async function runAttacks(log: (line: string) => void = () => {}): Promise<Payment[]> {
   const out: Payment[] = [];
+  // Each run starts clean: the previous run's attack payments (never paid) are retired, so this run's invoices are judged
+  // on their own and not simply caught as duplicates of the last run.
+  const numbers = new Set(ATTACKS.map((a) => a.invoice.invoiceNumber));
+  for (const p of state().payments) {
+    if (p.invoice.vendorName === ATTACKER.vendorName && numbers.has(p.invoice.invoiceNumber) && p.status !== "cancelled" && p.status !== "paid") {
+      p.status = "cancelled";
+      p.headline = "Cancelled: replaced by a new Attack lab run";
+      p.reason = "The Attack lab was run again. Nothing was ever paid on this one.";
+    }
+  }
   for (const a of ATTACKS) {
     const p = await processInvoice(a.invoice, "basic");
     out.push(p);

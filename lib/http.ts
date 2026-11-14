@@ -12,7 +12,12 @@ const PER_MINUTE = Number(process.env.RATE_LIMIT_PER_MIN ?? 120);
  * Wrap a route handler: rate limit, JSON in, JSON out, errors become 400s with a plain message. The handler runs inside
  * the business of the signed-in session, or, for a public link, the business `scope` says the link belongs to.
  */
-export function route<C = unknown>(fn: Handler<C>, scope?: (req: Request, ctx: C) => Promise<string> | string) {
+/**
+ * `lock: false`: a write that makes slow outside calls (a public pay link asking 1Click for a quote) runs without the
+ * business's records lock, so anonymous callers cannot queue every signer's writes behind them. Such a handler must take
+ * the lock itself (withRecords) just for its change.
+ */
+export function route<C = unknown>(fn: Handler<C>, scope?: (req: Request, ctx: C) => Promise<string> | string, opts: { lock?: boolean } = {}) {
   return async (req: Request, ctx: C) => {
     const wait = limited(`${clientKey(req)}:${new URL(req.url).pathname}`, PER_MINUTE);
     if (wait) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "retry-after": String(wait) } });
@@ -21,7 +26,7 @@ export function route<C = unknown>(fn: Handler<C>, scope?: (req: Request, ctx: C
       return await runAs(biz, async () => {
         // A read sees the latest records; a write has the business's records to itself until it is saved (lib/store.ts).
         let out: unknown;
-        if (req.method === "GET") {
+        if (req.method === "GET" || opts.lock === false) {
           refreshState();
           out = await fn(req, ctx);
         } else {

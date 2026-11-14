@@ -8,7 +8,7 @@ import { CATEGORY_LABEL, filterHistory, historyEntries, type HistoryCategory } f
 import { holdings, listAssets, orderAllocation, previewAllocation } from "./invest";
 import { getMarket, getPrice } from "./prices";
 import { services } from "./services";
-import { currentPolicy, state } from "./store";
+import { currentPolicy, state, withRecords } from "./store";
 import { approvalThreshold } from "./team";
 
 /**
@@ -97,7 +97,11 @@ const card = (id: string, tool: string, summary: string, detail: string[]): Pend
 export async function runTurn(message: string, history: Msg[], by: string): Promise<Turn> {
   const m = message.trim();
   if (!m) throw new Error("Write what you would like to do");
-  const { reply, tool, args } = await interpret(m, history);
+  // Only the person's own words go back to the model as history. The agent's replies can carry text from outside (a product
+  // or vendor name), and the model must never read anything a tool or a provider wrote.
+  const { reply, tool, args } = await interpret(m, history.filter((h) => h.role === "user"));
+  // The model call above runs without the business's records lock; what the turn reads and saves runs under it.
+  return withRecords(async (): Promise<Turn> => {
   const blocks: Block[] = [];
 
   switch (tool) {
@@ -142,7 +146,7 @@ export async function runTurn(message: string, history: Msg[], by: string): Prom
       const recipient = str(args.recipient, 40) || undefined;
       if (d.recipientType !== "none" && !recipient) return { reply: `For ${d.name} I also need the ${d.recipientType.replace("_", " ")} to top up.`, blocks };
       const pid = save(by, "order_bill", { productId: d.id, packageValue: size, email, recipient });
-      return { reply: reply || "I can order that. Check it and confirm.", blocks, pending: card(pid, "order_bill", `Order ${d.name} ${size} ${d.currency}`, [`About ${usd(price)} in USDC, paid from the treasury`, `Receipt and code to ${email.replace(/^(.).*(@.*)$/, "$1***$2")}`, "Confirming makes a payment that your rules and your treasury must still approve, within about 15 minutes."]) };
+      return { reply: reply || "I can order that. Check it and confirm.", blocks, pending: card(pid, "order_bill", `Order ${d.name} ${size} ${d.currency}`, [`About ${usd(price)} in USDC, paid from the treasury`, `Receipt and code to ${email}: check it is right, a code sent to the wrong address cannot be taken back`, ...(recipient ? [`Topped up: ${recipient}`] : []), "Confirming makes a payment that your rules and your treasury must still approve, within about 15 minutes."]) };
     }
     case "invest": {
       const symbol = str(args.symbol, 10).toUpperCase();
@@ -185,6 +189,7 @@ export async function runTurn(message: string, history: Msg[], by: string): Prom
         blocks,
         pending: card(pid, "buy_with_card", `A one-time card for ${merchant}, capped at ${usd(amount)}`, [
           `For: ${purpose}`,
+          url ? `At: ${url}` : "No shop address was given, so the shop could not be checked against the blocklist",
           "Made for this one purchase: the issuer caps it at the amount, and it closes after 24 hours if unused",
           amount >= policy.approvalThresholdUsd ? `From ${usd(policy.approvalThresholdUsd)} up, ${approvalThreshold()} signer approval(s) are needed before the card is made` : "Your card budget, limits and blocklist decide first",
           "If it is made now, its number is shown to you once here and never stored",
@@ -194,6 +199,7 @@ export async function runTurn(message: string, history: Msg[], by: string): Prom
     default:
       return { reply: reply || "How can I help? I can show prices, balances and history, find bills, and propose payments, investments, funding and one-time cards for purchases.", blocks };
   }
+  });
 }
 
 /** Run what a person confirmed, from the saved request, not from anything sent now. Returns where to go next and what to say. */

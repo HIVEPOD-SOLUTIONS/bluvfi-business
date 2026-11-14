@@ -29,4 +29,4 @@ export const POST = route(async (req) => {
     receivedAt: new Date().toISOString(),
   };
   return { payment: await processInvoice(inv, conf) };
-});
+}, undefined, { lock: false }); // processInvoice takes the records lock itself, after its slow outside calls

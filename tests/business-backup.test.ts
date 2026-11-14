@@ -1,5 +1,6 @@
 import { BUCKET_PORT, DIR } from "./setup-business-backup";
 import assert from "node:assert/strict";
+import { KeyPair } from "near-api-js";
 import { createServer } from "node:http";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -48,7 +49,8 @@ const ENDPOINT = `http://127.0.0.1:${BUCKET_PORT}`;
 const PASS = "correct horse battery staple";
 const acme = createBusiness("Acme Backups Ltd", "owner@acme.test");
 const other = createBusiness("Other Co", "owner@other.test");
-const AGENT_KEY = "ed25519:4wGGLPhkfLEnRSGv8NnNkAsS1MqdAn5bLNY3V1DEe3mqd6YdS4uEEc5pDHLPq3rJKWp2HM3hQ2ehuYBJrNNWp6Ta";
+// Made fresh on every run, so no key-shaped literal lives in the repository.
+const AGENT_KEY = KeyPair.fromRandom("ed25519").toString();
 setTreasury(acme.id, { custody: "sputnik", dao: "acme.sputnik-dao.near", agent: "acme-agent.near", agentKey: AGENT_KEY });
 
 const cookie = async (biz: string, email: string) => `${COOKIE}=${encodeURIComponent((await issueSession(privySubject(biz, email)))!)}`;
@@ -108,8 +110,8 @@ test("restore from Settings puts the records back and keeps the ones it replaced
 test("a bucket on a private or local address is refused, so a business cannot point the server at its own network", async () => {
   process.env.BLUVFI_ALLOW_PRIVATE_BACKUP_ENDPOINTS = "0";
   try {
-    for (const bad of ["http://s3.example.com", "https://127.0.0.1", "https://169.254.169.254", "https://10.0.0.5", "https://localhost:9000", "https://[::1]", "https://metadata.google.internal"]) {
-      await assert.rejects(assertPublicEndpoint(bad), /https:\/\/|public address|could not be found/, bad);
+    for (const bad of ["http://s3.example.com", "https://127.0.0.1", "https://169.254.169.254", "https://10.0.0.5", "https://localhost:9000", "https://[::1]", "https://metadata.google.internal", "https://[::ffff:127.0.0.1]", "https://[::ffff:a9fe:a9fe]", "https://[64:ff9b::a9fe:a9fe]", "https://[2002:7f00:1::]", "https://[fd00::1]", "https://198.18.0.1", "https://user:pw@s3.example.com"]) {
+      await assert.rejects(assertPublicEndpoint(bad), /https:\/\/|public address|could not be found|user name/, bad);
     }
   } finally {
     process.env.BLUVFI_ALLOW_PRIVATE_BACKUP_ENDPOINTS = "1";
@@ -133,4 +135,25 @@ test("the schedule backs up each business once a day, keeps trying after a failu
   assert.equal(businessBackupWarning(acme.id, T + 3 * 3_600_000), "", "fixed: the warning goes away");
   assert.ok(readdirSync(join(DIR, "businesses")).length > 0);
   assert.ok(makeBusinessBackup(acme.id).body.length > 0);
+});
+
+test("the public-address check reads IPv4 hidden inside IPv6, and still lets ordinary public addresses through", async () => {
+  const { isPrivateAddress } = await import("../lib/net-guard");
+  for (const ip of ["127.0.0.1", "10.1.2.3", "169.254.169.254", "::1", "::ffff:7f00:1", "::ffff:127.0.0.1", "64:ff9b::a9fe:a9fe", "2002:a00:1::", "fe80::1", "fc00::1", "100.64.0.1", "not-an-ip"]) assert.equal(isPrivateAddress(ip), true, ip);
+  for (const ip of ["8.8.8.8", "1.1.1.1", "2606:4700:4700::1111", "::ffff:8.8.8.8", "64:ff9b::808:808"]) assert.equal(isPrivateAddress(ip), false, ip);
+});
+
+test("a fetch of someone else's URL checks the address it connects to, so a name that resolves to this machine is refused", async () => {
+  const { publicFetch } = await import("../lib/net-guard");
+  const { createServer } = await import("node:http");
+  const srv = createServer((_q, r) => r.end("inside")).listen(0, "127.0.0.1");
+  await new Promise((r) => srv.once("listening", r));
+  const port = (srv.address() as { port: number }).port;
+  try {
+    await assert.rejects(publicFetch(`http://127.0.0.1:${port}/`), /not a public address/);
+    await assert.rejects(publicFetch(`http://localhost:${port}/`), /private address/, "resolved at connect time, not trusted from an earlier check");
+    assert.equal(await (await publicFetch(`http://127.0.0.1:${port}/`, { allowPrivate: true })).text(), "inside");
+  } finally {
+    srv.close();
+  }
 });

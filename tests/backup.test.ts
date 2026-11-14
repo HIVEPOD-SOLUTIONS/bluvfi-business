@@ -73,9 +73,11 @@ test("a backup holds every record file, encrypted, and goes to the folder and th
   assert.ok(objects.has(`bluvfi/${s.lastName}`), "in the bucket under the prefix");
   assert.equal(refused, 0, "every request to the bucket was signed correctly");
 
-  const raw = readFileSync(join(OUT, s.lastName!), "utf8");
-  assert.ok(!raw.includes(SECRET_VENDOR) && !raw.includes("state.json") && !raw.includes("proofs"), "nothing inside can be read, not even file names");
-  const paths = openBackup(Buffer.from(raw)).files.map((f) => f.path);
+  const raw = readFileSync(join(OUT, s.lastName!));
+  const text = raw.toString("latin1");
+  assert.ok(!text.includes(SECRET_VENDOR) && !text.includes("state.json") && !text.includes("proofs"), "nothing inside can be read, not even file names");
+  assert.ok(text.startsWith("bluvfi-backup-v2\n"), "the binary format");
+  const paths = openBackup(raw).files.map((f) => f.path);
   assert.ok(paths.includes("state.json") && paths.includes("zk/proofs/pay-1.json"), "paths are kept relative to the data folder");
   assert.ok(!paths.some((p) => p.endsWith("sanctions.json") || p.includes(".lock") || p.endsWith(".tmp") || p.startsWith("zk/cache")), "no cache, lock or temp file");
   assert.equal(backupWarning(Date.parse("2026-11-09T11:00:00Z")), "");
@@ -83,12 +85,13 @@ test("a backup holds every record file, encrypted, and goes to the folder and th
 
 test("a damaged backup, or one opened with another master key, is refused with the reason", () => {
   const { body } = makeBackup(new Date("2026-11-09T10:30:00Z"));
-  const [format, id, sealed] = body.toString().trim().split("\n");
-  assert.throws(() => openBackup(Buffer.from(`${format}\n000000000000\n${sealed}\n`)), /different BLUVFI_MASTER_KEY/);
-  const bytes = Buffer.from(sealed, "base64");
-  bytes[bytes.length - 1] ^= 1; // one bit of the ciphertext
-  const flipped = bytes.toString("base64");
-  assert.throws(() => openBackup(Buffer.from(`${format}\n${id}\n${flipped}\n`)), /damaged/);
+  const nl1 = body.indexOf(10);
+  const nl2 = body.indexOf(10, nl1 + 1);
+  const otherKey = Buffer.concat([body.subarray(0, nl1 + 1), Buffer.from("000000000000\n"), body.subarray(nl2 + 1)]);
+  assert.throws(() => openBackup(otherKey), /different BLUVFI_MASTER_KEY/);
+  const flipped = Buffer.from(body);
+  flipped[flipped.length - 1] ^= 1; // one bit of the ciphertext
+  assert.throws(() => openBackup(flipped), /damaged/);
   assert.throws(() => openBackup(Buffer.from("not a backup")), /not a Bluvfi Business backup/);
 });
 

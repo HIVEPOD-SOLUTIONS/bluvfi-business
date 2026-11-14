@@ -48,6 +48,8 @@ export interface PayrollRun {
   sentAt?: string;
   /** SHA-256 of the people, amounts and addresses sent to the council: in every proposal's description. */
   evidenceHash?: string;
+  /** The same people, amounts and addresses in any order: a sheet already sent cannot be sent again by mistake. */
+  sheetHash?: string;
 }
 
 const requireSignerName = (who: string) => {
@@ -137,6 +139,9 @@ async function checkRow(r: Omit<PayrollRow, "checks" | "verdict" | "status">, se
   out.push(policy.allowedAssets.includes(r.asset)
     ? { id: "asset", label: "Allowed asset", verdict: "allow", reason: `${r.asset} is allowed.` }
     : { id: "asset", label: "Allowed asset", verdict: "block", reason: `The council's policy does not allow paying in ${r.asset}.` });
+  out.push(r.amountUsd <= policy.perPaymentLimitUsd
+    ? { id: "limit", label: "Per-payment limit", verdict: "allow", reason: `Within the ${usd(policy.perPaymentLimitUsd)} per-payment limit.` }
+    : { id: "limit", label: "Per-payment limit", verdict: "block", reason: `${usd(r.amountUsd)} is over the council's ${usd(policy.perPaymentLimitUsd)} per-payment limit.` });
   const listed = state().blocklist.find((b) => b.kind === "address" && b.value.toLowerCase() === r.address.toLowerCase());
   out.push(listed
     ? { id: "blocklist", label: "Shared blocklist", verdict: "block", reason: `This address is on the shared blocklist: ${listed.reason}` }
@@ -184,6 +189,7 @@ export async function createPayrollRun(csv: string, title: string, by: string): 
     totalUsd: Math.round(checked.reduce((a, r) => a + r.amountUsd, 0) * 100) / 100,
     status: "draft",
     proposals: [],
+    sheetHash: createHash("sha256").update(checked.map((x) => `${x.name}|${x.amountUsd}|${x.chain}|${x.asset}|${x.address}`).sort().join("\n")).digest("hex"),
   };
   runs().unshift(run);
   return run;
@@ -215,8 +221,12 @@ function evidenceOf(run: PayrollRun): string {
 export async function sendPayrollRun(id: string, by: string): Promise<PayrollRun> {
   requireSignerName(by);
   const run = find(id);
-  if (run.status !== "draft") throw new Error(`This run was already ${run.status}`);
+  // A run can be sent again only to propose the people a failed send did not reach.
+  const todo = run.rows.filter((r) => r.status === "ready");
+  if (run.status !== "draft" && !(run.status === "proposed" && todo.length)) throw new Error(`This run was already ${run.status}`);
   if (state().killSwitch) throw new Error("The kill switch is on: nothing can be sent");
+  const same = runs().find((o) => o.id !== run.id && o.status !== "cancelled" && o.status !== "draft" && o.sheetHash && o.sheetHash === run.sheetHash);
+  if (same) throw new Error(`The same people and amounts were already sent as "${same.title}" (${same.sentAt?.slice(0, 10) ?? ""}). Change the sheet if this is a new payroll.`);
   const blocked = run.rows.filter((r) => r.verdict === "block");
   if (blocked.length) throw new Error(`Fix or remove ${blocked.map((r) => r.name).join(", ")} first (line${blocked.length === 1 ? "" : "s"} ${blocked.map((r) => r.line).join(", ")}), then upload the file again.`);
   const custodyMode = cfg().CUSTODY;
@@ -227,18 +237,19 @@ export async function sendPayrollRun(id: string, by: string): Promise<PayrollRun
 
   // A quote per person, valid for the council's whole voting period plus a day: money sent to a dead deposit address can be lost.
   const window = await payoutWindowMs();
-  for (const r of run.rows) {
+  for (const r of todo) {
     const inv: Invoice = {
       id: `${run.id}-${r.line}`, vendorName: r.name, vendorDomain: "", vendorContact: { channel: "email", handle: "" }, invoiceNumber: `${run.id}-${r.line}`,
       poNumber: "", amountUsd: r.amountUsd, asset: r.asset, chain: r.chain, payoutAddress: r.address, text: `Payroll ${run.title}`, receivedAt: run.createdAt,
     };
     r.quote = await services.quotePayout(inv, "basic", window);
+    if (r.quote.source === "1click-dry") throw new Error("ONECLICK_DRY is on, so the quotes have no deposit address and nothing can be sent");
     if (!r.quote.depositAddress) throw new Error(`NEAR Intents gave no deposit address for ${r.name}; nothing was sent`);
   }
   run.evidenceHash = evidenceOf(run);
 
   const groups: PayrollRow[][] = [];
-  for (let i = 0; i < run.rows.length; i += PER_PROPOSAL) groups.push(run.rows.slice(i, i + PER_PROPOSAL));
+  for (let i = 0; i < todo.length; i += PER_PROPOSAL) groups.push(todo.slice(i, i + PER_PROPOSAL));
   for (const [gi, group] of groups.entries()) {
     const actions = group.flatMap((r) => [
       { method_name: "storage_deposit", args: b64({ account_id: r.quote!.depositAddress, registration_only: true }), deposit: STORAGE_DEPOSIT_YOCTO, gas: "5000000000000" },
@@ -255,11 +266,18 @@ export async function sendPayrollRun(id: string, by: string): Promise<PayrollRun
       depositValidUntil: validUntil,
       evidence: run.evidenceHash,
     });
-    const pid = await addDaoProposal({ FunctionCall: { receiver_id: NEAR_USDC_CONTRACT, actions } }, description);
+    let pid: number;
+    try {
+      pid = await addDaoProposal({ FunctionCall: { receiver_id: NEAR_USDC_CONTRACT, actions } }, description);
+    } catch (e) {
+      // Groups already proposed stay proposed (they can pay): Send proposes only the people left.
+      if (gi === 0) throw e;
+      throw new Error(`Proposed ${gi} of ${groups.length} parts; the rest failed (${(e as Error).message}). Press Send again to propose the people not yet proposed.`);
+    }
+    Object.assign(run, { status: "proposed", sentBy: run.sentBy ?? by, sentAt: run.sentAt ?? new Date().toISOString() });
     run.proposals.push({ id: pid, url: `${TREZU_APP_URL}/${cfg().DAO_ACCOUNT}/requests/${pid}`, rows: group.map((r) => r.line), state: "pending", detail: `Proposal #${pid}, waiting for the council's votes.` });
     for (const r of group) Object.assign(r, { status: "proposed", proposal: pid });
   }
-  Object.assign(run, { status: "proposed", sentBy: by, sentAt: new Date().toISOString() });
   return run;
 }
 
@@ -283,7 +301,7 @@ export async function refreshPayrollRun(id: string): Promise<PayrollRun> {
         const until = Date.parse(r.quote?.timeWhenInactive ?? r.quote?.deadline ?? "");
         if (until && Date.now() > until) Object.assign(r, { status: "expired", note: "The deposit address stopped working before the council approved. Reject this proposal in Trezu and send the payroll again." });
       }
-    } else if (rec.state === "executed") for (const r of rows) if (r.status === "proposed") r.status = "sent";
+    } else if (rec.state === "executed") for (const r of rows) if (r.status === "proposed" || r.status === "expired") r.status = "sent";
   }
   for (const r of run.rows.filter((x) => x.status === "sent")) {
     const s = await services.swapStatus(r.quote!.depositAddress, r.quote!.depositMemo);
@@ -292,7 +310,9 @@ export async function refreshPayrollRun(id: string): Promise<PayrollRun> {
     else if (s === "FAILED") Object.assign(r, { status: "failed", note: "NEAR Intents could not deliver this payout." });
     else r.note = `On its way (${s.toLowerCase().replace(/_/g, " ")}).`;
   }
-  if (run.rows.every((r) => DONE.includes(r.status))) run.status = "done";
+  // Done only when every proposal is final: an expired row's proposal can still be approved, and then money leaves.
+  const final = run.proposals.every((p) => p.state === "executed" || p.state === "rejected" || p.state === "failed");
+  if (final && run.rows.every((r) => DONE.includes(r.status))) run.status = "done";
   return run;
 }
 

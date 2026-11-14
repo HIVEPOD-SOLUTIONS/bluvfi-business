@@ -1,4 +1,5 @@
 import { isDemo } from "./tenant";
+import { publicFetch } from "./net-guard";
 import { cfg } from "./business";
 import { canonical, mlDsaSign, mlDsaVerify, sha256, encrypt } from "./crypto";
 import { NEAR_AI_MODEL } from "./config";
@@ -14,7 +15,8 @@ import { businessGate } from "./kyb";
 import { MIN_MINUTES_TO_PAY } from "./bills-time";
 import { evaluatePolicy, needsApproval, privacyForPayment } from "./policy";
 import { services } from "./services";
-import { currentPolicy, dataKey, fraudContext, persist, persistenceOn, pqSeed, pqSeeds, prefetchCounterparty, prefetchSanctions, spentTodayUsd, state } from "./store";
+import { currentPolicy, dataKey, fraudContext, persistenceOn, pqSeed, pqSeeds, prefetchCounterparty, prefetchSanctions, refreshState, spentTodayUsd, state, withRecords } from "./store";
+import { invoiceKey } from "./types";
 import type { CheckRequest, CheckResponse, CheckResult, Confidentiality, Invoice, Payment, PaymentStatus } from "./types";
 
 const uid = (p: string) => `${p}-${sha256(`${p}${Date.now()}${Math.random()}`).slice(0, 8)}`;
@@ -24,12 +26,20 @@ const uid = (p: string) => `${p}-${sha256(`${p}${Date.now()}${Math.random()}`).s
  * Final status = the strictest of (policy gate, fraud checks, AI recommendation).
  * The AI can tighten a result (pay -> hold) but can never loosen one.
  */
-export async function processInvoice(inv: Invoice, confidentiality: Confidentiality = "basic", extra: Pick<Payment, "bill"> = {}): Promise<Payment> {
-  const s = state();
-  const policy = currentPolicy();
+const invoiceInFlightElsewhere = (p: Payment) =>
+  state().payments.some((o) => o.id !== p.id && (o.status === "paid" || o.status === "ready_to_send" || o.status === "proposed") && o.invoice.vendorName === p.invoice.vendorName && invoiceKey(o.invoice.invoiceNumber) === invoiceKey(p.invoice.invoiceNumber));
 
+/** A "pay" with a risk score at or above this is held for a human. */
+const AI_HOLD_RISK = 70;
+
+export async function processInvoice(inv: Invoice, confidentiality: Confidentiality = "basic", extra: Pick<Payment, "bill"> = {}): Promise<Payment> {
+  // Amounts are in cents from here on: $4,999.9999 is $5,000.00, so it cannot slip under a limit and be paid as more.
+  inv = { ...inv, amountUsd: Math.round(inv.amountUsd * 100) / 100 };
+  // The slow outside calls (redaction, the private AI review, on-chain and sanctions lookups) run before the business's records
+  // are locked, so a review that takes a minute does not make every signer's click wait. Only deciding and saving take the lock.
+  refreshState();
   const red = await services.redact(inv.text);
-  const facts = computeFacts(inv, s.vendors, s.purchaseOrders);
+  const facts = computeFacts(inv, state().vendors, state().purchaseOrders);
   // If the private model cannot be reached the payment is held for a human; it is never waved through.
   let judged: Judged | null = null;
   let aiError = "";
@@ -45,12 +55,18 @@ export async function processInvoice(inv: Invoice, confidentiality: Confidential
     reasons: [aiError],
   };
   const panel = judged
-    ? verifyDecision({ decision: judged.decision, requestBody: judged.requestBody, expectedNonce: judged.expectedNonce }, policy)
-    : unavailablePanel(policy, NEAR_AI_MODEL, `AI review unavailable: ${aiError}`);
+    ? verifyDecision({ decision: judged.decision, requestBody: judged.requestBody, expectedNonce: judged.expectedNonce }, currentPolicy())
+    : unavailablePanel(currentPolicy(), NEAR_AI_MODEL, `AI review unavailable: ${aiError}`);
   // Was this decision signed by a key vetted at setup (lib/aimodel.ts)? Its own attestation was checked either way.
   if (judged) panel.attestation.registered = isRegisteredSigner(judged.decision.signingAddress);
   if (judged?.decision.attestation.structured === false) panel.attestation.notes.push("NEAR AI did not take the decision schema as structured output for this model, so the reply was checked against it here instead.");
 
+  await prefetchCounterparty(inv.payoutAddress, inv.chain);
+  await prefetchSanctions(inv.payoutAddress, inv.vendorName);
+
+  return withRecords(async () => {
+  const s = state();
+  const policy = currentPolicy();
   const policyCtx = { killSwitch: s.killSwitch, spentTodayUsd: spentTodayUsd(), businessGate: businessGate(inv.amountUsd, privacyForPayment(confidentiality, inv, policy).level, policy) };
   const policyChecks = evaluatePolicy(inv, policy, policyCtx);
   // Privacy is optional, but the policy can set a floor (for investors, institutions and others who need it).
@@ -67,19 +83,26 @@ export async function processInvoice(inv: Invoice, confidentiality: Confidential
   if (conf !== confidentiality) {
     policyChecks.push({ id: "privacy", label: "Privacy rules", verdict: "allow", reason: `Confidentiality raised from ${confidentiality} to ${conf} by policy v${policy.version}: ${priv.why.join("; ")}.` });
   }
-  await prefetchCounterparty(inv.payoutAddress, inv.chain);
-  await prefetchSanctions(inv.payoutAddress, inv.vendorName);
   const fraudChecks = runFraudChecks(inv, fraudContext());
   const trusted = attestationTrusted(panel);
+  // A "pay" only counts from a review whose hardware evidence verified in full (TDX, NVIDIA, the key binding, our nonce):
+  // a valid signature alone proves nothing, since the signing key comes from the same report. Demo replays never claim
+  // hardware attestation, so demo mode is exempt. A high risk score holds a "pay" too: the AI may only make it stricter.
+  const unproven = !!judged && panel.signature.valid && !trusted && !isDemo();
+  const risky = !!judged && judgment.decision === "pay" && judgment.riskScore >= AI_HOLD_RISK;
   const aiCheck: CheckResult = {
     id: "ai",
     label: "AI review",
-    verdict: !panel.signature.valid ? "warn" : judgment.decision === "block" ? "block" : judgment.decision === "hold" ? "warn" : "allow",
+    verdict: !panel.signature.valid || unproven ? "warn" : judgment.decision === "block" ? "block" : judgment.decision === "hold" || risky ? "warn" : "allow",
     reason: !judged
       ? `The AI review could not run (${aiError}), so a human must look.`
       : !panel.signature.valid
         ? "The model's signature did not verify, so its opinion was ignored and a human must look."
-        : `Model recommends "${judgment.decision}" (risk ${judgment.riskScore}/100): ${judgment.summary}`,
+        : unproven
+          ? `The model's hardware attestation did not verify in full, so its "${judgment.decision}" was not relied on and a human must look.`
+          : risky
+            ? `Model says "pay" but rates the risk ${judgment.riskScore}/100, so a human must look: ${judgment.summary}`
+            : `Model recommends "${judgment.decision}" (risk ${judgment.riskScore}/100): ${judgment.summary}`,
   };
   const checks = [...policyChecks, ...fraudChecks, aiCheck];
   const verdict = worst(checks);
@@ -154,6 +177,7 @@ export async function processInvoice(inv: Invoice, confidentiality: Confidential
   seal(payment);
   s.payments.unshift(payment);
   return payment;
+  });
 }
 
 const shortReason = (c: CheckResult) =>
@@ -189,6 +213,8 @@ export async function release(p: Payment): Promise<void> {
     spentTodayUsd: spentTodayUsd() - (p.status === "ready_to_send" ? p.invoice.amountUsd : 0),
     businessGate: businessGate(p.invoice.amountUsd, p.confidentiality, policy),
   }).filter((c) => c.verdict === "block");
+  // Another payment of the same invoice may have been approved since this one arrived.
+  if (invoiceInFlightElsewhere(p)) hard.push({ id: "duplicate", label: "Duplicate invoice", verdict: "block", reason: `Invoice ${p.invoice.invoiceNumber} is already in another payment that is paid or on its way.` });
   if (hard.length) {
     p.status = "blocked";
     p.headline = `Blocked at release: ${hard.map(shortReason).join(" and ")}`;
@@ -247,6 +273,7 @@ export async function release(p: Payment): Promise<void> {
       return;
     }
     if (v && !v.paidInvoiceNumbers.includes(p.invoice.invoiceNumber)) v.paidInvoiceNumbers.push(p.invoice.invoiceNumber); // reserved against duplicates
+    p.committedAt = new Date().toISOString();
     applyCustody(p);
     return;
   }
@@ -256,6 +283,7 @@ export async function release(p: Payment): Promise<void> {
     `Send ${p.quote.amountIn} USDC on NEAR from the treasury to ${p.quote.depositAddress}${p.quote.deadline ? ` before ${p.quote.deadline}` : ""}. ` +
     `${p.invoice.allocation ? `NEAR Intents then puts about ${p.quote.amountOut} ${p.invoice.allocation.symbol} into the treasury's own account` : `NEAR Intents then delivers ${p.quote.amountOut} ${p.invoice.asset} to the payee on ${p.invoice.chain}`}, confidentiality: ${p.confidentiality}. ` +
     "Bluvfi Business does not hold a treasury key, so a signer sends this from their own wallet and then records the transaction.";
+  p.committedAt = new Date().toISOString();
   if (v && !v.paidInvoiceNumbers.includes(p.invoice.invoiceNumber)) v.paidInvoiceNumbers.push(p.invoice.invoiceNumber); // reserved against duplicates
 }
 
@@ -272,6 +300,12 @@ function applyCustody(p: Payment) {
     p.status = "proposed";
     p.headline = c.backend === "sputnik" ? `Proposed to the treasury DAO (#${c.ref}): needs council votes` : "Submitted to the OutLayer wallet: waiting for its approvers";
     p.reason = `${c.route ? `${c.route} ` : ""}${c.detail} The agent cannot move funds itself; ${where} only executes once the people who control the treasury approve it.`;
+  } else if (c.state === "failed" && c.backend === "sputnik") {
+    // A Sputnik proposal whose transfer failed may be run again later, and then it pays: keep the invoice reserved and keep
+    // watching it, and never propose it a second time.
+    p.status = "held";
+    p.headline = `Held: DAO proposal #${c.ref} was approved but its transfer failed`;
+    p.reason = `${c.detail} It could still be run again, so this payment keeps its invoice and is not proposed a second time. Fix the cause (for example the DAO's USDC balance) and ask the council to run it again in Trezu, or have it removed.`;
   } else {
     const v = state().vendors.find((x) => x.name === p.invoice.vendorName);
     if (v) v.paidInvoiceNumbers = v.paidInvoiceNumbers.filter((n) => n !== p.invoice.invoiceNumber);
@@ -293,6 +327,9 @@ export async function approve(id: string, signer: string): Promise<Payment> {
   if (p.status === "held" && p.holdUntil && new Date(p.holdUntil) > new Date()) {
     throw new Error(`This payment is in its hold window until ${new Date(p.holdUntil).toLocaleString()}. It can be cancelled now, and approved after that.`);
   }
+  if (proposalCouldPay(p)) throw new Error(`DAO proposal #${p.custody!.ref} for this payment could still execute, so it is not proposed a second time. Have it removed in Trezu first.`);
+  // Someone who typed in the vendor's "yes, that was us" by hand cannot also be the one who approves the payment.
+  if (p.callback?.recordedBy === signer && signerNames().length > 1) throw new Error("You recorded the vendor's confirmation, so a different signer must approve this payment");
   p.approvedBy = signer;
   await release(p);
   seal(p);
@@ -315,20 +352,26 @@ export function recordSent(id: string, signer: string, txRef: string): Payment {
 const FINAL_FAIL = new Set(["REFUNDED", "FAILED"]);
 
 /** Ask 1Click where the swap is. SUCCESS marks the payment paid; REFUNDED, FAILED or an expired quote releases the reservation. */
+/** A payment whose DAO proposal could still execute: open, or failed and so perhaps run again. */
+export const proposalCouldPay = (p: Payment) => !!p.custody && (p.status === "proposed" || (p.status === "held" && p.custody.backend === "sputnik" && p.custody.state === "failed"));
+
 export async function checkSettlement(id: string): Promise<Payment> {
   const p = mustFind(id);
-  if (p.status === "proposed" && p.custody) {
-    p.custody = await services.refreshPayout(p.custody);
+  if (proposalCouldPay(p)) {
+    p.custody = await services.refreshPayout(p.custody!);
     applyCustody(p);
     if ((p.status as PaymentStatus) !== "ready_to_send") {
+      if (p.status !== "proposed") {
+        seal(p);
+        return p;
+      }
       // Still waiting on votes. If the deposit address has stopped working, funds sent now could be lost: stop it here.
       const dead = p.status === "proposed" && p.quote ? p.quote.timeWhenInactive : undefined;
       if (dead && new Date(dead) < new Date()) {
-        const v = state().vendors.find((x) => x.name === p.invoice.vendorName);
-        if (v) v.paidInvoiceNumbers = v.paidInvoiceNumbers.filter((n) => n !== p.invoice.invoiceNumber);
-        p.status = "cancelled";
-        p.headline = "Cancelled: the payout's deposit address expired before it was approved";
-        p.reason = `The 1Click deposit address stopped working at ${dead}, and funds sent to it now could be lost. ${p.custody!.backend === "sputnik" ? `Vote Reject or Remove on DAO proposal #${p.custody!.ref}` : "Reject the pending request in OutLayer"} so it can never execute, then submit the invoice again for a fresh quote.`;
+        // The proposal can still pass, so the payment stays open and keeps being checked, and its invoice stays reserved:
+        // freeing it now would let the same invoice be proposed again while this one could still execute.
+        p.headline = `Reject this payout: its deposit address expired before it was approved`;
+        p.reason = `The 1Click deposit address stopped working at ${dead}, and funds sent to it now could be lost. ${p.custody!.backend === "sputnik" ? `Vote Reject or Remove on DAO proposal #${p.custody!.ref}` : "Reject the pending request in OutLayer"} so it can never execute. Once it is rejected this payment shows as rejected, and the invoice can be submitted again for a fresh quote.`;
       }
       seal(p);
       return p;
@@ -361,21 +404,30 @@ export function cancel(id: string): Payment {
   if (p.status === "paid") throw new Error("Already paid. Settled funds cannot be recalled.");
   if (p.status === "ready_to_send" && p.txRef) throw new Error("A transaction was already reported. Check settlement instead; sent funds cannot be recalled here.");
   if (p.status === "ready_to_send" && p.custody) throw new Error("The treasury already sent this. Check settlement instead; sent funds cannot be recalled here.");
+  // While the custodian can still execute it, cancelling here would free the invoice for a second payment that could
+  // execute too. The council rejects it there; this payment then shows as rejected on its own.
+  if (proposalCouldPay(p)) {
+    throw new Error(p.custody!.state === "failed"
+      ? `DAO proposal #${p.custody!.ref} failed but could be run again, and then it pays. Have it removed in Trezu first.`
+      : p.custody!.backend === "sputnik"
+      ? `DAO proposal #${p.custody!.ref} is still open and could still pay. Vote Reject or Remove on it in Trezu; this payment then shows as rejected on its own.`
+      : `OutLayer request ${p.custody!.ref} is still open and could still pay. Reject it in OutLayer; this payment then shows as rejected on its own.`);
+  }
   const v = state().vendors.find((x) => x.name === p.invoice.vendorName);
   if ((p.status === "ready_to_send" || p.status === "proposed") && v) v.paidInvoiceNumbers = v.paidInvoiceNumbers.filter((n) => n !== p.invoice.invoiceNumber);
-  const open = p.status === "proposed" && p.custody;
   p.status = "cancelled";
   p.headline = "Cancelled";
-  p.reason = open
-    ? `A signer cancelled this payment here. ${p.custody!.backend === "sputnik" ? `Proposal #${p.custody!.ref} is still open on the DAO: vote Reject or Remove on it so it can never execute.` : "Reject the pending request in OutLayer so it can never execute."}`
-    : "A signer cancelled this payment before any funds left.";
+  p.reason = "A signer cancelled this payment before any funds left.";
   seal(p);
   return p;
 }
 
-export function resolveCallback(id: string, answer: "yes" | "no", how?: string): Payment {
+export function resolveCallback(id: string, answer: "yes" | "no", how?: string, recordedBy?: string): Payment {
   const p = mustFind(id);
   if (!p.callback || p.callback.status !== "pending") throw new Error("No pending callback");
+  // A late answer must not bring back a payment that was cancelled or has moved on since.
+  if (p.status !== "blocked" && p.status !== "held") throw new Error(`This payment is ${p.status} now, so the vendor's answer no longer changes it`);
+  if (recordedBy) p.callback.recordedBy = recordedBy;
   p.callback.answer = (answer === "yes" ? "YES, that was us." : "NO, that was not us.") + (how ? ` (${how})` : "");
   p.callback.answeredAt = new Date().toISOString();
   if (answer === "no") {
@@ -395,8 +447,8 @@ export function resolveCallback(id: string, answer: "yes" | "no", how?: string):
     if (!state().blocklist.some((b) => b.value.toLowerCase() === entry.value.toLowerCase())) state().blocklist.unshift(entry);
   } else {
     p.callback.status = "confirmed";
-    // A confirmed callback clears the address change only. Other blocks (injection etc.) stand.
-    const stillBlocked = p.checks.some((c) => c.verdict === "block" && c.id !== "payout_changed" && c.id !== "ai");
+    // A confirmed callback clears the address change only. Other blocks (injection, the AI's own block, etc.) stand.
+    const stillBlocked = p.checks.some((c) => c.verdict === "block" && c.id !== "payout_changed");
     p.status = stillBlocked ? "blocked" : "awaiting_approval";
     p.headline = stillBlocked ? p.headline : "Vendor confirmed new details; needs a signer's approval";
     p.reason = stillBlocked ? p.reason : "The vendor confirmed the change on the verified channel. A signer still has to approve.";
@@ -437,6 +489,7 @@ export async function publicCheck(req: CheckRequest): Promise<CheckResponse> {
   const checks = runPublicCheck(req, fraudContext());
   const verdict = worst(checks);
   state().checkLog.unshift({ at: new Date().toISOString(), verdict });
+  if (state().checkLog.length > 1000) state().checkLog.length = 1000; // public and anonymous: never grows without bound
   return {
     verdict,
     checks,
@@ -470,7 +523,8 @@ export async function spendX402(url: string) {
   const spent = s.x402Spend.filter((x) => x.at.startsWith(today)).reduce((a, b) => a + b.priceUsd, 0);
   const room = policy.x402DailyLimitUsd - spent;
   if (room <= 0) return { ok: false, note: `Daily API budget of $${policy.x402DailyLimitUsd} is used up.` };
-  const r = await services.payX402(url, room);
+  // The URL came from a person: every connection is checked at connect time (lib/net-guard.ts), DNS rebinding included.
+  const r = await services.payX402(url, room, {}, (u, init) => publicFetch(u, init));
   if (r.ok && r.priceUsd > 0) s.x402Spend.unshift({ at: new Date().toISOString(), url, priceUsd: r.priceUsd });
   return r;
 }
@@ -496,10 +550,15 @@ export async function demoTreasuryVote(id: string, member: string, approve: bool
 export async function refreshZk(p: Payment): Promise<Payment> {
   if (!p.zkJob || p.verified.zkProof?.status === "verified") return p;
   const before = JSON.stringify(p.verified.zkProof);
-  p.verified.zkProof = await verifyZk(p.id, p.zkJob);
-  if (JSON.stringify(p.verified.zkProof) !== before) {
-    seal(p);
-    persist();
-  }
-  return p;
+  const proof = await verifyZk(p.id, p.zkJob);
+  if (JSON.stringify(proof) === before) return p;
+  // Called from a page view: save under the records lock, onto the latest copy of the payment (another instance may have
+  // changed it while the proof was being checked), never a stale snapshot.
+  return withRecords(() => {
+    const fresh = state().payments.find((x) => x.id === p.id);
+    if (!fresh) return p;
+    fresh.verified.zkProof = proof;
+    seal(fresh);
+    return fresh;
+  });
 }

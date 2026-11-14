@@ -1,6 +1,7 @@
 import { body, route, type Ctx } from "@/lib/http";
 import { services } from "@/lib/services";
-import { state } from "@/lib/store";
+import { addDeposit } from "@/lib/receivables";
+import { state, withRecords } from "@/lib/store";
 import { bizOfId } from "@/lib/tenant";
 
 /**
@@ -15,15 +16,13 @@ export const POST = route<Ctx<"id">>(async (req, { params }) => {
   if (!r) throw new Error("Invoice not found");
   if (r.status === "paid") throw new Error("This invoice is already paid");
   const request = await body<Record<string, unknown>>(req);
+  // The quote is asked for without the records lock (a public, slow outside call); saving a real deposit takes it.
   const quote = await services.quoteForWidget(request, r.amountUsd, r.payTo);
   if (request.dry === false && quote.depositAddress) {
-    r.deposit = {
-      chain: `widget:${String(request.originAsset)}`,
-      address: quote.depositAddress,
-      memo: quote.depositMemo,
-      amountIn: String(quote.amountInFormatted ?? quote.amountIn ?? ""),
-      deadline: quote.deadline,
-    };
+    await withRecords(() => {
+      const fresh = state().receivables.find((x) => x.id === id);
+      if (fresh && fresh.status !== "paid") addDeposit(fresh, { chain: `widget:${String(request.originAsset)}`, address: quote.depositAddress!, memo: quote.depositMemo, amountIn: String(quote.amountInFormatted ?? quote.amountIn ?? ""), deadline: quote.deadline });
+    });
   }
   return quote;
-}, (_req, { params }) => params.then(({ id }) => bizOfId(id)));
+}, (_req, { params }) => params.then(({ id }) => bizOfId(id)), { lock: false });

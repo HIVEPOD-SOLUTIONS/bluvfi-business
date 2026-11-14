@@ -1,4 +1,4 @@
-import { checkSettlement } from "./agent";
+import { checkSettlement, proposalCouldPay } from "./agent";
 import { refreshOpenBills } from "./bills";
 import { businesses, getBusiness } from "./business";
 import { refreshOpenPayroll } from "./payroll";
@@ -19,14 +19,14 @@ export interface SettlementPass {
  */
 export async function pollSettlements(): Promise<SettlementPass> {
   const out: SettlementPass = { payments: [], receivables: [], errors: [] };
-  for (const p of [...state().payments].filter((x) => x.status === "ready_to_send" || x.status === "proposed")) {
+  for (const p of [...state().payments].filter((x) => x.status === "ready_to_send" || proposalCouldPay(x))) {
     try {
       out.payments.push({ id: p.id, status: (await checkSettlement(p.id)).status });
     } catch (e) {
       out.errors.push(`${p.id}: ${(e as Error).message}`);
     }
   }
-  for (const r of [...state().receivables].filter((x) => x.status === "open" && x.deposit)) {
+  for (const r of [...state().receivables].filter((x) => x.status === "open" && (x.deposit || x.earlier?.length))) {
     try {
       out.receivables.push({ id: r.id, status: (await refreshReceivable(r)).status });
     } catch (e) {

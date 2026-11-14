@@ -11,7 +11,7 @@ export const POST = route<Ctx<"id" | "action">>(async (req, { params }) => {
   if (action === "sent") return { payment: recordSent(id, signer, b.txRef ?? "") };
   if (action === "settlement") return { payment: await checkSettlement(id) };
   // A human recording what the vendor told them (email, or any channel that is not automated).
-  if (action === "callback") return { payment: resolveCallback(id, b.answer === "yes" ? "yes" : "no") };
+  if (action === "callback") return { payment: resolveCallback(id, b.answer === "yes" ? "yes" : "no", "recorded by a signer", signer) };
   // Demo mode only: a council vote on the simulated DAO. On mainnet votes are DAO transactions (see /api/relay).
   if (action === "vote") return { payment: await demoTreasuryVote(id, signer, b.approve !== false) };
   throw new Error("Unknown action");

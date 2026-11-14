@@ -1,10 +1,10 @@
 import { DIR } from "./setup-vault";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, utimesSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { exclusive, withFileLockSync, writeAtomic } from "../lib/shared-file";
+import { assertLockHeld, exclusive, withFileLockSync, writeAtomic } from "../lib/shared-file";
 import { refreshState, resetAllState, state, withRecords } from "../lib/store";
 import { runAs } from "../lib/tenant";
 import { sealText } from "../lib/vault";
@@ -84,4 +84,21 @@ test("two approvals of one thing at the same moment run one after the other, so 
   const results = await Promise.all([approve(), approve()]);
   assert.deepEqual(results.sort(), ["already done", "issued"]);
   assert.equal(issued, 1);
+});
+
+test("a holder whose lock was taken over (it stalled past the stale time) saves nothing and leaves the new holder's lock alone", async () => {
+  const file = join(DIR, "taken.json");
+  const lock = `${file}.lock`;
+  await assert.rejects(
+    exclusive("taken", file, async () => {
+      // Another instance decided this lock was dead and took it: its own token is in the lock now.
+      rmSync(lock, { recursive: true, force: true });
+      mkdirSync(lock);
+      writeFileSync(join(lock, "owner"), "someone-else");
+      assertLockHeld(file);
+    }),
+    /lost its hold on the records/,
+  );
+  assert.equal(readFileSync(join(lock, "owner"), "utf8"), "someone-else", "the new holder keeps its lock");
+  rmSync(lock, { recursive: true, force: true });
 });

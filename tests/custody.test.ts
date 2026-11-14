@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import { deserialize } from "borsh";
 import { actions, buildDelegateAction, encodeSignedDelegate, KeyPair, SCHEMA } from "near-api-js";
-import { checkSettlement, processInvoice } from "../lib/agent";
+import { approve, cancel, checkSettlement, processInvoice } from "../lib/agent";
 import { checkCustody, isPostQuantumKey, payoutWindowMs, relayVote, resetCustodyCache } from "../lib/custody";
 import { services } from "../lib/services";
 import { validateChanges } from "../lib/governance";
@@ -146,7 +146,7 @@ test("custody: with a scoped key the agent proposes storage_deposit + ft_transfe
   });
 });
 
-test("custody: a payout still waiting for votes is cancelled once its deposit address has stopped working", async () => {
+test("custody: a payout whose deposit address stopped before the vote asks the council to reject it, and keeps its invoice reserved until they do", async () => {
   await withFetch(nearRpc({ permission: scoped, sent: [] }), async () => {
     const p = await processInvoice(invoice({ invoiceNumber: "INV-STALE" }));
     assert.equal(p.status, "proposed", p.reason);
@@ -157,9 +157,15 @@ test("custody: a payout still waiting for votes is cancelled once its deposit ad
     services.refreshPayout = async () => open;
     try {
       const after = await checkSettlement(p.id);
-      assert.equal(after.status, "cancelled");
+      assert.equal(after.status, "proposed", "still tracked: the proposal could still pass");
+      assert.match(after.headline, /Reject this payout/);
       assert.match(after.reason, /Vote Reject or Remove on DAO proposal #43/);
-      assert.deepEqual(state().vendors[0].paidInvoiceNumbers, [], "the invoice number is released for a fresh quote");
+      assert.deepEqual(state().vendors[0].paidInvoiceNumbers, ["INV-STALE"], "the invoice stays reserved, so it cannot be proposed a second time meanwhile");
+      // Once the council rejects it, the payment follows and the invoice is free again.
+      services.refreshPayout = async () => ({ ...open, state: "rejected" as const, detail: "Rejected by the council" });
+      const rejected = await checkSettlement(p.id);
+      assert.equal(rejected.status, "cancelled");
+      assert.deepEqual(state().vendors[0].paidInvoiceNumbers, []);
     } finally {
       services.refreshPayout = real;
     }
@@ -291,4 +297,26 @@ test("policy: the privacy floor only ever raises confidentiality", () => {
   assert.equal(withPrivacyFloor("advanced", at("basic")), "advanced", "never lowered");
   assert.equal(withPrivacyFloor("public", at(undefined)), "public", "versions made before the floor existed have none");
   assert.throws(() => validateChanges({ ...DEFAULT_POLICY_BODY, privacyFloor: "secret" as never }), /privacy floor/);
+});
+
+test("custody: a DAO proposal whose transfer failed keeps its invoice, is never proposed again, and is followed if the DAO runs it later", async () => {
+  await withFetch(nearRpc({ permission: scoped, sent: [] }), async () => {
+    const p = await processInvoice(invoice({ invoiceNumber: "INV-FAILED" }));
+    assert.equal(p.status, "proposed", p.reason);
+    const real = services.refreshPayout;
+    try {
+      services.refreshPayout = async (c) => ({ ...c, state: "failed" as const, detail: "Proposal #43 was approved but the transfer failed; the funds are still in the DAO." });
+      const failed = await checkSettlement(p.id);
+      assert.equal(failed.status, "held");
+      assert.match(failed.headline, /transfer failed/);
+      assert.deepEqual(state().vendors[0].paidInvoiceNumbers, ["INV-FAILED"], "still reserved: the proposal could be run again");
+      await assert.rejects(approve(p.id, "maya"), /could still execute/);
+      assert.throws(() => cancel(p.id), /could be run again/);
+      // The council fixes the cause and runs it again: the payment follows.
+      services.refreshPayout = async (c) => ({ ...c, state: "executed" as const, detail: "Executed." });
+      assert.equal((await checkSettlement(p.id)).status, "paid", "executed, then delivered");
+    } finally {
+      services.refreshPayout = real;
+    }
+  });
 });
