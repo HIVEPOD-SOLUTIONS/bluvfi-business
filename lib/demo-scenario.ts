@@ -117,8 +117,11 @@ export interface DemoResult { history: Payment; normal: Payment; fraud: Payment;
  * `vendorReplies` decides whether Acme's answer to the callback is played out (the CLI) or left for a person
  * to click in the web app.
  */
-export async function runDemo(opts: { vendorReplies: boolean; log?: (line: string) => void }): Promise<DemoResult> {
+export async function runDemo(opts: { vendorReplies: boolean; log?: (line: string) => void; signers?: string[] }): Promise<DemoResult> {
   const log = opts.log ?? (() => {});
+  // Who approves and votes in the story: maya and devon in the stand-alone demo, the business's own signers when a live business
+  // switches to demo (lib/demo-scenario.ts seedDemoIfEmpty). With one signer, the second vote is left out.
+  const [first, second] = opts.signers?.length ? opts.signers : ["maya", "devon"];
   const s = resetState();
   s.vendors.push({ ...NORTHWIND, paidInvoiceNumbers: [] }, { ...ACME, lastPaidAt: "2026-10-03T10:00:00.000Z", paidInvoiceNumbers: ["AL-2190"] });
   s.purchaseOrders.push(
@@ -131,20 +134,20 @@ export async function runDemo(opts: { vendorReplies: boolean; log?: (line: strin
   log("Last month: Northwind's first invoice is held (never paid before), a signer approves, the DAO council votes, it settles.");
   const history = await processInvoice(HISTORY, "basic");
   history.holdUntil = "2026-10-01T00:30:00.000Z"; // last month's hold window has long since ended
-  await approve(history.id, "maya");
-  await demoTreasuryVote(history.id, "maya", true);
-  await demoTreasuryVote(history.id, "devon", true);
+  await approve(history.id, first);
+  await demoTreasuryVote(history.id, first, true);
+  if (second) await demoTreasuryVote(history.id, second, true);
   log(`  ${HISTORY.invoiceNumber}: ${history.status}`);
 
   log("\n1. Normal invoice from Northwind Cloud");
   const normal = await processInvoice(NORMAL, "basic");
   log(`  ${normal.headline}`);
   log(`  The agent's key can only propose. Proposal description carries evidence ${normal.custody?.evidenceHash.slice(0, 16)}…`);
-  await demoTreasuryVote(normal.id, "devon", true);
+  if (second) await demoTreasuryVote(normal.id, second, true);
   if (opts.vendorReplies) {
-    await demoTreasuryVote(normal.id, "maya", true);
+    await demoTreasuryVote(normal.id, first, true);
     log(`  Council votes 2 of 2: ${normal.headline}. ${normal.status === "paid" ? "NEAR Intents confirmed delivery." : ""}`);
-  } else log("  Devon voted; Maya's vote is left for you in the web app.");
+  } else log(`  ${second ?? "Nobody"} voted; ${first}'s vote is left for you in the web app.`);
 
   log("\n2. Acme Logistics: payout address changed, hidden instructions in the text");
   const fraud = await processInvoice(FRAUD, "basic");
@@ -194,4 +197,28 @@ export async function runAttacks(log: (line: string) => void = () => {}): Promis
   }
   log("  And even a payment a signer approved only becomes a DAO proposal: the agent's key cannot move funds, the council votes.");
   return out;
+}
+
+/**
+ * The first time a business switches to demo (POST /api/mode), its demo space gets the story above, so the screens are not empty:
+ * the paid history, the open DAO proposal, the blocked scam and lookalike, and the attacks. Its own signers approve and vote, and
+ * everything runs on fixtures (the simulated DAO, replayed AI reviews), never the network or the treasury. A demo space that already
+ * has records is left alone. Returns whether it loaded the story.
+ */
+export async function seedDemoIfEmpty(biz: string): Promise<boolean> {
+  const { recordsOf, withRecords } = await import("./store");
+  const { runAs } = await import("./tenant");
+  const { signerNames } = await import("./team");
+  const have = recordsOf(biz, true);
+  if (have && (have.payments.length || have.vendors.length)) return false;
+  return runAs(biz, async () => {
+    const { isDemo } = await import("./tenant");
+    if (!isDemo()) throw new Error("The demo story only loads into a business in demo");
+    return withRecords(async () => {
+      // Another request may have loaded it while this one waited for the records.
+      if (state().payments.length || state().vendors.length) return false;
+      await runDemo({ vendorReplies: false, signers: signerNames() });
+      return true;
+    });
+  });
 }

@@ -1,4 +1,5 @@
 import { liveCfg } from "@/lib/business";
+import { seedDemoIfEmpty } from "@/lib/demo-scenario";
 import { missingConfig } from "@/lib/config";
 import { body, route } from "@/lib/http";
 import { requireSigner } from "@/lib/session";
@@ -27,5 +28,15 @@ export const POST = route(async (req) => {
     if (missing.length) throw new Error(`Live needs these set first: ${missing.map((m) => m.key).join(", ")}. ${currentBiz() === DEFAULT_BIZ ? "They are set in .env.local." : "Set up the treasury on the Setup page."}`);
   }
   setMode(currentBiz(), mode);
-  return { mode };
+  // The first switch to demo loads the demo story into the empty demo space, so there is something to look at. A failure here
+  // never undoes the switch: demo still works, just empty.
+  let seeded = false;
+  if (mode === "demo") {
+    try {
+      seeded = await seedDemoIfEmpty(currentBiz());
+    } catch (e) {
+      console.error("Could not load the demo story:", (e as Error).message);
+    }
+  }
+  return { mode, seeded };
 });

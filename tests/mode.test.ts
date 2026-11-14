@@ -131,3 +131,26 @@ test("only an owner can switch, going live needs the treasury set up, and demo i
   assert.equal((await modePost(req({ mode: "live" }, ada), undefined)).status, 200);
   assert.equal(modeOf(a.id), "live");
 });
+
+test("the first switch to demo loads the demo story with the business's own signers; later switches leave the demo records alone", async () => {
+  const a = createBusiness("Acme Ltd", "ada@acme.test");
+  runAs(a.id, () => { state().vendors.push({ name: "Live Vendor", paidInvoiceNumbers: [] } as never); });
+  const ada = await as(a, "ada@acme.test");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => { throw new Error("the network was used while loading the demo"); }) as typeof fetch;
+  try {
+    const first = await modePost(req({ mode: "demo" }, ada), undefined);
+    assert.deepEqual(await first.json(), { mode: "demo", seeded: true });
+  } finally { globalThis.fetch = realFetch; }
+  const story = runAs(a.id, () => state().payments.map((p) => [p.invoice.invoiceNumber, p.status]));
+  assert.ok(story.length >= 7, `the story's payments: ${JSON.stringify(story)}`);
+  assert.deepEqual(Object.fromEntries(story.filter(([n]) => n === "AL-2207" || n === "NW-1043")), { "AL-2207": "blocked", "NW-1043": "blocked" });
+  assert.equal(runAs(a.id, () => state().payments.find((p) => p.invoice.invoiceNumber === "NW-0991")?.approvedBy), "ada@acme.test", "the business's own signer approved, not maya");
+  // A demo record changed by hand survives switching away and back: the story is not loaded twice.
+  runAs(a.id, () => { state().vendors.push({ name: "Added in demo", paidInvoiceNumbers: [] } as never); });
+  setTreasury(a.id, { custody: "manual", treasury: "acme.near" });
+  assert.equal((await modePost(req({ mode: "live" }, ada), undefined)).status, 200);
+  assert.deepEqual(runAs(a.id, () => [state().vendors.map((v) => v.name), state().payments.length]), [["Live Vendor"], 0], "live never gets the story");
+  assert.deepEqual(await (await modePost(req({ mode: "demo" }, ada), undefined)).json(), { mode: "demo", seeded: false });
+  assert.ok(runAs(a.id, () => state().vendors.some((v) => v.name === "Added in demo")));
+});
