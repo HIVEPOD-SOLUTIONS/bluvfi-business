@@ -28,6 +28,8 @@ async function main() {
   console.log(`Demo data written to .data/demo.json. Starting the app on http://localhost:${port} (sign in with demo-signer-maya-token).`);
   const child = spawn("npx", ["next", prod ? "start" : "dev", "-p", port], { stdio: "inherit", env: process.env, shell: process.platform === "win32" });
   child.on("exit", (code) => process.exit(code ?? 0));
+  // docker stop sends SIGTERM to this process: pass it on so the app finishes what it is writing and exits cleanly.
+  for (const sig of ["SIGTERM", "SIGINT"] as const) process.on(sig, () => child.kill(sig));
 }
 
 main().catch((e) => {
