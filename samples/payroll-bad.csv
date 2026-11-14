@@ -1,0 +1,9 @@
+name,amount,chain,stablecoin,address
+Amaka Obi,1200,NEAR,USDC,amaka-obi.near
+Duplicate Dan,400,NEAR,USDC,amaka-obi.near
+Wrong Format Wale,500,Ethereum,USDC,0x123
+Solana Sam,600,Solana,USDC,not-a-solana-address
+BNB Bola,300,BNB Chain,USDC,0x8d0f2a4c6e8b0d1f3a5c7e9b1d3f5a7c9e0b2d46
+Unknown Chain Uche,350,Narnia,USDC,narnia-uche.near
+No Amount Ada,abc,Base,USDC,0x6b8d0f2a4c6e8a0c2e4a6c8e0b1d3f5a7c9e1b3d
+,250,Base,USDC,0x4a6c8e0a2c4e6a8c0e1b3d5f7092b4d6f8a0c2e4
