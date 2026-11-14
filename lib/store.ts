@@ -179,8 +179,14 @@ export function withRecords<T>(fn: () => Promise<T> | T, waitMs?: number): Promi
 }
 /** Test helper: empty records for the current business. */
 export const resetState = () => {
+  const key = thisSpace();
   const s = fresh();
-  all().set(thisSpace(), s);
+  all().set(key, s);
+  // The empty records are now the current version: without this, the next withRecords would see the file on disk
+  // (from an earlier run) as newer and load it back over the reset. The next persist overwrites the file.
+  const file = fileFor(key);
+  const stamp = file ? fileStamp(file) : undefined;
+  if (stamp) stamps().set(key, stamp);
   return s;
 };
 /** Test helper: forget every business's records held in memory. */

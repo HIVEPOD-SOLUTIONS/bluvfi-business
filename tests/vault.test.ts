@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { cfg, createBusiness, resetRegistry, businesses, setChannels } from "../lib/business";
 import { deriveKey, encrypt } from "../lib/crypto";
-import { persist, resetAllState, state } from "../lib/store";
+import { persist, resetAllState, resetState, state, withRecords } from "../lib/store";
 import { runAs } from "../lib/tenant";
 import type { Vendor } from "../lib/types";
 
@@ -28,6 +28,23 @@ test("the saved records are one sealed blob: no vendor, address or invoice numbe
 test("sealed records are read back exactly, after the app forgets them", () => {
   resetAllState();
   runAs("default", () => assert.deepEqual(state().vendors.map((v) => v.name), [SECRETS[0]]));
+});
+
+test("a reset is not undone by the file on disk: the next locked write starts from the empty records (demo:ui run twice)", async () => {
+  await runAs("default", async () => {
+    resetAllState();
+    assert.equal(state().vendors.length, 1, "the earlier run's records are on disk");
+    // A new process (npm run demo:ui again) has never read the file: it resets first.
+    resetAllState();
+    delete (globalThis as { __bluvfiStamps?: unknown }).__bluvfiStamps;
+    resetState();
+    const seen = await withRecords(() => state().vendors.length);
+    assert.equal(seen, 0, "withRecords did not load the old file back over the reset");
+    resetAllState();
+    assert.equal(state().vendors.length, 0, "and the empty records were saved");
+    state().vendors.push(vendor);
+    persist();
+  });
 });
 
 test("a file from before sealing (plain JSON) is still read, and is sealed on first read", () => {

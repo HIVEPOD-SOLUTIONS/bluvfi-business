@@ -322,7 +322,7 @@ Fixed by pinning patched versions in `package.json` `overrides`: `ws` (memory di
 
 ```bash
 npm run ai:verify -- --review   # Layer 2 against the live NEAR AI Cloud: attestation, NVIDIA, signature, structured decision (needs NEAR_AI_API_KEY)
-npm test         # 314 tests; outside services are mocked inside tests/ only
+npm test         # 315 tests; outside services are mocked inside tests/ only
 npm run demo     # the end-to-end story; exits non-zero if an outcome or a signature is wrong
 ```
 
