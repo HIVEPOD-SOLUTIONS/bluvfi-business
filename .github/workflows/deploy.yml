@@ -85,11 +85,13 @@ jobs:
           DOCKER_PASSWORD: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
           APP_DIR: ${{ vars.APP_DIR || '/home/ubuntu/bluvfi' }}
           APP_PORT: ${{ vars.APP_PORT || '3000' }}
+          # 127.0.0.1 (default): only Caddy on the server reaches the app. 0.0.0.0: also reachable at http://<public-ip>:APP_PORT (open the port in the security group).
+          APP_BIND: ${{ vars.APP_BIND || '127.0.0.1' }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: IMAGE,CONTAINER,DOCKER_USERNAME,DOCKER_PASSWORD,APP_DIR,APP_PORT
+          envs: IMAGE,CONTAINER,DOCKER_USERNAME,DOCKER_PASSWORD,APP_DIR,APP_PORT,APP_BIND
           script: |
             # Fail the job on any error instead of carrying on with a broken deploy.
             set -eo pipefail
@@ -117,7 +119,7 @@ jobs:
                 --name "$CONTAINER" \
                 --restart unless-stopped \
                 --stop-timeout 30 \
-                -p "127.0.0.1:${APP_PORT}:3000" \
+                -p "${APP_BIND}:${APP_PORT}:3000" \
                 --env-file "$APP_DIR/docker.env" \
                 -v "$APP_DIR/.env.local:/app/.env.local" \
                 -v "$APP_DIR/data:/app/.data" \

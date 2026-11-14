@@ -11,7 +11,7 @@ import { missingConfig, NEAR_AI_MODEL } from "../lib/config";
 import { proxy } from "../proxy";
 import { limited } from "../lib/ratelimit";
 import { quotePayout, twilioSignatureValid } from "../lib/rails";
-import { login, verifySession } from "../lib/session";
+import { cookieSecure, login, verifySession } from "../lib/session";
 import { spentTodayUsd } from "../lib/store";
 import { behaviour, install, invoice, quoteCalls, sentCallbacks, seed, state } from "./fakes";
 import { createHmac } from "node:crypto";
@@ -283,4 +283,22 @@ test("whoever types in the vendor's 'yes, that was us' cannot also approve that 
   const q = await processInvoice(invoice({ invoiceNumber: "INV-CB2", poNumber: "PO-2", amountUsd: 900, payoutAddress: "someone-else.near" }));
   q.status = "cancelled";
   assert.throws(() => resolveCallback(q.id, "yes"), /no longer changes it/);
+});
+
+test("the session cookie is HTTPS-only in production, unless BLUVFI_ALLOW_HTTP=1 opts in to plain HTTP", () => {
+  const env = process.env as Record<string, string | undefined>;
+  const [node, allow] = [env.NODE_ENV, env.BLUVFI_ALLOW_HTTP];
+  try {
+    env.NODE_ENV = "production"; delete env.BLUVFI_ALLOW_HTTP;
+    assert.equal(cookieSecure(), true);
+    env.BLUVFI_ALLOW_HTTP = "0";
+    assert.equal(cookieSecure(), true, "only 1 opts in");
+    env.BLUVFI_ALLOW_HTTP = "1";
+    assert.equal(cookieSecure(), false);
+    env.NODE_ENV = "development"; delete env.BLUVFI_ALLOW_HTTP;
+    assert.equal(cookieSecure(), false, "local development is plain HTTP");
+  } finally {
+    env.NODE_ENV = node;
+    if (allow === undefined) delete env.BLUVFI_ALLOW_HTTP; else env.BLUVFI_ALLOW_HTTP = allow;
+  }
 });

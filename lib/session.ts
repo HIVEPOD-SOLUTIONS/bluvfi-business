@@ -83,3 +83,9 @@ export async function requireSigner(req: Request): Promise<string> {
 }
 
 export const SESSION_MAX_AGE = TTL_MS / 1000;
+
+/**
+ * The session cookie is HTTPS-only in production. BLUVFI_ALLOW_HTTP=1 lifts that for a server reached over plain HTTP (a public IP and
+ * port with no certificate), so sign-in works there; the session then travels unencrypted, so use it for a demo, never for live money.
+ */
+export const cookieSecure = () => process.env.NODE_ENV === "production" && process.env.BLUVFI_ALLOW_HTTP !== "1";

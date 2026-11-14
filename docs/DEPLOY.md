@@ -76,6 +76,18 @@ curl https://demo.yourdomain.com/api/health     # {"ok":true,"mode":"demo",...}
 
 The hosted demo signs in with `demo-signer-maya-token` (or `demo-signer-devon-token`), like `npm run demo:ui`. It rebuilds its fictional records each time the container starts.
 
+## Reaching it on the public IP and port 3000 (no domain)
+
+By default the app listens on 127.0.0.1 only, behind Caddy. To open `http://<public-ip>:3000` as well:
+
+1. **GitHub > Settings > Secrets and variables > Actions > Variables:** add `APP_BIND` = `0.0.0.0`.
+2. **Security group:** allow inbound TCP 3000 (from your IP, or from anywhere for a public demo).
+3. **Sign-in over plain HTTP:** the session cookie is HTTPS-only, so add `BLUVFI_ALLOW_HTTP=1` to `/home/ubuntu/bluvfi/docker.env`. Without it, pages load but signing in does nothing.
+4. **Rate limits:** if visitors reach the app on port 3000 only (no Caddy), set `BLUVFI_TRUSTED_PROXY_HOPS=0` in `docker.env`, so a visitor cannot pick their own address with an `X-Forwarded-For` header.
+5. Run **Actions > Deploy > Run workflow** (or push to `main`).
+
+Plain HTTP sends the session unencrypted: fine for the hosted demo, not for a live app with real money. For that, use a domain and Caddy (HTTPS).
+
 ## Operating it
 
 ```bash

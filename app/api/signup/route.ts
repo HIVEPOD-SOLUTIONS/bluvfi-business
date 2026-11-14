@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createBusiness } from "@/lib/business";
 import { SIGNUP_OPEN } from "@/lib/config";
 import { clientKey, limited } from "@/lib/ratelimit";
-import { COOKIE, issueSession, privySubject, SESSION_MAX_AGE } from "@/lib/session";
+import { COOKIE, issueSession, privySubject, SESSION_MAX_AGE, cookieSecure } from "@/lib/session";
 import { privyEmails } from "@/lib/team";
 
 /**
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
     const value = await issueSession(privySubject(business.id, email));
     if (!value) throw new Error("BLUVFI_MASTER_KEY is not set");
     const res = NextResponse.json({ ok: true, business: { id: business.id, name: business.name } });
-    res.cookies.set(COOKIE, value, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: SESSION_MAX_AGE });
+    res.cookies.set(COOKIE, value, { httpOnly: true, sameSite: "lax", secure: cookieSecure(), path: "/", maxAge: SESSION_MAX_AGE });
     return res;
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 });

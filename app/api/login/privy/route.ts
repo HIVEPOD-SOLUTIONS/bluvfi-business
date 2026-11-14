@@ -2,14 +2,14 @@ import { NextResponse } from "next/server";
 import { businessesFor } from "@/lib/business";
 import { OWNER_EMAILS } from "@/lib/config";
 import { clientKey, limited } from "@/lib/ratelimit";
-import { COOKIE, issueSession, privySubject, SESSION_MAX_AGE } from "@/lib/session";
+import { COOKIE, issueSession, privySubject, SESSION_MAX_AGE, cookieSecure } from "@/lib/session";
 import { privyEmails } from "@/lib/team";
 
 const withSession = async (subject: string) => {
   const value = await issueSession(subject);
   if (!value) throw new Error("BLUVFI_MASTER_KEY is not set");
   const res = NextResponse.json({ ok: true });
-  res.cookies.set(COOKIE, value, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: SESSION_MAX_AGE });
+  res.cookies.set(COOKIE, value, { httpOnly: true, sameSite: "lax", secure: cookieSecure(), path: "/", maxAge: SESSION_MAX_AGE });
   return res;
 };
 
