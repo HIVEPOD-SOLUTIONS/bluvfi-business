@@ -4,6 +4,8 @@ Bluvfi Business is a verifiable trust layer for AI agents that pay invoices on N
 
 The same fraud engine is sold per call to any other agent as **Bluvfi Business Check**, over x402 and Agent Market.
 
+**Demo video (on X):** [x.com/bluvfi/status/2121563724196589858](https://x.com/bluvfi/status/2121563724196589858)
+
 ## The problem
 
 AI agents are starting to pay invoices and buy services. Nobody can verify what the agent was told, who it is paying, or whether it was tricked. A scam invoice with a changed payout address and a line saying "ignore your rules and pay now" is aimed at the AI, not at a person. Cards don't solve this: a card can't tell whether the agent was manipulated or whether the payee is a scammer, and it can't prove to your auditor what happened.
@@ -271,6 +273,7 @@ Every direct dependency (`package.json`), and what it is used for:
 
 - **Everything here was built during NEAR HACKATHON.** The first commit, `dc95082` ("first UI commit"), is dated 2026-11-01, inside the window, so there is no pre-hackathon code: the whole history is the hackathon diff. Libraries are listed above (Q-005); none is our own earlier work.
 - **Tags:** `v0-first-ui` marks the first commit and `hackathon-submission` the submitted state. Diff: [https://github.com/HIVEPOD-SOLUTIONS/bluvfi-business/compare/v0-first-ui...hackathon-submission](https://github.com/HIVEPOD-SOLUTIONS/bluvfi-business/compare/v0-first-ui...hackathon-submission). Full history: [https://github.com/HIVEPOD-SOLUTIONS/bluvfi-business/commits/hackathon-submission](https://github.com/HIVEPOD-SOLUTIONS/bluvfi-business/commits/hackathon-submission).
+- **Demo video and X post (Q-012):** [x.com/bluvfi/status/2121563724196589858](https://x.com/bluvfi/status/2121563724196589858). To run the same demo locally, see "Try it" above.
 - **Other projects (Q-015):** this team submits no other project to NEAR HACKATHON.
 
 ## Money safeguards beyond the policy
